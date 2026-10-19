@@ -269,7 +269,9 @@ export class AccountsService {
   }
 
   private toStaffView(
-    account: SocialAccount & { user: { phone: string; country: string } },
+    account: SocialAccount & {
+      user: { phone: string | null; email: string | null; country: string };
+    },
   ) {
     return {
       id: account.id,
@@ -281,7 +283,11 @@ export class AccountsService {
       followers: account.followers,
       avgStatusViews: account.avgStatusViews,
       submittedAt: account.submittedAt,
-      user: { phone: account.user.phone, country: account.user.country },
+      user: {
+        phone: account.user.phone,
+        email: account.user.email,
+        country: account.user.country,
+      },
     };
   }
 }

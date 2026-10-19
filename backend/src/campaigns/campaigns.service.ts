@@ -172,7 +172,7 @@ export class CampaignsService {
       orderBy: { createdAt: 'asc' },
       include: {
         tasks: { orderBy: { position: 'asc' } },
-        advertiser: { select: { phone: true, country: true } },
+        advertiser: { select: { phone: true, email: true, country: true } },
       },
       take: 100,
     });
