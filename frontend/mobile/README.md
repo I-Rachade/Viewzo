@@ -14,3 +14,4 @@ flutter test
 - Login per SMS-Code, Rang und Badge Fondateur, Profile aktivieren.
 - Mit aktivem Profil Créateur: „Mes comptes“ (Netzwerke hinzufügen, Status und Prüfanleitung, WhatsApp-Nachricht direkt öffnen, erneut prüfen lassen, entfernen) und „Mes compétences“ (Kompetenzformular).
 - Mit aktivem Profil Créateur: „Tâches“ (passende Aufgaben mit Briefing und Vergütung pro 1 000 Views annehmen, unter „Mes tâches“ den Link zur Veröffentlichung einreichen).
+- „Mon portefeuille“ für alle Profile: verfügbares Guthaben, gesperrte Gewinne, Treuhand, Verlauf, Aufladen per Mobile Money, Auszahlung beantragen (ab Niveau 2).

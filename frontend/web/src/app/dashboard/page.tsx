@@ -78,6 +78,9 @@ export default function DashboardPage() {
       )}
       {error && <p className="error">{error}</p>}
 
+      <Link className="button" href="/wallet">
+        Mon portefeuille
+      </Link>
       {active.has("ADVERTISER") && (
         <Link className="button" href="/campaigns">
           Mes campagnes

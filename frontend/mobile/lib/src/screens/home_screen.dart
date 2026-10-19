@@ -6,6 +6,7 @@ import 'accounts_screen.dart';
 import 'login_screen.dart';
 import 'skills_screen.dart';
 import 'tasks_screen.dart';
+import 'wallet_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.session, this.initialUser});
@@ -93,6 +94,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 for (final type in ProfileType.values) _profileTile(user, type),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: const Icon(Icons.account_balance_wallet_outlined),
+                  title: const Text('Mon portefeuille'),
+                  subtitle: const Text('Solde, gains et retraits'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _open(WalletScreen(api: widget.session.api)),
+                ),
                 if (user.profiles.any(
                   (p) => p.type == ProfileType.creator,
                 )) ...[
