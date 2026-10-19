@@ -2,57 +2,38 @@
 
 Plattform, auf der Annonceure Views kaufen und Creator die Inhalte auf ihren Netzwerken veröffentlichen. Grundlage ist das *Cahier des charges technique — Viewzo*.
 
-## Aufbau
+Das Repository ist in zwei unabhängige Bereiche getrennt. Jeder hat eigene Abhängigkeiten, eigene Tests und eine eigene CI. Sie sprechen nur über die REST-API miteinander.
 
 | Ordner | Inhalt | Stack |
 | --- | --- | --- |
-| `apps/api` | REST-API, Geschäftslogik | NestJS, Prisma, PostgreSQL |
-| `apps/web` | Annonceur-Bereich, später Back-Office | Next.js |
-| `apps/mobile` | App für Creator, Annonceur und Prestataire | Flutter |
-
-Redis (für Jobs wie View-Abfragen und Timer) steht in `docker-compose.yml` bereit, wird aber noch nicht genutzt.
+| [`backend/`](backend/README.md) | REST-API, Geschäftslogik, Datenbank | NestJS, Prisma, PostgreSQL |
+| [`frontend/web/`](frontend/web/README.md) | Annonceur-Bereich, später Back-Office | Next.js |
+| [`frontend/mobile/`](frontend/mobile/README.md) | App für Creator, Annonceur und Prestataire | Flutter (Android, iOS) |
 
 ## Was schon funktioniert
 
-- Anmeldung per SMS-Code (6 Ziffern, 5 Minuten gültig, max. 5 Versuche, 1 Code pro Minute). In der Entwicklung wird der Code im API-Log ausgegeben statt verschickt.
+- Anmeldung per SMS-Code (6 Ziffern, 5 Minuten gültig, max. 5 Versuche, 1 Code pro Minute). In der Entwicklung wird der Code im Backend-Log ausgegeben statt verschickt.
 - Beim ersten Login bekommt jeder Nutzer seinen festen Prioritätsrang pro Land (Land aus der Telefonnummer). Die ersten `FOUNDER_BADGE_LIMIT` (Standard 1000) erhalten das Badge Fondateur.
 - Ein Konto, bis zu drei Profile: Créateur, Annonceur, Prestataire créatif (jeweils Niveau 1).
 - Web und Mobile: Login, Anzeige von Rang und Badge, Profile aktivieren, Logout.
 
-## Lokal starten
-
-Voraussetzungen: Node.js 22, Docker, Flutter (stable).
+## Schnellstart
 
 ```bash
-docker compose up -d                       # PostgreSQL + Redis
-npm install
-cp apps/api/.env.example apps/api/.env
-cp apps/web/.env.example apps/web/.env.local
-npm run db:migrate -w apps/api             # Datenbanktabellen anlegen
+# Backend (Terminal 1)
+cd backend
+docker compose up -d
+npm install && cp .env.example .env
+npm run db:migrate
+npm run start:dev            # http://localhost:3001
 
-npm run dev:api                            # http://localhost:3001
-npm run dev:web                            # http://localhost:3000
+# Web (Terminal 2)
+cd frontend/web
+npm install && cp .env.example .env.local
+npm run dev                  # http://localhost:3000
 ```
 
-Mobile-App: siehe [`apps/mobile/README.md`](apps/mobile/README.md).
-
-## API
-
-| Methode | Pfad | Beschreibung |
-| --- | --- | --- |
-| `POST` | `/auth/otp/request` | `{ phone }` schickt einen Code |
-| `POST` | `/auth/otp/verify` | `{ phone, code }` liefert `accessToken` und Nutzer |
-| `GET` | `/me` | Eigenes Konto (Bearer-Token) |
-| `POST` | `/me/profiles` | `{ type: CREATOR \| ADVERTISER \| PROVIDER }` aktiviert ein Profil |
-| `GET` | `/health` | Healthcheck |
-
-## Tests
-
-```bash
-npm test -w apps/api                       # Unit-Tests
-npm run test:e2e -w apps/api               # End-to-End gegen PostgreSQL
-cd apps/mobile && flutter test
-```
+Mobile-App: siehe [`frontend/mobile/README.md`](frontend/mobile/README.md).
 
 ## Nächste Schritte
 
