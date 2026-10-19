@@ -55,11 +55,15 @@ npm run start:dev            # http://localhost:3001
 | `POST` | `/staff/withdrawals/:id/review` | `{ decision: APPROVE \| REJECT, reason? }` Auszahlung senden oder ablehnen (nur Team) |
 | `POST` | `/staff/payments/:id/refresh` | Status einer hängenden Zahlung beim Anbieter nachfragen (nur Team) |
 | `POST` | `/staff/assignments/:id/views` | `{ totalViews }` geprüfte Views eintragen, schreibt dem Creator den Gewinn gut (nur Team, bis die automatische Zählung kommt) |
+| `GET` | `/staff/overview` | Zähler je Warteschlange: Konten, Kampagnen, Auszahlungen, Beiträge zum Zählen (nur Team) |
+| `GET` | `/staff/assignments` | Eingereichte Beiträge mit Link, Kampagne und bisher geprüften Views (nur Team) |
+| `GET` / `POST` | `/staff/members` | Team-Mitglieder auflisten bzw. `{ phone }` hinzufügen; die Person muss sich vorher einmal angemeldet haben (nur Team) |
+| `DELETE` | `/staff/members/:id` | Team-Zugang entziehen, nicht bei sich selbst (nur Team) |
 | `GET` | `/health` | Healthcheck |
 
 Kampagnenregeln (Standardwerte aus dem Lastenheft in `src/campaigns/pricing.ts`, später pro Land im Back-Office): Package begrenzt die Plattformen (Basique 1, Pro 3, Premium 6, Élite alle), jede Plattform hat ein Mindestbudget, der Inhaltstyp multipliziert den Preis (× 1 bis × 1,6). Annonceur pro 1.000 Views: 1.000 FCFA, Creator: 450 FCFA, jeweils mal Koeffizient. Annonceure auf Niveau 1 nur Basique und höchstens 100.000 FCFA im Monat. Creator auf Niveau 1 bekommen nur Aufgaben mit gelieferten Elementen aus Basique-Kampagnen.
 
-Team-Zugang: Ein Konto wird zum Team-Mitglied, indem man in der Datenbank `role` auf `STAFF` setzt. Die WhatsApp-Prüfnummern stehen in `WHATSAPP_VERIFICATION_NUMBERS` (`TG:+228…,BJ:+229…`).
+Team-Zugang: Das erste Team-Mitglied entsteht, indem man in der Datenbank `role` auf `STAFF` setzt (`UPDATE "User" SET role = 'STAFF' WHERE phone = '+228…';`). Weitere fügt das Team selbst über `/staff/members` hinzu. `GET /me` liefert dafür `isStaff`. Die WhatsApp-Prüfnummern stehen in `WHATSAPP_VERIFICATION_NUMBERS` (`TG:+228…,BJ:+229…`).
 
 ## Zahlungen
 

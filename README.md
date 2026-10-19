@@ -19,6 +19,7 @@ Das Repository ist in zwei unabhängige Bereiche getrennt. Jeder hat eigene Abh�
 - Kompetenzformular (Backend und Mobile): Aufgabentypen, Spezialitäten, Gesicht, Material, 3 bis 5 Beispielvideos (Pflicht für eigene Videos), Sprachen, Länder und Städte, Themen, Verfügbarkeit.
 - Kampagnen und Aufgaben (Backend, Web für Annonceure, Mobile für Creator): Annonceure legen Kampagnen an (Ziel, Länder, Zeitraum, Package, Budget, Plattformen mit Inhaltstyp, gelieferte Elemente, Vorgaben). Plattformen außerhalb von Package oder Budget werden mit Grund ausgegraut. Das Team prüft und gibt frei, danach sehen passende Creator die Aufgaben (berechtigtes Konto, Land, Kompetenzen, Niveau, nie eigene Kampagnen), nehmen sie an und reichen den Link ein.
 - Wallet und Treuhand (Backend, Web und Mobile): Das Kampagnenbudget liegt im Treuhand, bevor Creator die Aufgaben sehen. Einzahlung und Auszahlung per Mobile Money über FedaPay (Togo, Benin), CinetPay (übrige frankophone Länder) oder Flutterwave (alle anderen). Annonceure bezahlen Kampagnen im Web aus dem Guthaben oder per Mobile Money. Gewinne werden ab dem Folgemonat auszahlbar, Auszahlungen ab Niveau 2 und nach Freigabe durch das Team.
+- Back-office (nur Backend): Übersicht der Warteschlangen, Liste der eingereichten Beiträge zum Eintragen der Views, Team-Mitglieder hinzufügen und entfernen.
 - Web und Mobile: Login, Anzeige von Rang und Badge, Profile aktivieren, Logout.
 
 ## Schnellstart
@@ -45,4 +46,4 @@ Web und API laufen per Docker Compose auf einem VPS hinter Cloudflare, mit tägl
 
 ## Nächste Schritte
 
-1. Echter SMS-Versand über Didit und Back-office für das Team.
+1. Back-office-Oberfläche im Web für das Team (Konten, Kampagnen, Auszahlungen, Views, Team).
