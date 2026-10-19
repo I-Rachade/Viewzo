@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProfileType {
+  CREATOR
+  ADVERTISER
+  PROVIDER
+}
+
+model User {
+  id           String        @id @default(uuid())
+  phone        String        @unique
+  // ISO 3166-1 alpha-2 country derived from the phone number.
+  country      String
+  // Signup position within the country, timestamped and never changed afterwards.
+  priorityRank Int
+  locale       String        @default("fr")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  profiles     UserProfile[]
+
+  @@unique([country, priorityRank])
+}
+
+model UserProfile {
+  id        String      @id @default(uuid())
+  userId    String
+  type      ProfileType
+  // Verification level 1-3 as defined in the specification.
+  level     Int         @default(1)
+  createdAt DateTime    @default(now())
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+}
+
+model CountryCounter {
+  country  String @id
+  lastRank Int    @default(0)
+}
+
+model OtpChallenge {
+  id         String    @id @default(uuid())
+  phone      String
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+}

@@ -1,0 +1,44 @@
+name: Backend
+
+on:
+  push:
+    branches: [main]
+    paths: [backend/**, .github/workflows/backend.yml]
+  pull_request:
+    paths: [backend/**, .github/workflows/backend.yml]
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: viewzo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/viewzo
+      JWT_SECRET: ci-jwt-secret
+      OTP_SECRET: ci-otp-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run db:deploy
+      - run: npm test
+      - run: npm run test:e2e
+      - run: npm run build
