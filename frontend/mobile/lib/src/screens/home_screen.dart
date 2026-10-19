@@ -5,6 +5,7 @@ import '../session.dart';
 import 'accounts_screen.dart';
 import 'login_screen.dart';
 import 'skills_screen.dart';
+import 'tasks_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.session, this.initialUser});
@@ -123,6 +124,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         country: user.country,
                       ),
                     ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.task_alt_outlined),
+                    title: const Text('Tâches'),
+                    subtitle: const Text('Campagnes à publier'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _open(TasksScreen(api: widget.session.api)),
                   ),
                 ],
                 if (_error != null)

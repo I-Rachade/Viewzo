@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'creator_models.dart';
+import 'task_models.dart';
 
 const apiUrl = String.fromEnvironment(
   'API_URL',
@@ -143,6 +144,38 @@ class ApiClient {
       body: jsonEncode(skills.toJson()),
     );
     return CreatorSkills.fromJson(_decode(res));
+  }
+
+  Future<List<CampaignTask>> availableTasks() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/tasks'),
+      headers: _headers,
+    );
+    return [
+      for (final t in _decodeList(res))
+        CampaignTask.fromJson(t as Map<String, dynamic>),
+    ];
+  }
+
+  Future<Assignment> acceptTask(String taskId) async {
+    return Assignment.fromJson(await _post('/tasks/$taskId/accept', {}));
+  }
+
+  Future<List<Assignment>> assignments() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/assignments'),
+      headers: _headers,
+    );
+    return [
+      for (final a in _decodeList(res))
+        Assignment.fromJson(a as Map<String, dynamic>),
+    ];
+  }
+
+  Future<Assignment> submitPost(String assignmentId, String postUrl) async {
+    return Assignment.fromJson(
+      await _post('/me/assignments/$assignmentId/submit', {'postUrl': postUrl}),
+    );
   }
 
   Map<String, String> get _headers => {
