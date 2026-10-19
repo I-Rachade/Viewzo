@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SmsSender } from './sms-sender';
 
-// Development sender: logs the message instead of sending it.
-// Replace with a real provider (Bird, Twilio, ...) behind the same interface.
+// Development sender used by the local OTP provider: logs the message.
+// In production, OTP_PROVIDER=didit sends and checks codes through Didit.
 @Injectable()
 export class ConsoleSmsSender implements SmsSender {
   private readonly logger = new Logger('SMS');

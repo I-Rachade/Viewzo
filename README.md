@@ -12,7 +12,7 @@ Das Repository ist in zwei unabhängige Bereiche getrennt. Jeder hat eigene Abh�
 
 ## Was schon funktioniert
 
-- Anmeldung per SMS-Code (6 Ziffern, 5 Minuten gültig, max. 5 Versuche, 1 Code pro Minute). In der Entwicklung wird der Code im Backend-Log ausgegeben statt verschickt.
+- Anmeldung per SMS-Code (6 Ziffern, 5 Minuten gültig, max. 5 Versuche, 1 Code pro Minute). Der Versand läuft über Didit (`OTP_PROVIDER=didit`), in der Entwicklung steht der Code stattdessen im Backend-Log.
 - Beim ersten Login bekommt jeder Nutzer seinen festen Prioritätsrang pro Land (Land aus der Telefonnummer). Die ersten `FOUNDER_BADGE_LIMIT` (Standard 1000) erhalten das Badge Fondateur.
 - Ein Konto, bis zu drei Profile: Créateur, Annonceur, Prestataire créatif (jeweils Niveau 1).
 - Web und Mobile: Login, Anzeige von Rang und Badge, Profile aktivieren, Logout.
@@ -37,7 +37,6 @@ Mobile-App: siehe [`frontend/mobile/README.md`](frontend/mobile/README.md).
 
 ## Nächste Schritte
 
-1. Echter SMS-Versand (z. B. Bird oder Twilio) hinter `SmsSender`.
-2. Netzwerke verknüpfen und „Mes comptes“ mit Verifizierungsstatus.
-3. Kampagnen und Aufgaben (Annonceur kauft Views, Creator nimmt Aufgaben an).
-4. Wallet mit Treuhand und Mobile Money (CinetPay, FedaPay oder Flutterwave).
+1. Netzwerke verknüpfen und „Mes comptes“ mit Verifizierungsstatus.
+2. Kampagnen und Aufgaben (Annonceur kauft Views, Creator nimmt Aufgaben an).
+3. Wallet mit Treuhand und Mobile Money (CinetPay, FedaPay oder Flutterwave).

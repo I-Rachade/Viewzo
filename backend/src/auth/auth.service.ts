@@ -1,14 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
-import { OtpService } from './otp.service';
+import { OTP_PROVIDER } from './otp-provider';
+import type { OtpProvider } from './otp-provider';
 import { parsePhone } from './phone';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly otp: OtpService,
+    @Inject(OTP_PROVIDER) private readonly otp: OtpProvider,
     private readonly users: UsersService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,

@@ -12,6 +12,13 @@ npm run db:migrate           # Tabellen anlegen
 npm run start:dev            # http://localhost:3001
 ```
 
+## SMS-Code (Login)
+
+`OTP_PROVIDER` in `.env` wählt, wer den Code verschickt und prüft:
+
+- `local` (Standard): Das Backend erzeugt den Code selbst und schreibt ihn ins Log. Für Entwicklung und Tests.
+- `didit`: [Didit](https://docs.didit.me/standalone-apis/phone-send) verschickt den Code per SMS und prüft ihn. Dafür `DIDIT_API_KEY` setzen.
+
 ## API
 
 | Methode | Pfad | Beschreibung |

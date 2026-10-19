@@ -6,7 +6,9 @@ import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
-import { OtpService } from './otp.service';
+import { DiditOtpService } from './didit-otp.service';
+import { LocalOtpService } from './local-otp.service';
+import { OTP_PROVIDER } from './otp-provider';
 
 @Module({
   imports: [
@@ -21,6 +23,20 @@ import { OtpService } from './otp.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, OtpService, JwtStrategy],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    LocalOtpService,
+    DiditOtpService,
+    {
+      provide: OTP_PROVIDER,
+      inject: [ConfigService, LocalOtpService, DiditOtpService],
+      useFactory: (
+        config: ConfigService,
+        local: LocalOtpService,
+        didit: DiditOtpService,
+      ) => (config.get('OTP_PROVIDER') === 'didit' ? didit : local),
+    },
+  ],
 })
 export class AuthModule {}

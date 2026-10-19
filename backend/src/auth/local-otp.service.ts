@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { OtpProvider } from './otp-provider';
 import { SMS_SENDER } from '../sms/sms-sender';
 import type { SmsSender } from '../sms/sms-sender';
 
@@ -15,8 +16,10 @@ const CODE_TTL_MS = 5 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 const MAX_ATTEMPTS = 5;
 
+// Generates and checks codes itself and sends them through SmsSender.
+// Used in development and tests (OTP_PROVIDER=local).
 @Injectable()
-export class OtpService {
+export class LocalOtpService implements OtpProvider {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
