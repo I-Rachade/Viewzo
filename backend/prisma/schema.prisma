@@ -20,19 +20,21 @@ enum ProfileType {
 }
 
 model User {
-  id           String          @id @default(uuid())
-  phone        String          @unique
+  id           String           @id @default(uuid())
+  phone        String           @unique
   // ISO 3166-1 alpha-2 country derived from the phone number.
   country      String
   // Signup position within the country, timestamped and never changed afterwards.
   priorityRank Int
-  locale       String          @default("fr")
-  role         UserRole        @default(USER)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  locale       String           @default("fr")
+  role         UserRole         @default(USER)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
   profiles     UserProfile[]
   accounts     SocialAccount[]
   skills       CreatorSkills?
+  campaigns    Campaign[]
+  assignments  TaskAssignment[]
 
   @@unique([country, priorityRank])
 }
@@ -173,4 +175,133 @@ model CreatorSkills {
   tasksPerWeek    Int
   updatedAt       DateTime           @updatedAt
   user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum CampaignObjective {
+  AWARENESS
+  SALES
+  DOWNLOADS
+  TRAFFIC
+}
+
+// Fixes how many platforms a campaign may use: Basique 1, Pro 3, Premium 6, Élite all.
+enum CampaignPackage {
+  BASIC
+  PRO
+  PREMIUM
+  ELITE
+}
+
+// Without provided assets: videos made by the creators, or designed by the Studio.
+enum NoAssetsChoice {
+  CREATOR_VIDEOS
+  STUDIO
+}
+
+enum ContentType {
+  PROVIDED_ASSETS // Publication des éléments fournis
+  VIDEO_WITH_POSTERS // Vidéo avec les affiches fournies
+  FACECAM
+  VLOG_DEMO_UNBOXING
+  FULL_EDITING
+  MOTION_DESIGN
+  FREE_BRIEF // Libre selon brief
+}
+
+enum CampaignStatus {
+  PENDING_REVIEW
+  ACTIVE
+  REJECTED
+  COMPLETED
+}
+
+model Campaign {
+  id                String            @id @default(uuid())
+  advertiserId      String
+  // Hashtag creators must use, e.g. VZ4821.
+  code              String            @unique
+  title             String
+  objective         CampaignObjective
+  countries         String[]
+  cities            String[]
+  startsAt          DateTime
+  endsAt            DateTime
+  package           CampaignPackage
+  // Total budget in FCFA (XOF).
+  budget            Int
+  hasAssets         Boolean
+  // Links to the provided posters, videos, logos (file upload comes with storage).
+  assetUrls         String[]
+  noAssetsChoice    NoAssetsChoice?
+  shipsProduct      Boolean           @default(false)
+  productPickup     String?
+  faceRequired      Boolean           @default(false)
+  language          String
+  minDurationSec    Int?
+  maxDurationSec    Int?
+  tone              String?
+  mandatoryElements String[]
+  forbiddenElements String[]
+  examples          String[]
+  status            CampaignStatus    @default(PENDING_REVIEW)
+  statusReason      String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  advertiser        User              @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
+  tasks             CampaignTask[]
+  reviews           CampaignReview[]
+
+  @@index([status, createdAt])
+  @@index([advertiserId, createdAt])
+}
+
+// One task per platform of a campaign; creators accept it and post on that network.
+model CampaignTask {
+  id                 String           @id @default(uuid())
+  campaignId         String
+  network            SocialNetwork
+  contentType        ContentType
+  // Part of the campaign budget for this platform, in FCFA.
+  budget             Int
+  // Order in which the advertiser added the platform.
+  position           Int
+  // What the creator earns per 1,000 validated views, in FCFA.
+  creatorRatePer1000 Int
+  campaign           Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  assignments        TaskAssignment[]
+
+  @@unique([campaignId, network])
+}
+
+enum AssignmentStatus {
+  ACCEPTED
+  SUBMITTED
+}
+
+model TaskAssignment {
+  id          String           @id @default(uuid())
+  taskId      String
+  creatorId   String
+  status      AssignmentStatus @default(ACCEPTED)
+  postUrl     String?
+  acceptedAt  DateTime         @default(now())
+  submittedAt DateTime?
+  task        CampaignTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  creator     User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, creatorId])
+  @@index([creatorId, acceptedAt])
+}
+
+// Every moderation decision on a campaign, kept for audit.
+model CampaignReview {
+  id         String         @id @default(uuid())
+  campaignId String
+  reviewerId String
+  status     CampaignStatus
+  reason     String?
+  createdAt  DateTime       @default(now())
+  campaign   Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, createdAt])
 }
