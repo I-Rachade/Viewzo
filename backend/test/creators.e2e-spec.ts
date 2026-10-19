@@ -144,6 +144,23 @@ describe('Creator accounts and skills (e2e)', () => {
     expect(res.body).toHaveLength(2);
   });
 
+  it('makes WhatsApp Statut eligible only from 300 average views', async () => {
+    const list = await http().get('/me/accounts').set(auth(creator));
+    const whatsapp = (list.body as AccountView[]).find(
+      (a) => a.network === 'WHATSAPP_STATUS',
+    )!;
+    await http()
+      .post(`/staff/accounts/${whatsapp.id}/review`)
+      .set(auth(staff))
+      .send({ status: 'ELIGIBLE', avgStatusViews: 250 })
+      .expect(400);
+    await http()
+      .post(`/staff/accounts/${whatsapp.id}/review`)
+      .set(auth(staff))
+      .send({ status: 'ELIGIBLE', avgStatusViews: 320 })
+      .expect(200);
+  });
+
   it('walks an account through review, correction and the 30-day wait', async () => {
     const list = await http().get('/me/accounts').set(auth(creator));
     const tiktok = (list.body as AccountView[]).find(
@@ -196,7 +213,12 @@ describe('Creator accounts and skills (e2e)', () => {
     await http()
       .post(`/staff/accounts/${tiktok.id}/review`)
       .set(auth(staff))
-      .send({ status: 'ELIGIBLE', followers: 4200 })
+      .send({ status: 'ELIGIBLE', followers: 999 })
+      .expect(400);
+    await http()
+      .post(`/staff/accounts/${tiktok.id}/review`)
+      .set(auth(staff))
+      .send({ status: 'ELIGIBLE', followers: 1000 })
       .expect(200);
     await http()
       .delete(`/me/accounts/${tiktok.id}`)

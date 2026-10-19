@@ -34,7 +34,7 @@ npm run start:dev            # http://localhost:3001
 | `GET` / `PUT` | `/me/skills` | Kompetenzformular lesen bzw. speichern |
 | `GET` | `/staff/accounts?status=PENDING` | Prüfwarteschlange (nur Team) |
 | `GET` | `/staff/accounts/by-code/:code` | WhatsApp-Gespräch per Code dem Creator zuordnen (nur Team) |
-| `POST` | `/staff/accounts/:id/review` | `{ status, reason, followers?, avgStatusViews? }` Entscheidung treffen (nur Team) |
+| `POST` | `/staff/accounts/:id/review` | `{ status, reason, followers?, avgStatusViews? }` Entscheidung treffen (nur Team). „Éligible“ erst ab 1.000 Abonnenten bzw. 300 Aufrufen pro WhatsApp-Status, auch auf Niveau 1 |
 | `GET` | `/health` | Healthcheck |
 
 Team-Zugang: Ein Konto wird zum Team-Mitglied, indem man in der Datenbank `role` auf `STAFF` setzt. Die WhatsApp-Prüfnummern stehen in `WHATSAPP_VERIFICATION_NUMBERS` (`TG:+228…,BJ:+229…`).

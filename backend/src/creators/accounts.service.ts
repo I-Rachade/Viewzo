@@ -21,6 +21,9 @@ import { parseVerificationNumbers, whatsappInstructions } from './whatsapp';
 
 const REVIEW_DELAY_MS = 48 * 60 * 60 * 1000;
 const RETRY_DELAY_MS = 30 * 24 * 60 * 60 * 1000;
+// Audience needed for an account to become eligible, whatever the creator level.
+const MIN_FOLLOWERS = 1000;
+const MIN_AVG_STATUS_VIEWS = 300;
 
 @Injectable()
 export class AccountsService {
@@ -146,6 +149,11 @@ export class AccountsService {
       where: { id },
     });
     if (!account) throw new NotFoundException();
+    const followers = dto.followers ?? account.followers;
+    const avgStatusViews = dto.avgStatusViews ?? account.avgStatusViews;
+    if (dto.status === AccountStatus.ELIGIBLE) {
+      this.assertAudience(account.network, followers, avgStatusViews);
+    }
     const reason = dto.reason?.trim() || null;
     const [updated] = await this.prisma.$transaction([
       this.prisma.socialAccount.update({
@@ -157,8 +165,8 @@ export class AccountsService {
             dto.status === AccountStatus.NOT_ELIGIBLE
               ? new Date(Date.now() + RETRY_DELAY_MS)
               : null,
-          followers: dto.followers ?? account.followers,
-          avgStatusViews: dto.avgStatusViews ?? account.avgStatusViews,
+          followers,
+          avgStatusViews,
         },
         include: { user: true },
       }),
@@ -174,6 +182,24 @@ export class AccountsService {
       }),
     ]);
     return this.toStaffView(updated);
+  }
+
+  private assertAudience(
+    network: SocialNetwork,
+    followers: number | null,
+    avgStatusViews: number | null,
+  ) {
+    if (network === SocialNetwork.WHATSAPP_STATUS) {
+      if ((avgStatusViews ?? 0) < MIN_AVG_STATUS_VIEWS) {
+        throw new BadRequestException(
+          `Éligible seulement à partir de ${MIN_AVG_STATUS_VIEWS} vues moyennes par statut`,
+        );
+      }
+    } else if ((followers ?? 0) < MIN_FOLLOWERS) {
+      throw new BadRequestException(
+        `Éligible seulement à partir de ${MIN_FOLLOWERS} abonnés`,
+      );
+    }
   }
 
   private async getOwned(userId: string, id: string) {
