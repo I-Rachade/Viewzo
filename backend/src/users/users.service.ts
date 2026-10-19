@@ -1,6 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, ProfileType, User, UserProfile } from '@prisma/client';
+import {
+  Prisma,
+  ProfileType,
+  User,
+  UserProfile,
+  UserRole,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 type UserWithProfiles = User & { profiles: UserProfile[] };
@@ -76,6 +82,8 @@ export class UsersService {
       priorityRank: user.priorityRank,
       isFounder: user.priorityRank <= limit,
       locale: user.locale,
+      // Shows the back-office entry to team members.
+      isStaff: user.role === UserRole.STAFF,
       createdAt: user.createdAt,
       profiles: user.profiles.map((p) => ({ type: p.type, level: p.level })),
     };
