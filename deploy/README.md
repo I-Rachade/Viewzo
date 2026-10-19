@@ -86,6 +86,8 @@ chmod 600 /opt/viewzo/.env
 
 Pflicht: `DOMAIN`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `OTP_SECRET` (je `openssl rand -hex 32`), `DIDIT_API_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
 
+Testmodus ohne Zahlungsanbieter: `PAYMENT_MODE=local` lässt jede Zahlung sofort gelingen, ohne echtes Geld. Damit lassen sich Aufladen, Kampagnen bezahlen und Auszahlungen durchspielen, bevor die Schlüssel der Anbieter da sind. Danach `docker compose up -d` im Ordner `/opt/viewzo`. Vor dem Start mit echten Nutzern wieder leeren, sonst kann sich jeder kostenlos Guthaben aufladen.
+
 ### 7. GitHub
 
 Unter *Settings → Secrets and variables → Actions*:
