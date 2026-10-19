@@ -9,6 +9,10 @@ flutter run --dart-define=API_URL=http://localhost:3001  # iOS-Simulator / Web
 flutter test
 ```
 
+## Test-APK
+
+Die Action „Android APK“ baut bei jedem Merge in `main` eine installierbare APK, die mit `https://api.viewzo.app` spricht (von Hand startbar unter *Actions → Android APK → Run workflow*, dort auch mit anderer API-Adresse). Die Datei liegt im Lauf unter *Artifacts* als `viewzo-apk`. Sie ist mit dem Debug-Schlüssel signiert und nur zum Testen gedacht, nicht für den Play Store.
+
 ## Bildschirme
 
 - Login per SMS-Code, Rang und Badge Fondateur, Profile aktivieren.

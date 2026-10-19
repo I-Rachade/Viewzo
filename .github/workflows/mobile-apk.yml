@@ -1,0 +1,41 @@
+name: Android APK
+
+# Builds an installable test APK that talks to the live API.
+# Download it under the run's "Artifacts" (viewzo-apk).
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: API the app talks to
+        default: https://api.viewzo.app
+  push:
+    branches: [main]
+    paths: [frontend/mobile/**, .github/workflows/mobile-apk.yml]
+  pull_request:
+    paths: [.github/workflows/mobile-apk.yml]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: >-
+          flutter build apk --release
+          --dart-define=API_URL=${{ inputs.api_url || 'https://api.viewzo.app' }}
+      - run: mv build/app/outputs/flutter-apk/app-release.apk build/viewzo.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: viewzo-apk
+          path: frontend/mobile/build/viewzo.apk
+          retention-days: 30
