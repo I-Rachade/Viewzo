@@ -44,11 +44,36 @@ npm run start:dev            # http://localhost:3001
 | `POST` | `/me/assignments/:id/submit` | `{ postUrl }` Link zur Veröffentlichung einreichen |
 | `GET` | `/staff/campaigns?status=PENDING_REVIEW` | Moderationswarteschlange mit den gelieferten Elementen (nur Team) |
 | `POST` | `/staff/campaigns/:id/review` | `{ status: ACTIVE \| REJECTED, reason }` Kampagne freigeben oder ablehnen (nur Team) |
+| `POST` | `/campaigns/:id/pay` | `{ method: WALLET \| MOBILE_MONEY, phone? }` Budget in den Treuhand legen; bei Mobile Money kommt `checkoutUrl` zurück. Aufgaben erscheinen erst danach |
+| `GET` | `/me/wallet` | Verfügbar, gesperrt (Sicherheitsfrist), Treuhand, laufende Auszahlungen, Anbieter des Landes |
+| `GET` | `/me/wallet/transactions` | Buchungen (Einzahlung, Treuhand, Gewinn, Provision, Auszahlung, Erstattung) |
+| `POST` | `/me/wallet/deposits` | `{ amount, phone? }` Guthaben per Mobile Money aufladen |
+| `GET` / `POST` | `/me/wallet/withdrawals` | Auszahlungen ansehen bzw. `{ amount, beneficiaryName, phone?, operator? }` beantragen (ab Niveau 2) |
+| `GET` | `/payments/:reference` | Status einer Zahlung, wird beim Anbieter nachgefragt (Rückkehrseite) |
+| `POST` | `/payments/webhooks/:provider` | Benachrichtigungen von FedaPay, CinetPay, Flutterwave |
+| `GET` | `/staff/withdrawals?status=REQUESTED` | Auszahlungen zur Freigabe (nur Team) |
+| `POST` | `/staff/withdrawals/:id/review` | `{ decision: APPROVE \| REJECT, reason? }` Auszahlung senden oder ablehnen (nur Team) |
+| `POST` | `/staff/payments/:id/refresh` | Status einer hängenden Zahlung beim Anbieter nachfragen (nur Team) |
+| `POST` | `/staff/assignments/:id/views` | `{ totalViews }` geprüfte Views eintragen, schreibt dem Creator den Gewinn gut (nur Team, bis die automatische Zählung kommt) |
 | `GET` | `/health` | Healthcheck |
 
 Kampagnenregeln (Standardwerte aus dem Lastenheft in `src/campaigns/pricing.ts`, später pro Land im Back-Office): Package begrenzt die Plattformen (Basique 1, Pro 3, Premium 6, Élite alle), jede Plattform hat ein Mindestbudget, der Inhaltstyp multipliziert den Preis (× 1 bis × 1,6). Annonceur pro 1.000 Views: 1.000 FCFA, Creator: 450 FCFA, jeweils mal Koeffizient. Annonceure auf Niveau 1 nur Basique und höchstens 100.000 FCFA im Monat. Creator auf Niveau 1 bekommen nur Aufgaben mit gelieferten Elementen aus Basique-Kampagnen.
 
 Team-Zugang: Ein Konto wird zum Team-Mitglied, indem man in der Datenbank `role` auf `STAFF` setzt. Die WhatsApp-Prüfnummern stehen in `WHATSAPP_VERIFICATION_NUMBERS` (`TG:+228…,BJ:+229…`).
+
+## Zahlungen
+
+Der Anbieter richtet sich nach dem Land der Telefonnummer: FedaPay für Togo und Benin, CinetPay für die übrigen frankophonen Länder, Flutterwave für alle anderen. `PAYMENT_ROUTES` überschreibt das, z. B. `TG:fedapay,CI:cinetpay,*:flutterwave`. Ein Anbieter ohne Schlüssel lehnt Zahlungen ab, bis die Schlüssel gesetzt sind. Lokal gilt `PAYMENT_MODE=local`: jede Zahlung gelingt sofort.
+
+Webhooks sind nur ein Signal: Der Status wird immer über die API des Anbieters nachgelesen, nie aus der Benachrichtigung übernommen. Webhook-URL im Dashboard des Anbieters: `https://api.<domain>/payments/webhooks/fedapay` (bzw. `cinetpay`, `flutterwave`).
+
+Regeln aus dem Lastenheft:
+
+- Das Budget einer Kampagne liegt im Treuhand, bevor Creator die Aufgaben sehen. Eine abgelehnte Kampagne bekommt den Rest zurück.
+- Pro geprüfter View zahlt der Annonceur den Preis mal Koeffizient aus dem Treuhand, der Creator bekommt seinen Satz. Views über dem Budget der Aufgabe werden nicht bezahlt.
+- Gewinne eines Monats werden ab dem 1. des Folgemonats auszahlbar, für Certifiés (Niveau 3) nach 3 Tagen.
+- Niveau 1: Gewinne höchstens 10.000 FCFA, Auszahlung erst ab Niveau 2.
+- Jede Auszahlung gibt das Team einzeln frei; abgelehnte oder gescheiterte Auszahlungen gehen zurück ins Guthaben.
 
 ## Tests
 

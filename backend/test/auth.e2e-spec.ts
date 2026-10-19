@@ -30,6 +30,8 @@ describe('Auth (e2e)', () => {
     await app.init();
     prisma = app.get(PrismaService);
     await prisma.userProfile.deleteMany();
+    await prisma.transaction.deleteMany();
+    await prisma.payment.deleteMany();
     await prisma.user.deleteMany();
     await prisma.countryCounter.deleteMany();
     await prisma.otpChallenge.deleteMany();

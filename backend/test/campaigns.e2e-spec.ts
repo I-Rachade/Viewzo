@@ -77,6 +77,8 @@ describe('Campaigns and tasks (e2e)', () => {
     setupApp(app);
     await app.init();
     prisma = app.get(PrismaService);
+    await prisma.transaction.deleteMany();
+    await prisma.payment.deleteMany();
     await prisma.user.deleteMany();
     await prisma.countryCounter.deleteMany();
     await prisma.otpChallenge.deleteMany();
@@ -216,6 +218,21 @@ describe('Campaigns and tasks (e2e)', () => {
       .send({ status: 'ACTIVE' })
       .expect(200);
 
+    // Tasks only show once the budget is in escrow.
+    tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
+    expect(tasks.body).toEqual([]);
+    const payment = await http()
+      .post(`/campaigns/${campaign.id}/pay`)
+      .set(auth(advertiser))
+      .send({ method: 'MOBILE_MONEY' })
+      .expect(200);
+    const { reference } = payment.body as { reference: string };
+    await http()
+      .get(`/payments/${reference}`)
+      .set(auth(advertiser))
+      .expect(200)
+      .expect((res) => expect(res.body).toMatchObject({ status: 'SUCCEEDED' }));
+
     tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
     const [task] = tasks.body as TaskView[];
     expect(task).toMatchObject({
@@ -301,6 +318,10 @@ describe('Campaigns and tasks (e2e)', () => {
       .set(auth(staff))
       .send({ status: 'ACTIVE' })
       .expect(200);
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { fundedAt: new Date() },
+    });
 
     let tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
     expect(tasks.body).toEqual([]);
