@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
+import { CreatorsModule } from './creators/creators.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SmsModule } from './sms/sms.module';
 import { UsersModule } from './users/users.module';
@@ -13,6 +14,7 @@ import { UsersModule } from './users/users.module';
     SmsModule,
     UsersModule,
     AuthModule,
+    CreatorsModule,
   ],
   controllers: [AppController],
 })
