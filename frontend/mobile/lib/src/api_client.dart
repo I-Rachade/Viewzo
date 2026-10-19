@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'creator_models.dart';
 import 'task_models.dart';
+import 'wallet_models.dart';
 
 const apiUrl = String.fromEnvironment(
   'API_URL',
@@ -175,6 +176,45 @@ class ApiClient {
   Future<Assignment> submitPost(String assignmentId, String postUrl) async {
     return Assignment.fromJson(
       await _post('/me/assignments/$assignmentId/submit', {'postUrl': postUrl}),
+    );
+  }
+
+  Future<WalletSummary> wallet() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/wallet'),
+      headers: _headers,
+    );
+    return WalletSummary.fromJson(_decode(res));
+  }
+
+  Future<List<WalletTransaction>> walletTransactions() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/wallet/transactions'),
+      headers: _headers,
+    );
+    return [
+      for (final t in _decodeList(res))
+        WalletTransaction.fromJson(t as Map<String, dynamic>),
+    ];
+  }
+
+  Future<Payment> deposit(int amount) async {
+    return Payment.fromJson(
+      await _post('/me/wallet/deposits', {'amount': amount}),
+    );
+  }
+
+  Future<Payment> withdraw({
+    required int amount,
+    required String beneficiaryName,
+    String? operator,
+  }) async {
+    return Payment.fromJson(
+      await _post('/me/wallet/withdrawals', {
+        'amount': amount,
+        'beneficiaryName': beneficiaryName,
+        'operator': ?operator,
+      }),
     );
   }
 
