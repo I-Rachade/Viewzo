@@ -87,6 +87,12 @@ export default function DashboardPage() {
         </Link>
       )}
 
+      {user.isStaff && (
+        <Link className="button" href="/staff">
+          Back-office
+        </Link>
+      )}
+
       <button className="secondary" onClick={logout}>
         Se déconnecter
       </button>

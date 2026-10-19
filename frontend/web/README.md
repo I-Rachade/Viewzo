@@ -1,6 +1,6 @@
 # Viewzo Web
 
-Next.js-App für Annonceure (später auch Back-Office). Spricht nur über `NEXT_PUBLIC_API_URL` mit dem Backend.
+Next.js-App für Annonceure und das Back-Office des Teams (`/staff`, nur für Team-Mitglieder: Konten prüfen, Kampagnen moderieren, Auszahlungen freigeben, Views eintragen, Team verwalten). Spricht nur über `NEXT_PUBLIC_API_URL` mit dem Backend.
 
 ```bash
 npm install
