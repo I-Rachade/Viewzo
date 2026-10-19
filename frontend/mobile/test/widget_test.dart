@@ -53,4 +53,41 @@ void main() {
     expect(find.text('Badge Fondateur'), findsOneWidget);
     expect(session.api.token, 'token');
   });
+
+  testWidgets('waits before sending another code to the same number', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    var requests = 0;
+    final client = MockClient((request) async {
+      requests++;
+      return http.Response(jsonEncode({'phone': '+22890123456'}), 200);
+    });
+    final session = Session(ApiClient(client: client, baseUrl: 'http://test'));
+
+    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.enterText(find.byKey(const Key('phone')), '90123456');
+    await tester.tap(find.text('Recevoir un code'));
+    await tester.pumpAndSettle();
+
+    final resend = find.textContaining('Renvoyer le code dans');
+    expect(resend, findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(
+            find.ancestor(of: resend, matching: find.byType(TextButton)),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.text('Changer de numéro'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Nouveau code dans'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('phone')), '90123457');
+    await tester.pump();
+    expect(find.text('Recevoir un code'), findsOneWidget);
+    expect(requests, 1);
+  });
 }
