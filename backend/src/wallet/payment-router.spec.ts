@@ -19,6 +19,13 @@ function router(env: Record<string, string>) {
 }
 
 describe('PaymentRouter', () => {
+  // ConfigService reads process.env first; CI runs with PAYMENT_MODE=local.
+  const saved = process.env.PAYMENT_MODE;
+  beforeAll(() => delete process.env.PAYMENT_MODE);
+  afterAll(() => {
+    if (saved !== undefined) process.env.PAYMENT_MODE = saved;
+  });
+
   it('routes by country: FedaPay, CinetPay, then Flutterwave', () => {
     const r = router({});
     expect(r.providerFor('TG')).toBe('fedapay');
