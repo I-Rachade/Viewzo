@@ -1,0 +1,18 @@
+# Cloudflare sits in front (proxied DNS, SSL mode "Full (strict)") and talks to
+# Caddy over HTTPS with a Cloudflare Origin Certificate stored in ./certs.
+(origin_tls) {
+	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin-key.pem
+	encode zstd gzip
+}
+
+{$DOMAIN}, www.{$DOMAIN} {
+	import origin_tls
+	@www host www.{$DOMAIN}
+	redir @www https://{$DOMAIN}{uri} permanent
+	reverse_proxy web:3000
+}
+
+api.{$DOMAIN} {
+	import origin_tls
+	reverse_proxy api:3001
+}

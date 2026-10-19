@@ -35,6 +35,10 @@ npm run dev                  # http://localhost:3000
 
 Mobile-App: siehe [`frontend/mobile/README.md`](frontend/mobile/README.md).
 
+## Deployment
+
+Web und API laufen per Docker Compose auf einem VPS hinter Cloudflare, mit täglichen Datenbank-Backups nach R2 und Deploy über GitHub Actions. Anleitung: [`deploy/README.md`](deploy/README.md).
+
 ## Nächste Schritte
 
 1. Netzwerke verknüpfen und „Mes comptes“ mit Verifizierungsstatus.
