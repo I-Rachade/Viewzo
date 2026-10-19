@@ -9,6 +9,8 @@ export interface UserView {
   country: string;
   priorityRank: number;
   isFounder: boolean;
+  // Team members see the back-office.
+  isStaff: boolean;
   profiles: { type: ProfileType; level: number }[];
 }
 
@@ -317,4 +319,118 @@ export const walletApi = {
       body: JSON.stringify({ method }),
     }),
   payment: (reference: string) => call<PaymentView>(`/payments/${reference}`),
+};
+
+export type AccountStatus =
+  | "PENDING"
+  | "ELIGIBLE"
+  | "NEEDS_FIX"
+  | "NOT_ELIGIBLE"
+  | "SUSPENDED";
+
+export const ACCOUNT_STATUS_LABELS: Record<AccountStatus, string> = {
+  PENDING: "En vérification",
+  ELIGIBLE: "Éligible",
+  NEEDS_FIX: "À corriger",
+  NOT_ELIGIBLE: "Non éligible",
+  SUSPENDED: "Suspendu",
+};
+
+interface StaffUser {
+  phone: string;
+  country: string;
+}
+
+export interface StaffOverview {
+  accounts: number;
+  campaigns: number;
+  withdrawals: number;
+  assignments: number;
+}
+
+export interface StaffAccount {
+  id: string;
+  network: SocialNetwork;
+  handle: string;
+  verificationCode: string;
+  status: AccountStatus;
+  statusReason: string | null;
+  followers: number | null;
+  avgStatusViews: number | null;
+  submittedAt: string;
+  user: StaffUser;
+}
+
+export interface StaffCampaign extends CampaignView {
+  assetUrls: string[];
+  advertiser: StaffUser;
+}
+
+export interface StaffWithdrawal extends PaymentView {
+  beneficiaryName: string | null;
+  phone: string | null;
+  operator: string | null;
+  user: StaffUser & { profiles: { type: ProfileType; level: number }[] };
+}
+
+export interface StaffAssignment {
+  id: string;
+  postUrl: string | null;
+  submittedAt: string | null;
+  validViews: number;
+  earned: number;
+  network: SocialNetwork;
+  contentType: ContentType;
+  taskBudget: number;
+  campaign: { id: string; code: string; title: string };
+  creator: StaffUser;
+}
+
+export interface StaffMember {
+  id: string;
+  phone: string;
+  country: string;
+  createdAt: string;
+}
+
+const post = (body: object) => ({
+  method: "POST",
+  body: JSON.stringify(body),
+});
+
+export const staffApi = {
+  overview: () => call<StaffOverview>("/staff/overview"),
+  accounts: () => call<StaffAccount[]>("/staff/accounts"),
+  accountByCode: (code: string) =>
+    call<StaffAccount>(`/staff/accounts/by-code/${encodeURIComponent(code)}`),
+  reviewAccount: (
+    id: string,
+    input: {
+      status: Exclude<AccountStatus, "PENDING">;
+      reason?: string;
+      followers?: number;
+      avgStatusViews?: number;
+    },
+  ) => call<StaffAccount>(`/staff/accounts/${id}/review`, post(input)),
+  campaigns: () => call<StaffCampaign[]>("/staff/campaigns"),
+  reviewCampaign: (
+    id: string,
+    input: { status: "ACTIVE" | "REJECTED"; reason?: string },
+  ) => call<CampaignView>(`/staff/campaigns/${id}/review`, post(input)),
+  withdrawals: () => call<StaffWithdrawal[]>("/staff/withdrawals"),
+  reviewWithdrawal: (
+    id: string,
+    input: { decision: "APPROVE" | "REJECT"; reason?: string },
+  ) => call<PaymentView>(`/staff/withdrawals/${id}/review`, post(input)),
+  assignments: () => call<StaffAssignment[]>("/staff/assignments"),
+  recordViews: (id: string, totalViews: number) =>
+    call<{ validViews: number; earned: number; unpaidViews: number }>(
+      `/staff/assignments/${id}/views`,
+      post({ totalViews }),
+    ),
+  members: () => call<StaffMember[]>("/staff/members"),
+  addMember: (phone: string) =>
+    call<StaffMember>("/staff/members", post({ phone })),
+  removeMember: (id: string) =>
+    call<void>(`/staff/members/${id}`, { method: "DELETE" }),
 };
