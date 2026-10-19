@@ -25,7 +25,8 @@ export default function LoginPage() {
   const [code, setCode] = useState("");
   const [sent, setSent] = useState<SentCode | null>(null);
   const [enteringCode, setEnteringCode] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  // Set when a code is sent, then ticked while the wait runs.
+  const [now, setNow] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
