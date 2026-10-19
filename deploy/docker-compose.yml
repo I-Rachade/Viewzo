@@ -1,0 +1,89 @@
+# Production stack for the VPS. Images are built by GitHub Actions and pulled
+# from GHCR; secrets live in .env next to this file (see .env.example).
+name: viewzo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: viewzo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: viewzo
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viewzo -d viewzo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ghcr.io/${GHCR_OWNER:-i-rachade}/viewzo-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://viewzo:${POSTGRES_PASSWORD}@postgres:5432/viewzo
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      OTP_SECRET: ${OTP_SECRET:?set OTP_SECRET in .env}
+      OTP_PROVIDER: ${OTP_PROVIDER:-didit}
+      DIDIT_API_KEY: ${DIDIT_API_KEY:-}
+      FOUNDER_BADGE_LIMIT: ${FOUNDER_BADGE_LIMIT:-1000}
+      DEFAULT_REGION: ${DEFAULT_REGION:-TG}
+      WHATSAPP_VERIFICATION_NUMBERS: ${WHATSAPP_VERIFICATION_NUMBERS:-}
+      PORT: 3001
+      WEB_ORIGIN: https://${DOMAIN}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  web:
+    image: ghcr.io/${GHCR_OWNER:-i-rachade}/viewzo-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/etc/caddy/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  # Daily pg_dump to Cloudflare R2 (see backup/backup.sh).
+  backup:
+    image: ghcr.io/${GHCR_OWNER:-i-rachade}/viewzo-backup:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: viewzo
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: viewzo
+      BACKUP_CRON: ${BACKUP_CRON:-0 3 * * *}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:?set R2_ACCOUNT_ID in .env}
+      R2_BUCKET: ${R2_BUCKET:?set R2_BUCKET in .env}
+      AWS_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?set R2_ACCESS_KEY_ID in .env}
+      AWS_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?set R2_SECRET_ACCESS_KEY in .env}
+      AWS_DEFAULT_REGION: auto
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
