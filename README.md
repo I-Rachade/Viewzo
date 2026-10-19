@@ -17,6 +17,7 @@ Das Repository ist in zwei unabhängige Bereiche getrennt. Jeder hat eigene Abh�
 - Ein Konto, bis zu drei Profile: Créateur, Annonceur, Prestataire créatif (jeweils Niveau 1).
 - „Mes comptes“ (Backend und Mobile): Creator verknüpfen ihre Netzwerke (TikTok bis WhatsApp Statut, eins pro Netzwerk). Jedes Konto bekommt einen Code `VZ-123456` für die Bio bzw. für die WhatsApp-Nachricht an die offizielle Prüfnummer des Landes und durchläuft die Status En vérification, Éligible, À corriger, Non éligible (neuer Versuch nach 30 Tagen) und Suspendu. Jede Entscheidung wird mit Begründung protokolliert.
 - Kompetenzformular (Backend und Mobile): Aufgabentypen, Spezialitäten, Gesicht, Material, 3 bis 5 Beispielvideos (Pflicht für eigene Videos), Sprachen, Länder und Städte, Themen, Verfügbarkeit.
+- Kampagnen und Aufgaben (nur Backend): Annonceure legen Kampagnen an (Ziel, Länder, Zeitraum, Package, Budget, Plattformen mit Inhaltstyp, gelieferte Elemente, Vorgaben). Plattformen außerhalb von Package oder Budget werden mit Grund ausgegraut. Das Team prüft und gibt frei, danach sehen passende Creator die Aufgaben (berechtigtes Konto, Land, Kompetenzen, Niveau, nie eigene Kampagnen), nehmen sie an und reichen den Link ein.
 - Web und Mobile: Login, Anzeige von Rang und Badge, Profile aktivieren, Logout.
 
 ## Schnellstart
@@ -43,5 +44,5 @@ Web und API laufen per Docker Compose auf einem VPS hinter Cloudflare, mit tägl
 
 ## Nächste Schritte
 
-1. Kampagnen und Aufgaben (Annonceur kauft Views, Creator nimmt Aufgaben an).
+1. Kampagnen in Web und Mobile (Kampagnenformular für Annonceure, Aufgabenliste für Creator).
 2. Wallet mit Treuhand und Mobile Money (CinetPay, FedaPay oder Flutterwave).

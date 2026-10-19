@@ -35,7 +35,18 @@ npm run start:dev            # http://localhost:3001
 | `GET` | `/staff/accounts?status=PENDING` | Prüfwarteschlange (nur Team) |
 | `GET` | `/staff/accounts/by-code/:code` | WhatsApp-Gespräch per Code dem Creator zuordnen (nur Team) |
 | `POST` | `/staff/accounts/:id/review` | `{ status, reason, followers?, avgStatusViews? }` Entscheidung treffen (nur Team). „Éligible“ erst ab 1.000 Abonnenten bzw. 300 Aufrufen pro WhatsApp-Status, auch auf Niveau 1 |
+| `GET` | `/campaigns/quote?package=PRO&budget=70000&platforms=TIKTOK,INSTAGRAM` | Plattformauswahl live: was ausgegraut ist und warum, Mindestbudget, Aufteilung, geschätzte Views |
+| `POST` | `/campaigns` | Kampagne anlegen und zur Moderation schicken (Profil Annonceur nötig) |
+| `GET` | `/me/campaigns`, `/me/campaigns/:id` | Eigene Kampagnen mit Status, Budget pro Plattform, Views-Schätzung, Anzahl Creator |
+| `GET` | `/me/tasks` | Aufgaben, die der Creator jetzt annehmen kann |
+| `POST` | `/tasks/:id/accept` | Aufgabe annehmen |
+| `GET` | `/me/assignments` | Angenommene Aufgaben |
+| `POST` | `/me/assignments/:id/submit` | `{ postUrl }` Link zur Veröffentlichung einreichen |
+| `GET` | `/staff/campaigns?status=PENDING_REVIEW` | Moderationswarteschlange mit den gelieferten Elementen (nur Team) |
+| `POST` | `/staff/campaigns/:id/review` | `{ status: ACTIVE \| REJECTED, reason }` Kampagne freigeben oder ablehnen (nur Team) |
 | `GET` | `/health` | Healthcheck |
+
+Kampagnenregeln (Standardwerte aus dem Lastenheft in `src/campaigns/pricing.ts`, später pro Land im Back-Office): Package begrenzt die Plattformen (Basique 1, Pro 3, Premium 6, Élite alle), jede Plattform hat ein Mindestbudget, der Inhaltstyp multipliziert den Preis (× 1 bis × 1,6). Annonceur pro 1.000 Views: 1.000 FCFA, Creator: 450 FCFA, jeweils mal Koeffizient. Annonceure auf Niveau 1 nur Basique und höchstens 100.000 FCFA im Monat. Creator auf Niveau 1 bekommen nur Aufgaben mit gelieferten Elementen aus Basique-Kampagnen.
 
 Team-Zugang: Ein Konto wird zum Team-Mitglied, indem man in der Datenbank `role` auf `STAFF` setzt. Die WhatsApp-Prüfnummern stehen in `WHATSAPP_VERIFICATION_NUMBERS` (`TG:+228…,BJ:+229…`).
 
