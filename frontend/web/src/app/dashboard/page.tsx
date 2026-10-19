@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -76,6 +77,12 @@ export default function DashboardPage() {
         ),
       )}
       {error && <p className="error">{error}</p>}
+
+      {active.has("ADVERTISER") && (
+        <Link className="button" href="/campaigns">
+          Mes campagnes
+        </Link>
+      )}
 
       <button className="secondary" onClick={logout}>
         Se déconnecter
