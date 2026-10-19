@@ -33,6 +33,8 @@ class UserProfile {
 class UserView {
   UserView({
     required this.phone,
+    required this.email,
+    required this.hasPassword,
     required this.country,
     required this.priorityRank,
     required this.isFounder,
@@ -40,7 +42,9 @@ class UserView {
   });
 
   factory UserView.fromJson(Map<String, dynamic> json) => UserView(
-    phone: json['phone'] as String,
+    phone: json['phone'] as String?,
+    email: json['email'] as String?,
+    hasPassword: json['hasPassword'] as bool? ?? false,
     country: json['country'] as String,
     priorityRank: json['priorityRank'] as int,
     isFounder: json['isFounder'] as bool,
@@ -53,7 +57,9 @@ class UserView {
     ],
   );
 
-  final String phone;
+  final String? phone;
+  final String? email;
+  final bool hasPassword;
   final String country;
   final int priorityRank;
   final bool isFounder;
@@ -61,8 +67,12 @@ class UserView {
 }
 
 class ApiException implements Exception {
-  ApiException(this.message);
+  ApiException(this.message, {this.code, this.statusCode});
   final String message;
+
+  /// Machine-readable reason sent by some endpoints, e.g. PASSWORD_NOT_SET.
+  final String? code;
+  final int? statusCode;
 
   @override
   String toString() => message;
@@ -86,6 +96,92 @@ class ApiClient {
       'phone': phone,
       'code': code,
     });
+    token = body['accessToken'] as String;
+    return UserView.fromJson(body['user'] as Map<String, dynamic>);
+  }
+
+  /// [identifier] is an e-mail address or a phone number.
+  Future<String> registerStart(String identifier) async {
+    final body = await _post('/auth/register/start', {
+      'identifier': identifier,
+    });
+    return body['sentTo'] as String;
+  }
+
+  /// Returns the ticket that lets [registerComplete] create the account.
+  Future<String> registerVerify(String identifier, String code) async {
+    final body = await _post('/auth/register/verify', {
+      'identifier': identifier,
+      'code': code,
+    });
+    return body['ticket'] as String;
+  }
+
+  /// [country] (ISO2) is only needed for e-mail sign-ups.
+  Future<UserView> registerComplete({
+    required String ticket,
+    required String password,
+    required ProfileType role,
+    String? country,
+  }) async {
+    return _signIn(
+      await _post('/auth/register/complete', {
+        'ticket': ticket,
+        'password': password,
+        'role': role.code,
+        'country': ?country,
+      }),
+    );
+  }
+
+  Future<UserView> login(String identifier, String password) async {
+    return _signIn(
+      await _post('/auth/login', {
+        'identifier': identifier,
+        'password': password,
+      }),
+    );
+  }
+
+  Future<String> forgotPassword(String identifier) async {
+    final body = await _post('/auth/password/forgot', {
+      'identifier': identifier,
+    });
+    return body['sentTo'] as String;
+  }
+
+  Future<UserView> resetPassword(
+    String identifier,
+    String code,
+    String password,
+  ) async {
+    return _signIn(
+      await _post('/auth/password/reset', {
+        'identifier': identifier,
+        'code': code,
+        'password': password,
+      }),
+    );
+  }
+
+  /// Sends a code to an e-mail or number to add to the logged-in account.
+  Future<String> contactRequest(String identifier) async {
+    final body = await _post('/auth/contact/request', {
+      'identifier': identifier,
+    });
+    return body['sentTo'] as String;
+  }
+
+  Future<UserView> contactVerify(String identifier, String code) async {
+    return UserView.fromJson(
+      await _post('/auth/contact/verify', {
+        'identifier': identifier,
+        'code': code,
+      }),
+    );
+  }
+
+  UserView _signIn(Map<String, dynamic> body) {
     token = body['accessToken'] as String;
     return UserView.fromJson(body['user'] as Map<String, dynamic>);
   }
@@ -247,6 +343,8 @@ class ApiClient {
         message is List
             ? message.first.toString()
             : (message?.toString() ?? 'Une erreur est survenue'),
+        code: body['code'] as String?,
+        statusCode: res.statusCode,
       );
     }
     return body;
