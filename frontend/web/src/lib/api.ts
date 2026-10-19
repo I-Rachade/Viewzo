@@ -192,6 +192,9 @@ export interface CampaignView {
   budget: number;
   status: CampaignStatus;
   statusReason: string | null;
+  // Null until the budget is in escrow.
+  fundedAt: string | null;
+  spent: number;
   platforms: {
     network: SocialNetwork;
     contentType: ContentType;
@@ -223,3 +226,95 @@ export const campaignsApi = {
 export function formatFcfa(amount: number) {
   return `${amount.toLocaleString("fr-FR")} FCFA`;
 }
+
+export type TransactionType =
+  | "DEPOSIT"
+  | "ESCROW"
+  | "EARNING"
+  | "COMMISSION"
+  | "WITHDRAWAL"
+  | "REFUND";
+export type PaymentStatus =
+  | "REQUESTED"
+  | "PROCESSING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "REJECTED";
+
+export const TRANSACTION_LABELS: Record<TransactionType, string> = {
+  DEPOSIT: "Recharge",
+  ESCROW: "Séquestre campagne",
+  EARNING: "Gain",
+  COMMISSION: "Commission",
+  WITHDRAWAL: "Retrait",
+  REFUND: "Remboursement",
+};
+
+export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
+  REQUESTED: "En attente de validation",
+  PROCESSING: "En cours",
+  SUCCEEDED: "Réussi",
+  FAILED: "Échoué",
+  REJECTED: "Refusé",
+};
+
+export interface WalletSummary {
+  currency: string;
+  available: number;
+  held: number;
+  pendingWithdrawals: number;
+  escrow: number;
+  minWithdrawal: number;
+  withdrawalsOpen: boolean;
+  provider: string;
+  operators: string[];
+}
+
+export interface WalletTransaction {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  status: "PENDING" | "COMPLETED" | "CANCELLED";
+  availableAt: string;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface PaymentView {
+  id: string;
+  kind: "PAYIN" | "PAYOUT";
+  reference: string;
+  amount: number;
+  status: PaymentStatus;
+  failureReason: string | null;
+  campaignId: string | null;
+  checkoutUrl: string | null;
+  createdAt: string;
+}
+
+export const walletApi = {
+  summary: () => call<WalletSummary>("/me/wallet"),
+  transactions: () => call<WalletTransaction[]>("/me/wallet/transactions"),
+  withdrawals: () => call<PaymentView[]>("/me/wallet/withdrawals"),
+  deposit: (amount: number) =>
+    call<PaymentView>("/me/wallet/deposits", {
+      method: "POST",
+      body: JSON.stringify({ amount }),
+    }),
+  withdraw: (input: {
+    amount: number;
+    beneficiaryName: string;
+    phone?: string;
+    operator?: string;
+  }) =>
+    call<PaymentView>("/me/wallet/withdrawals", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  payCampaign: (campaignId: string, method: "WALLET" | "MOBILE_MONEY") =>
+    call<PaymentView | { funded: true }>(`/campaigns/${campaignId}/pay`, {
+      method: "POST",
+      body: JSON.stringify({ method }),
+    }),
+  payment: (reference: string) => call<PaymentView>(`/payments/${reference}`),
+};

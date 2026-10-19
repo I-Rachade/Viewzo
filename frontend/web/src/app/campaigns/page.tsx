@@ -12,6 +12,7 @@ import {
   NETWORK_LABELS,
   PACKAGE_LABELS,
   STATUS_LABELS,
+  walletApi,
 } from "@/lib/api";
 
 const DATE = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" });
@@ -19,18 +20,44 @@ const DATE = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" });
 export default function CampaignsPage() {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState<CampaignView[] | null>(null);
+  const [available, setAvailable] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
       router.replace("/login");
       return;
     }
-    campaignsApi
-      .list()
-      .then(setCampaigns)
+    Promise.all([campaignsApi.list(), walletApi.summary()])
+      .then(([list, wallet]) => {
+        setCampaigns(list);
+        setAvailable(wallet.available);
+      })
       .catch((e) => setError((e as Error).message));
   }, [router]);
+
+  async function pay(c: CampaignView, method: "WALLET" | "MOBILE_MONEY") {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await walletApi.payCampaign(c.id, method);
+      if ("checkoutUrl" in result && result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
+      const [list, wallet] = await Promise.all([
+        campaignsApi.list(),
+        walletApi.summary(),
+      ]);
+      setCampaigns(list);
+      setAvailable(wallet.available);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="card wide">
@@ -53,6 +80,28 @@ export default function CampaignsPage() {
             {DATE.format(new Date(c.endsAt))}
           </p>
           {c.statusReason && <p className="error">{c.statusReason}</p>}
+          {!c.fundedAt &&
+            (c.status === "PENDING_REVIEW" || c.status === "ACTIVE") && (
+              <div className="summary">
+                <strong>À payer : {formatFcfa(c.budget)}</strong>
+                <p className="hint">
+                  Le budget est placé en séquestre ; les créateurs voient la
+                  campagne une fois qu’elle est payée et validée.
+                </p>
+                {available >= c.budget && (
+                  <button disabled={busy} onClick={() => pay(c, "WALLET")}>
+                    Payer avec mon solde ({formatFcfa(available)})
+                  </button>
+                )}
+                <button
+                  className={available >= c.budget ? "secondary" : undefined}
+                  disabled={busy}
+                  onClick={() => pay(c, "MOBILE_MONEY")}
+                >
+                  Payer par Mobile Money
+                </button>
+              </div>
+            )}
           {c.platforms.map((p) => (
             <p key={p.network}>
               {NETWORK_LABELS[p.network]} : {CONTENT_TYPE_LABELS[p.contentType]}
