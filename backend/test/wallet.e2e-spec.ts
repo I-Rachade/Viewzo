@@ -180,6 +180,11 @@ describe('Wallet and escrow (e2e)', () => {
       available: 20_000,
       escrow: 30_000,
     });
+    const mine = await http()
+      .get(`/me/campaigns/${campaignId}`)
+      .set(auth(advertiser))
+      .expect(200);
+    expect((mine.body as { fundedAt: string | null }).fundedAt).not.toBeNull();
 
     // Refusing a funded campaign gives the escrow back.
     await http()
