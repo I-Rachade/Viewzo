@@ -269,6 +269,16 @@ textarea {
   align-self: end;
 }
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actions button {
+  flex: 1 1 140px;
+}
+
 .brand {
   display: flex;
   align-items: center;
