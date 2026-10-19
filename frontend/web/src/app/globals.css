@@ -278,3 +278,9 @@ textarea {
 .actions button {
   flex: 1 1 140px;
 }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
