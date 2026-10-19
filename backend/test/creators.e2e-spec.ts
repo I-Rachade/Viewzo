@@ -47,6 +47,8 @@ describe('Creator accounts and skills (e2e)', () => {
     setupApp(app);
     await app.init();
     prisma = app.get(PrismaService);
+    await prisma.transaction.deleteMany();
+    await prisma.payment.deleteMany();
     await prisma.user.deleteMany();
     await prisma.countryCounter.deleteMany();
     await prisma.otpChallenge.deleteMany();

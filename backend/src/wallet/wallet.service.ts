@@ -1,0 +1,767 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  AssignmentStatus,
+  Campaign,
+  CampaignStatus,
+  Payment,
+  PaymentKind,
+  PaymentStatus,
+  Prisma,
+  ProfileType,
+  TransactionStatus,
+  TransactionType,
+} from '@prisma/client';
+import { randomBytes } from 'crypto';
+import { parsePhone } from '../auth/phone';
+import { PrismaService } from '../prisma/prisma.service';
+import { DepositDto } from './dto/deposit.dto';
+import { FundCampaignDto } from './dto/fund-campaign.dto';
+import { WithdrawDto } from './dto/withdraw.dto';
+import {
+  advertiserCost,
+  availableAt,
+  creatorEarning,
+  LEVEL1_EARNINGS_CAP,
+  payableViews,
+} from './earnings';
+import { FLUTTERWAVE_OPERATORS } from './gateways/flutterwave.gateway';
+import { GatewayStatus, PayinResult } from './gateways/gateway';
+import { PaymentRouter } from './payment-router';
+
+const CURRENCY = 'XOF';
+const DEFAULT_MIN_WITHDRAWAL = 1_000;
+
+type Tx = Prisma.TransactionClient;
+
+@Injectable()
+export class WalletService {
+  private readonly logger = new Logger(WalletService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+    private readonly router: PaymentRouter,
+  ) {}
+
+  async summary(userId: string) {
+    const user = await this.user(userId);
+    const now = new Date();
+    const [available, held, pendingWithdrawals, campaigns] = await Promise.all([
+      this.balance(this.prisma, userId, now),
+      this.sum(userId, {
+        type: TransactionType.EARNING,
+        status: TransactionStatus.COMPLETED,
+        availableAt: { gt: now },
+      }),
+      this.sum(userId, {
+        type: TransactionType.WITHDRAWAL,
+        status: TransactionStatus.PENDING,
+      }),
+      this.prisma.campaign.findMany({
+        where: {
+          advertiserId: userId,
+          fundedAt: { not: null },
+          status: {
+            in: [CampaignStatus.PENDING_REVIEW, CampaignStatus.ACTIVE],
+          },
+        },
+        select: { budget: true, spent: true },
+      }),
+    ]);
+    const provider = this.router.providerFor(user.country);
+    return {
+      currency: CURRENCY,
+      available,
+      // Earnings in their security hold, withdrawable from `availableAt`.
+      held,
+      pendingWithdrawals: -pendingWithdrawals,
+      // Budgets of the user's campaigns still held in escrow.
+      escrow: campaigns.reduce((s, c) => s + c.budget - c.spent, 0),
+      minWithdrawal: this.minWithdrawal(),
+      withdrawalsOpen: this.maxLevel(user) >= 2,
+      provider,
+      operators:
+        provider === 'flutterwave'
+          ? (FLUTTERWAVE_OPERATORS[user.country] ?? [])
+          : [],
+    };
+  }
+
+  async transactions(userId: string) {
+    return this.prisma.transaction.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        type: true,
+        amount: true,
+        currency: true,
+        status: true,
+        availableAt: true,
+        campaignId: true,
+        note: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  // ---- Advertiser payments ----------------------------------------------
+
+  /** Puts the campaign budget in escrow, from the wallet or by Mobile Money. */
+  async fundCampaign(userId: string, campaignId: string, dto: FundCampaignDto) {
+    const campaign = await this.prisma.campaign.findUnique({
+      where: { id: campaignId },
+    });
+    if (!campaign || campaign.advertiserId !== userId) {
+      throw new NotFoundException();
+    }
+    this.assertFundable(campaign);
+
+    if (dto.method === 'MOBILE_MONEY') {
+      return this.startPayin(userId, campaign.budget, dto.phone, campaign);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, userId);
+      const fresh = await tx.campaign.findUniqueOrThrow({
+        where: { id: campaignId },
+      });
+      this.assertFundable(fresh);
+      if ((await this.balance(tx, userId, new Date())) < fresh.budget) {
+        throw new BadRequestException('Solde insuffisant');
+      }
+      await this.escrow(tx, fresh);
+    });
+    return { funded: true as const };
+  }
+
+  async deposit(userId: string, dto: DepositDto) {
+    return this.startPayin(userId, dto.amount, dto.phone);
+  }
+
+  /** Status of one of the user's payments, refreshed from the provider. */
+  async paymentStatus(userId: string, reference: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { reference },
+    });
+    if (!payment || payment.userId !== userId) throw new NotFoundException();
+    const refreshed = await this.refresh(payment);
+    return this.toPaymentView(refreshed);
+  }
+
+  async handleWebhook(
+    provider: string,
+    body: Record<string, unknown>,
+    headers: Record<string, string | string[] | undefined>,
+  ) {
+    const ref = this.router.byName(provider).webhookRef(body, headers);
+    if (!ref) return;
+    const payment = ref.reference
+      ? await this.prisma.payment.findUnique({
+          where: { reference: ref.reference },
+        })
+      : await this.prisma.payment.findUnique({
+          where: {
+            provider_providerRef: { provider, providerRef: ref.providerRef! },
+          },
+        });
+    if (!payment || payment.provider !== provider) return;
+    await this.refresh(payment);
+  }
+
+  // ---- Withdrawals ------------------------------------------------------
+
+  async requestWithdrawal(userId: string, dto: WithdrawDto) {
+    const user = await this.user(userId);
+    if (this.maxLevel(user) < 2) {
+      throw new ForbiddenException(
+        'Les retraits s’ouvrent au niveau 2, après vérification de ton identité',
+      );
+    }
+    if (dto.amount < this.minWithdrawal()) {
+      throw new BadRequestException(
+        `Retrait minimum : ${this.minWithdrawal()} FCFA`,
+      );
+    }
+    const phone = this.phone(user, dto.phone);
+    const provider = this.router.providerFor(phone.country);
+    if (provider === 'flutterwave') {
+      const operators = FLUTTERWAVE_OPERATORS[phone.country] ?? [];
+      if (!dto.operator || !operators.includes(dto.operator)) {
+        throw new BadRequestException(
+          operators.length
+            ? `Choisis ton opérateur : ${operators.join(', ')}`
+            : 'Retrait Mobile Money indisponible dans ce pays',
+        );
+      }
+    }
+
+    const payment = await this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, userId);
+      if ((await this.balance(tx, userId, new Date())) < dto.amount) {
+        throw new BadRequestException('Solde disponible insuffisant');
+      }
+      const created = await tx.payment.create({
+        data: {
+          userId,
+          kind: PaymentKind.PAYOUT,
+          provider,
+          reference: this.reference('R'),
+          amount: dto.amount,
+          currency: CURRENCY,
+          phone: phone.e164,
+          beneficiaryName: dto.beneficiaryName.trim(),
+          operator: dto.operator,
+          status: PaymentStatus.REQUESTED,
+        },
+      });
+      // Holds the amount until the finance team decides.
+      await tx.transaction.create({
+        data: {
+          userId,
+          type: TransactionType.WITHDRAWAL,
+          amount: -dto.amount,
+          currency: CURRENCY,
+          status: TransactionStatus.PENDING,
+          paymentId: created.id,
+        },
+      });
+      return created;
+    });
+    return this.toPaymentView(payment);
+  }
+
+  async withdrawals(userId: string) {
+    const payments = await this.prisma.payment.findMany({
+      where: { userId, kind: PaymentKind.PAYOUT },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return payments.map((p) => this.toPaymentView(p));
+  }
+
+  // ---- Back-office ------------------------------------------------------
+
+  async withdrawalQueue(status: PaymentStatus = PaymentStatus.REQUESTED) {
+    const payments = await this.prisma.payment.findMany({
+      where: { kind: PaymentKind.PAYOUT, status },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+      include: {
+        user: {
+          select: {
+            phone: true,
+            country: true,
+            profiles: { select: { type: true, level: true } },
+          },
+        },
+      },
+    });
+    return payments.map((p) => ({
+      ...this.toPaymentView(p),
+      beneficiaryName: p.beneficiaryName,
+      phone: p.phone,
+      operator: p.operator,
+      user: p.user,
+    }));
+  }
+
+  async reviewWithdrawal(
+    staffId: string,
+    id: string,
+    decision: 'APPROVE' | 'REJECT',
+    reason?: string,
+  ) {
+    const payment = await this.prisma.payment.findUnique({ where: { id } });
+    if (!payment || payment.kind !== PaymentKind.PAYOUT) {
+      throw new NotFoundException();
+    }
+    // Claim the request so two staff members can't send it twice.
+    const claimed = await this.prisma.payment.updateMany({
+      where: { id, status: PaymentStatus.REQUESTED },
+      data: {
+        status:
+          decision === 'APPROVE'
+            ? PaymentStatus.PROCESSING
+            : PaymentStatus.REJECTED,
+        reviewedById: staffId,
+        failureReason: decision === 'REJECT' ? reason?.trim() || null : null,
+      },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictException('Retrait déjà traité');
+    }
+
+    if (decision === 'REJECT') {
+      await this.prisma.transaction.update({
+        where: { paymentId: id },
+        data: { status: TransactionStatus.CANCELLED, note: reason?.trim() },
+      });
+      return this.toPaymentView(
+        await this.prisma.payment.findUniqueOrThrow({ where: { id } }),
+      );
+    }
+
+    const { country } = parsePhone(payment.phone, 'TG');
+    let result: {
+      status: GatewayStatus;
+      providerRef?: string;
+      reason?: string;
+    };
+    try {
+      result = await this.router.byName(payment.provider).createPayout({
+        reference: payment.reference,
+        amount: payment.amount,
+        currency: payment.currency,
+        phone: payment.phone,
+        country,
+        beneficiaryName: payment.beneficiaryName ?? '',
+        operator: payment.operator ?? undefined,
+        notifyUrl: this.notifyUrl(payment.provider),
+      });
+    } catch (e) {
+      // Nothing was sent: back in the queue with the reason.
+      await this.prisma.payment.update({
+        where: { id },
+        data: {
+          status: PaymentStatus.REQUESTED,
+          failureReason:
+            e instanceof Error ? e.message : 'Erreur du fournisseur',
+        },
+      });
+      throw e;
+    }
+    const updated = await this.prisma.payment.update({
+      where: { id },
+      data: { providerRef: result.providerRef ?? null },
+    });
+    return this.toPaymentView(
+      await this.applyPayout(updated, result.status, result.reason),
+    );
+  }
+
+  /** Re-reads a payment's status from its provider (stuck payments). */
+  async refreshById(id: string) {
+    const payment = await this.prisma.payment.findUnique({ where: { id } });
+    if (!payment) throw new NotFoundException();
+    return this.toPaymentView(await this.refresh(payment));
+  }
+
+  /**
+   * Records the validated views of a post and credits the creator. Stands in
+   * for the automatic view counting, which comes with the anti-fraud module.
+   */
+  async recordViews(assignmentId: string, totalViews: number) {
+    const assignment = await this.prisma.taskAssignment.findUnique({
+      where: { id: assignmentId },
+      include: { task: { include: { campaign: true } } },
+    });
+    if (!assignment) throw new NotFoundException();
+    if (assignment.status !== AssignmentStatus.SUBMITTED) {
+      throw new BadRequestException(
+        'Le lien de la publication n’a pas été envoyé',
+      );
+    }
+    if (!assignment.task.campaign.fundedAt) {
+      throw new BadRequestException('Campagne non financée');
+    }
+    if (totalViews < assignment.validViews) {
+      throw new BadRequestException(
+        `Déjà ${assignment.validViews} vues validées pour cette publication`,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, assignment.creatorId);
+      const current = await tx.taskAssignment.findUniqueOrThrow({
+        where: { id: assignmentId },
+        include: {
+          task: { include: { campaign: true, assignments: true } },
+          creator: { include: { profiles: true } },
+        },
+      });
+      const { task } = current;
+      const others = task.assignments.filter((a) => a.id !== current.id);
+      const spentOnTask = others.reduce(
+        (s, a) => s + advertiserCost(a.validViews, task.contentType),
+        0,
+      );
+      // Views beyond the task budget are not paid.
+      const views = Math.min(
+        totalViews,
+        payableViews(task.budget - spentOnTask, task.contentType),
+      );
+      let earned = creatorEarning(views, task.creatorRatePer1000);
+      const level =
+        current.creator.profiles.find((p) => p.type === ProfileType.CREATOR)
+          ?.level ?? 1;
+      if (level < 2) {
+        const total = await this.sumWith(tx, current.creatorId, {
+          type: TransactionType.EARNING,
+          status: TransactionStatus.COMPLETED,
+          assignmentId: { not: current.id },
+        });
+        earned = Math.min(earned, Math.max(0, LEVEL1_EARNINGS_CAP - total));
+        earned = Math.max(earned, current.earned);
+      }
+      const delta = earned - current.earned;
+      const costDelta =
+        advertiserCost(views, task.contentType) -
+        advertiserCost(current.validViews, task.contentType);
+
+      const updated = await tx.taskAssignment.update({
+        where: { id: current.id },
+        data: { validViews: views, earned },
+      });
+      if (costDelta > 0) {
+        await tx.campaign.update({
+          where: { id: task.campaignId },
+          data: { spent: { increment: costDelta } },
+        });
+      }
+      if (delta > 0) {
+        await tx.transaction.create({
+          data: {
+            userId: current.creatorId,
+            type: TransactionType.EARNING,
+            amount: delta,
+            currency: CURRENCY,
+            availableAt: availableAt(level),
+            campaignId: task.campaignId,
+            assignmentId: current.id,
+            note: `${views} vues validées · #${task.campaign.code}`,
+          },
+        });
+      }
+      return {
+        id: updated.id,
+        validViews: updated.validViews,
+        earned: updated.earned,
+        // Views above what the task budget can pay.
+        unpaidViews: totalViews - views,
+      };
+    });
+  }
+
+  /** Gives back what is left in escrow when a funded campaign is refused. */
+  async refundCampaign(tx: Tx, campaign: Campaign) {
+    if (!campaign.fundedAt) return;
+    const remaining = campaign.budget - campaign.spent;
+    if (remaining <= 0) return;
+    await this.lock(tx, campaign.advertiserId);
+    await tx.campaign.update({
+      where: { id: campaign.id },
+      data: { spent: campaign.budget },
+    });
+    await tx.transaction.create({
+      data: {
+        userId: campaign.advertiserId,
+        type: TransactionType.REFUND,
+        amount: remaining,
+        currency: CURRENCY,
+        campaignId: campaign.id,
+        note: `Remboursement #${campaign.code}`,
+      },
+    });
+  }
+
+  // ---- Internals --------------------------------------------------------
+
+  private async startPayin(
+    userId: string,
+    amount: number,
+    phoneInput: string | undefined,
+    campaign?: Campaign,
+  ) {
+    const user = await this.user(userId);
+    const phone = this.phone(user, phoneInput);
+    const provider = this.router.providerFor(phone.country);
+    const gateway = this.router.byName(provider);
+    const payment = await this.prisma.payment.create({
+      data: {
+        userId,
+        kind: PaymentKind.PAYIN,
+        provider,
+        reference: this.reference('P'),
+        amount,
+        currency: CURRENCY,
+        phone: phone.e164,
+        campaignId: campaign?.id,
+        status: PaymentStatus.PROCESSING,
+      },
+    });
+    try {
+      const started = await gateway.createPayin({
+        reference: payment.reference,
+        amount,
+        currency: CURRENCY,
+        phone: phone.e164,
+        country: phone.country,
+        description: campaign ? `Campagne ${campaign.code}` : 'Recharge Viewzo',
+        returnUrl: `${this.webOrigin()}/payments/return?reference=${payment.reference}`,
+        notifyUrl: this.notifyUrl(provider),
+      });
+      const updated = await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          checkoutUrl: started.checkoutUrl,
+          providerRef: started.providerRef ?? null,
+        },
+      });
+      return {
+        ...this.toPaymentView(updated),
+        checkoutUrl: started.checkoutUrl,
+      };
+    } catch (e) {
+      await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: PaymentStatus.FAILED,
+          failureReason:
+            e instanceof Error ? e.message : 'Erreur du fournisseur',
+        },
+      });
+      throw e;
+    }
+  }
+
+  private async refresh(payment: Payment): Promise<Payment> {
+    if (payment.status !== PaymentStatus.PROCESSING) return payment;
+    const gateway = this.router.byName(payment.provider);
+    if (payment.kind === PaymentKind.PAYIN) {
+      return this.applyPayin(payment, await gateway.checkPayin(payment));
+    }
+    const result = await gateway.checkPayout(payment);
+    return this.applyPayout(payment, result.status, result.reason);
+  }
+
+  private async applyPayin(payment: Payment, result: PayinResult) {
+    if (result.status === 'PROCESSING') return payment;
+    let status = result.status;
+    let reason = result.reason ?? null;
+    if (
+      status === 'SUCCEEDED' &&
+      ((Number.isFinite(result.amount) && result.amount! < payment.amount) ||
+        (result.currency && result.currency !== payment.currency))
+    ) {
+      this.logger.error(
+        `Payment ${payment.reference}: paid ${result.amount} ${result.currency}, expected ${payment.amount} ${payment.currency}`,
+      );
+      status = 'FAILED';
+      reason = 'Montant reçu différent du montant demandé';
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, payment.userId);
+      // Only the first notification changes anything.
+      const claimed = await tx.payment.updateMany({
+        where: { id: payment.id, status: PaymentStatus.PROCESSING },
+        data: {
+          status:
+            status === 'SUCCEEDED'
+              ? PaymentStatus.SUCCEEDED
+              : PaymentStatus.FAILED,
+          failureReason: status === 'FAILED' ? reason : null,
+          completedAt: new Date(),
+        },
+      });
+      if (claimed.count > 0 && status === 'SUCCEEDED') {
+        await tx.transaction.create({
+          data: {
+            userId: payment.userId,
+            type: TransactionType.DEPOSIT,
+            amount: payment.amount,
+            currency: payment.currency,
+            paymentId: payment.id,
+            campaignId: payment.campaignId,
+          },
+        });
+        if (payment.campaignId) {
+          const campaign = await tx.campaign.findUniqueOrThrow({
+            where: { id: payment.campaignId },
+          });
+          // A campaign refused meanwhile leaves the money in the wallet.
+          if (this.isFundable(campaign)) await this.escrow(tx, campaign);
+        }
+      }
+      return tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    });
+  }
+
+  private async applyPayout(
+    payment: Payment,
+    status: GatewayStatus,
+    reason?: string,
+  ) {
+    if (status === 'PROCESSING') {
+      return this.prisma.payment.findUniqueOrThrow({
+        where: { id: payment.id },
+      });
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.payment.updateMany({
+        where: { id: payment.id, status: PaymentStatus.PROCESSING },
+        data: {
+          status:
+            status === 'SUCCEEDED'
+              ? PaymentStatus.SUCCEEDED
+              : PaymentStatus.FAILED,
+          failureReason: status === 'FAILED' ? (reason ?? null) : null,
+          completedAt: new Date(),
+        },
+      });
+      if (claimed.count > 0) {
+        // A failed payout gives the amount back to the balance.
+        await tx.transaction.update({
+          where: { paymentId: payment.id },
+          data: {
+            status:
+              status === 'SUCCEEDED'
+                ? TransactionStatus.COMPLETED
+                : TransactionStatus.CANCELLED,
+          },
+        });
+      }
+      return tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    });
+  }
+
+  private async escrow(tx: Tx, campaign: Campaign) {
+    await tx.transaction.create({
+      data: {
+        userId: campaign.advertiserId,
+        type: TransactionType.ESCROW,
+        amount: -campaign.budget,
+        currency: CURRENCY,
+        campaignId: campaign.id,
+        note: `Séquestre #${campaign.code}`,
+      },
+    });
+    await tx.campaign.update({
+      where: { id: campaign.id },
+      data: { fundedAt: new Date() },
+    });
+  }
+
+  private isFundable(campaign: Campaign) {
+    return (
+      !campaign.fundedAt &&
+      (campaign.status === CampaignStatus.PENDING_REVIEW ||
+        campaign.status === CampaignStatus.ACTIVE) &&
+      campaign.endsAt > new Date()
+    );
+  }
+
+  private assertFundable(campaign: Campaign) {
+    if (campaign.fundedAt) throw new ConflictException('Campagne déjà payée');
+    if (!this.isFundable(campaign)) {
+      throw new BadRequestException('Cette campagne ne peut plus être payée');
+    }
+  }
+
+  /**
+   * Withdrawable balance: completed entries already available, minus
+   * withdrawals still pending.
+   */
+  private async balance(tx: Tx, userId: string, now: Date) {
+    const [available, pending] = await Promise.all([
+      this.sumWith(tx, userId, {
+        status: TransactionStatus.COMPLETED,
+        availableAt: { lte: now },
+      }),
+      this.sumWith(tx, userId, {
+        status: TransactionStatus.PENDING,
+        amount: { lt: 0 },
+      }),
+    ]);
+    return available + pending;
+  }
+
+  private sum(userId: string, where: Prisma.TransactionWhereInput) {
+    return this.sumWith(this.prisma, userId, where);
+  }
+
+  private async sumWith(
+    tx: Tx,
+    userId: string,
+    where: Prisma.TransactionWhereInput,
+  ) {
+    const result = await tx.transaction.aggregate({
+      where: { ...where, userId },
+      _sum: { amount: true },
+    });
+    return result._sum.amount ?? 0;
+  }
+
+  // Serializes balance changes of one user inside a database transaction.
+  private async lock(tx: Tx, userId: string) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+  }
+
+  private async user(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { profiles: true },
+    });
+    if (!user) throw new NotFoundException();
+    return user;
+  }
+
+  private maxLevel(user: { profiles: { level: number }[] }) {
+    return Math.max(1, ...user.profiles.map((p) => p.level));
+  }
+
+  private phone(user: { phone: string; country: string }, input?: string) {
+    return input
+      ? parsePhone(input, user.country)
+      : { e164: user.phone, country: user.country };
+  }
+
+  private reference(kind: 'P' | 'R') {
+    return `VZ${kind}${randomBytes(8).toString('hex').toUpperCase()}`;
+  }
+
+  private minWithdrawal() {
+    return Number(this.config.get('MIN_WITHDRAWAL') ?? DEFAULT_MIN_WITHDRAWAL);
+  }
+
+  private webOrigin() {
+    return this.config
+      .get<string>('WEB_ORIGIN', 'http://localhost:3000')
+      .split(',')[0];
+  }
+
+  private notifyUrl(provider: string) {
+    const api = this.config.get<string>(
+      'API_PUBLIC_URL',
+      'http://localhost:3001',
+    );
+    return `${api}/payments/webhooks/${provider}`;
+  }
+
+  private toPaymentView(p: Payment) {
+    return {
+      id: p.id,
+      kind: p.kind,
+      reference: p.reference,
+      provider: p.provider,
+      amount: p.amount,
+      currency: p.currency,
+      status: p.status,
+      failureReason: p.failureReason,
+      campaignId: p.campaignId,
+      checkoutUrl: p.status === PaymentStatus.PROCESSING ? p.checkoutUrl : null,
+      createdAt: p.createdAt,
+      completedAt: p.completedAt,
+    };
+  }
+}

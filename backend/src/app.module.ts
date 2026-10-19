@@ -7,6 +7,7 @@ import { CreatorsModule } from './creators/creators.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SmsModule } from './sms/sms.module';
 import { UsersModule } from './users/users.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     CreatorsModule,
     CampaignsModule,
+    WalletModule,
   ],
   controllers: [AppController],
 })

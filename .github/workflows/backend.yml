@@ -29,6 +29,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/viewzo
       JWT_SECRET: ci-jwt-secret
       OTP_SECRET: ci-otp-secret
+      # Every payment succeeds at once in tests.
+      PAYMENT_MODE: local
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

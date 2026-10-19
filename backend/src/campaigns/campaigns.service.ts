@@ -21,6 +21,7 @@ import {
 } from '@prisma/client';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { WalletService } from '../wallet/wallet.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { ReviewCampaignDto } from './dto/review-campaign.dto';
 import {
@@ -39,7 +40,10 @@ type CampaignWithTasks = Campaign & { tasks: CampaignTask[] };
 
 @Injectable()
 export class CampaignsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly wallet: WalletService,
+  ) {}
 
   quote(pkg: CampaignPackage, budget: number, platforms: SocialNetwork[]) {
     const result = platformOptions(pkg, budget, platforms);
@@ -187,16 +191,21 @@ export class CampaignsService {
       throw new ConflictException('Campagne déjà traitée');
     }
     const reason = dto.reason?.trim() || null;
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.campaign.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.campaign.update({
         where: { id },
         data: { status: dto.status, statusReason: reason },
         include: { tasks: { orderBy: { position: 'asc' } } },
-      }),
-      this.prisma.campaignReview.create({
+      });
+      await tx.campaignReview.create({
         data: { campaignId: id, reviewerId, status: dto.status, reason },
-      }),
-    ]);
+      });
+      // A refused campaign gives its escrow back to the advertiser.
+      if (dto.status === CampaignStatus.REJECTED) {
+        await this.wallet.refundCampaign(tx, campaign);
+      }
+      return result;
+    });
     return this.toAdvertiserView(updated);
   }
 
@@ -212,6 +221,7 @@ export class CampaignsService {
         assignments: { none: { creatorId } },
         campaign: {
           status: CampaignStatus.ACTIVE,
+          fundedAt: { not: null },
           startsAt: { lte: now },
           endsAt: { gt: now },
           countries: { has: ctx.country },
@@ -243,6 +253,7 @@ export class CampaignsService {
     if (
       !ctx ||
       task.campaign.status !== CampaignStatus.ACTIVE ||
+      !task.campaign.fundedAt ||
       task.campaign.startsAt > now ||
       task.campaign.endsAt <= now ||
       !ctx.networks.includes(task.network) ||
@@ -491,6 +502,9 @@ export class CampaignsService {
       budget: c.budget,
       status: c.status,
       statusReason: c.statusReason,
+      // Null until the budget is in escrow.
+      fundedAt: c.fundedAt,
+      spent: c.spent,
       hasAssets: c.hasAssets,
       noAssetsChoice: c.noAssetsChoice,
       platforms: c.tasks.map((t) => ({
