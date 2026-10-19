@@ -3,8 +3,8 @@
 Die Web-App und die API laufen mit Docker Compose auf einem eigenen Server. Cloudflare steht davor (Domain, DNS, CDN, Angriffsschutz), Datenbank-Backups landen täglich in Cloudflare R2. Die Mobile-Apps laufen nicht auf dem Server, sie gehen in den App Store und Play Store und sprechen nur mit der API.
 
 ```
-Browser / App ──▶ Cloudflare ──HTTPS──▶ Caddy ──▶ web (Next.js, :3000)   viewzo.com
-                                              └─▶ api (NestJS, :3001)    api.viewzo.com
+Browser / App ──▶ Cloudflare ──HTTPS──▶ Caddy ──▶ web (Next.js, :3000)   viewzo.app
+                                              └─▶ api (NestJS, :3001)    api.viewzo.app
                                                       │
                                                   postgres ◀── backup ──▶ R2 (täglich)
 ```
@@ -60,12 +60,13 @@ Das Skript installiert Docker, legt den Benutzer `deploy` an, öffnet in der Fir
 1. Domain zu Cloudflare hinzufügen und die Nameserver beim Registrar umstellen.
 2. DNS: drei `A`-Einträge auf die Server-IP, alle **Proxied** (orange Wolke): `@`, `www`, `api`.
 3. *SSL/TLS → Overview*: Modus **Full (strict)**.
-4. *SSL/TLS → Origin Server → Create Certificate*: Hostnames `viewzo.com, *.viewzo.com`, Gültigkeit 15 Jahre. Zertifikat und Schlüssel auf dem Server speichern:
+4. *SSL/TLS → Origin Server → Create Certificate*: Hostnames `viewzo.app, *.viewzo.app`, Gültigkeit 15 Jahre. Zertifikat und Schlüssel auf dem Server speichern:
 
    ```bash
    sudo -u deploy nano /opt/viewzo/certs/origin.pem       # Origin Certificate
    sudo -u deploy nano /opt/viewzo/certs/origin-key.pem   # Private Key
-   chmod 644 /opt/viewzo/certs/*.pem
+   chmod 644 /opt/viewzo/certs/origin.pem
+   chmod 600 /opt/viewzo/certs/origin-key.pem
    ```
 
    Caddy liefert damit HTTPS zwischen Cloudflare und Server aus; ein Erneuern ist erst in 15 Jahren nötig.
@@ -93,7 +94,7 @@ Unter *Settings → Secrets and variables → Actions*:
 | --- | --- | --- |
 | Secret | `DEPLOY_SSH_KEY` | Inhalt von `viewzo-deploy` (privater Schlüssel) |
 | Secret (optional) | `DEPLOY_KNOWN_HOSTS` | Ausgabe von `ssh-keyscan <SERVER-IP>`, sonst wird der Host-Schlüssel beim ersten Deploy übernommen |
-| Variable | `DOMAIN` | z. B. `viewzo.com` (die Web-App ruft damit `https://api.viewzo.com` auf) |
+| Variable | `DOMAIN` | z. B. `viewzo.app` (die Web-App ruft damit `https://api.viewzo.app` auf) |
 | Variable | `DEPLOY_HOST` | Server-IP. **Erst setzen, wenn Schritt 1 bis 6 erledigt sind**, denn ab dann deployt jeder Push auf `main`. |
 
 Den ersten Deploy startet man unter *Actions → Deploy → Run workflow*.
@@ -103,8 +104,8 @@ Den ersten Deploy startet man unter *Actions → Deploy → Run workflow*.
 Release-Builds mit der Produktions-API bauen:
 
 ```bash
-flutter build appbundle --dart-define=API_URL=https://api.viewzo.com   # Play Store
-flutter build ipa       --dart-define=API_URL=https://api.viewzo.com   # App Store
+flutter build appbundle --dart-define=API_URL=https://api.viewzo.app   # Play Store
+flutter build ipa       --dart-define=API_URL=https://api.viewzo.app   # App Store
 ```
 
 ## Betrieb
