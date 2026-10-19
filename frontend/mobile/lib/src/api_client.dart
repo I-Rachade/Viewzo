@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'creator_models.dart';
+
 const apiUrl = String.fromEnvironment(
   'API_URL',
   defaultValue: 'http://localhost:3001',
@@ -95,6 +97,54 @@ class ApiClient {
     return UserView.fromJson(await _post('/me/profiles', {'type': type.code}));
   }
 
+  Future<List<SocialAccount>> accounts() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/accounts'),
+      headers: _headers,
+    );
+    return [
+      for (final a in _decodeList(res))
+        SocialAccount.fromJson(a as Map<String, dynamic>),
+    ];
+  }
+
+  Future<SocialAccount> addAccount(SocialNetwork network, String handle) async {
+    return SocialAccount.fromJson(
+      await _post('/me/accounts', {'network': network.code, 'handle': handle}),
+    );
+  }
+
+  Future<SocialAccount> resubmitAccount(String id) async {
+    return SocialAccount.fromJson(await _post('/me/accounts/$id/resubmit', {}));
+  }
+
+  Future<void> removeAccount(String id) async {
+    final res = await _client.delete(
+      Uri.parse('$baseUrl/me/accounts/$id'),
+      headers: _headers,
+    );
+    _decode(res);
+  }
+
+  /// Null until the creator has filled in the skills form once.
+  Future<CreatorSkills?> skills() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/skills'),
+      headers: _headers,
+    );
+    final body = _decode(res);
+    return body.isEmpty ? null : CreatorSkills.fromJson(body);
+  }
+
+  Future<CreatorSkills> saveSkills(CreatorSkills skills) async {
+    final res = await _client.put(
+      Uri.parse('$baseUrl/me/skills'),
+      headers: _headers,
+      body: jsonEncode(skills.toJson()),
+    );
+    return CreatorSkills.fromJson(_decode(res));
+  }
+
   Map<String, String> get _headers => {
     'Content-Type': 'application/json',
     if (token != null) 'Authorization': 'Bearer $token',
@@ -107,6 +157,11 @@ class ApiClient {
       body: jsonEncode(body),
     );
     return _decode(res);
+  }
+
+  List<dynamic> _decodeList(http.Response res) {
+    if (res.statusCode >= 400) _decode(res);
+    return jsonDecode(utf8.decode(res.bodyBytes)) as List<dynamic>;
   }
 
   Map<String, dynamic> _decode(http.Response res) {
