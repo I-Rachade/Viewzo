@@ -8,3 +8,8 @@ flutter run --dart-define=API_URL=http://10.0.2.2:3001   # Android-Emulator
 flutter run --dart-define=API_URL=http://localhost:3001  # iOS-Simulator / Web
 flutter test
 ```
+
+## Bildschirme
+
+- Login per SMS-Code, Rang und Badge Fondateur, Profile aktivieren.
+- Mit aktivem Profil Créateur: „Mes comptes“ (Netzwerke hinzufügen, Status und Prüfanleitung, WhatsApp-Nachricht direkt öffnen, erneut prüfen lassen, entfernen) und „Mes compétences“ (Kompetenzformular).

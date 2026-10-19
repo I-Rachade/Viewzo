@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../api_client.dart';
 import '../session.dart';
+import 'accounts_screen.dart';
 import 'login_screen.dart';
+import 'skills_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.session, this.initialUser});
@@ -40,6 +42,10 @@ class _HomeScreenState extends State<HomeScreen> {
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     }
+  }
+
+  void _open(Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   Future<void> _logout() async {
@@ -86,6 +92,39 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 for (final type in ProfileType.values) _profileTile(user, type),
+                if (user.profiles.any(
+                  (p) => p.type == ProfileType.creator,
+                )) ...[
+                  const SizedBox(height: 24),
+                  Text(
+                    'Espace créateur',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.verified_user_outlined),
+                    title: const Text('Mes comptes'),
+                    subtitle: const Text('Réseaux et vérification'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _open(
+                      AccountsScreen(
+                        api: widget.session.api,
+                        phone: user.phone,
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.auto_awesome_outlined),
+                    title: const Text('Mes compétences'),
+                    subtitle: const Text('Ce que tu sais faire'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _open(
+                      SkillsScreen(
+                        api: widget.session.api,
+                        country: user.country,
+                      ),
+                    ),
+                  ),
+                ],
                 if (_error != null)
                   Text(
                     _error!,
