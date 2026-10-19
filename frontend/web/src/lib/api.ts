@@ -5,7 +5,10 @@ export type ProfileType = "CREATOR" | "ADVERTISER" | "PROVIDER";
 
 export interface UserView {
   id: string;
-  phone: string;
+  // At least one of phone and email is set.
+  phone: string | null;
+  email: string | null;
+  hasPassword: boolean;
   country: string;
   priorityRank: number;
   isFounder: boolean;
@@ -29,6 +32,16 @@ export function setToken(token: string | null) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+// Carries the API's optional error code, e.g. PASSWORD_NOT_SET.
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+  }
+}
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   const res = await fetch(`${API_URL}${path}`, {
@@ -44,22 +57,44 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     const message = Array.isArray(body.message)
       ? body.message[0]
       : body.message;
-    throw new Error(message ?? "Une erreur est survenue");
+    throw new ApiError(message ?? "Une erreur est survenue", body.code);
   }
   return body as T;
 }
 
-export const api = {
-  requestCode: (phone: string) =>
-    call<{ phone: string }>("/auth/otp/request", {
-      method: "POST",
-      body: JSON.stringify({ phone }),
-    }),
-  verifyCode: (phone: string, code: string) =>
-    call<{ accessToken: string; isNew: boolean; user: UserView }>(
-      "/auth/otp/verify",
-      { method: "POST", body: JSON.stringify({ phone, code }) },
+interface Session {
+  accessToken: string;
+  user: UserView;
+}
+
+// identifier = an email address or a phone number.
+export const authApi = {
+  registerStart: (identifier: string) =>
+    call<{ sentTo: string }>("/auth/register/start", post({ identifier })),
+  registerVerify: (identifier: string, code: string) =>
+    call<{ ticket: string }>(
+      "/auth/register/verify",
+      post({ identifier, code }),
     ),
+  registerComplete: (body: {
+    ticket: string;
+    password: string;
+    role: "CREATOR" | "ADVERTISER";
+    country?: string;
+  }) => call<Session>("/auth/register/complete", post(body)),
+  login: (identifier: string, password: string) =>
+    call<Session>("/auth/login", post({ identifier, password })),
+  forgotPassword: (identifier: string) =>
+    call<{ sentTo: string }>("/auth/password/forgot", post({ identifier })),
+  resetPassword: (identifier: string, code: string, password: string) =>
+    call<Session>("/auth/password/reset", post({ identifier, code, password })),
+  contactRequest: (identifier: string) =>
+    call<{ sentTo: string }>("/auth/contact/request", post({ identifier })),
+  contactVerify: (identifier: string, code: string) =>
+    call<UserView>("/auth/contact/verify", post({ identifier, code })),
+};
+
+export const api = {
   me: () => call<UserView>("/me"),
   activateProfile: (type: ProfileType) =>
     call<UserView>("/me/profiles", {
@@ -337,8 +372,17 @@ export const ACCOUNT_STATUS_LABELS: Record<AccountStatus, string> = {
 };
 
 interface StaffUser {
-  phone: string;
+  phone: string | null;
+  email?: string | null;
   country: string;
+}
+
+// How the team recognises an account: its number, else its email.
+export function contactOf(user: {
+  phone: string | null;
+  email?: string | null;
+}) {
+  return user.phone ?? user.email ?? "—";
 }
 
 export interface StaffOverview {
@@ -388,7 +432,8 @@ export interface StaffAssignment {
 
 export interface StaffMember {
   id: string;
-  phone: string;
+  phone: string | null;
+  email: string | null;
   country: string;
   createdAt: string;
 }

@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import {
+  contactOf,
   formatFcfa,
   PROFILE_LABELS,
-  StaffWithdrawal,
   staffApi,
+  StaffWithdrawal,
 } from "@/lib/api";
 import { DATE, useQueue } from "./use-queue";
 
@@ -59,7 +60,7 @@ function WithdrawalCard({
         {w.operator && ` · ${w.operator}`}
       </p>
       <p className="hint">
-        Compte {w.user.phone} ({w.user.country}) ·{" "}
+        Compte {contactOf(w.user)} ({w.user.country}) ·{" "}
         {w.user.profiles
           .map((p) => `${PROFILE_LABELS[p.type]} niveau ${p.level}`)
           .join(", ")}{" "}
