@@ -27,7 +27,17 @@ npm run start:dev            # http://localhost:3001
 | `POST` | `/auth/otp/verify` | `{ phone, code }` liefert `accessToken` und Nutzer |
 | `GET` | `/me` | Eigenes Konto (Bearer-Token) |
 | `POST` | `/me/profiles` | `{ type: CREATOR \| ADVERTISER \| PROVIDER }` aktiviert ein Profil |
+| `GET` | `/me/accounts` | Eigene Netzwerke mit Status und Prüfanleitung |
+| `POST` | `/me/accounts` | `{ network, handle }` fügt ein Netzwerk hinzu (Profil Créateur nötig) |
+| `DELETE` | `/me/accounts/:id` | Netzwerk entfernen (nicht bei Suspendu oder während der 30 Tage) |
+| `POST` | `/me/accounts/:id/resubmit` | Nach „À corriger“ oder nach Ablauf der 30 Tage erneut prüfen lassen |
+| `GET` / `PUT` | `/me/skills` | Kompetenzformular lesen bzw. speichern |
+| `GET` | `/staff/accounts?status=PENDING` | Prüfwarteschlange (nur Team) |
+| `GET` | `/staff/accounts/by-code/:code` | WhatsApp-Gespräch per Code dem Creator zuordnen (nur Team) |
+| `POST` | `/staff/accounts/:id/review` | `{ status, reason, followers?, avgStatusViews? }` Entscheidung treffen (nur Team) |
 | `GET` | `/health` | Healthcheck |
+
+Team-Zugang: Ein Konto wird zum Team-Mitglied, indem man in der Datenbank `role` auf `STAFF` setzt. Die WhatsApp-Prüfnummern stehen in `WHATSAPP_VERIFICATION_NUMBERS` (`TG:+228…,BJ:+229…`).
 
 ## Tests
 

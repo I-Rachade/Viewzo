@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  USER
+  // Viewzo team member with access to the back-office endpoints.
+  STAFF
+}
+
 enum ProfileType {
   CREATOR
   ADVERTISER
@@ -14,16 +20,19 @@ enum ProfileType {
 }
 
 model User {
-  id           String        @id @default(uuid())
-  phone        String        @unique
+  id           String          @id @default(uuid())
+  phone        String          @unique
   // ISO 3166-1 alpha-2 country derived from the phone number.
   country      String
   // Signup position within the country, timestamped and never changed afterwards.
   priorityRank Int
-  locale       String        @default("fr")
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  locale       String          @default("fr")
+  role         UserRole        @default(USER)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
   profiles     UserProfile[]
+  accounts     SocialAccount[]
+  skills       CreatorSkills?
 
   @@unique([country, priorityRank])
 }
@@ -55,4 +64,113 @@ model OtpChallenge {
   createdAt  DateTime  @default(now())
 
   @@index([phone, createdAt])
+}
+
+enum SocialNetwork {
+  TIKTOK
+  INSTAGRAM
+  FACEBOOK
+  YOUTUBE
+  SNAPCHAT
+  X
+  LINKEDIN
+  THREADS
+  TELEGRAM
+  WHATSAPP_STATUS
+}
+
+// Statuses shown in "Mes comptes".
+enum AccountStatus {
+  PENDING // En vérification
+  ELIGIBLE // Éligible
+  NEEDS_FIX // À corriger
+  NOT_ELIGIBLE // Non éligible, new attempt after retryAfter
+  SUSPENDED // Suspendu (fraude ou plainte)
+}
+
+// A creator's account on one network, verified before tasks are offered on it.
+model SocialAccount {
+  id               String          @id @default(uuid())
+  userId           String
+  network          SocialNetwork
+  // Handle or profile link; for WhatsApp Statut the phone number used.
+  handle           String
+  // Unique code placed in the bio, or sent by WhatsApp to the verification number.
+  verificationCode String          @unique
+  status           AccountStatus   @default(PENDING)
+  // What the creator must fix, or why the account is not eligible or suspended.
+  statusReason     String?
+  retryAfter       DateTime?
+  // Last time the account was (re)sent to verification; review is due within 48 h.
+  submittedAt      DateTime        @default(now())
+  followers        Int?
+  // WhatsApp Statut only: average viewers per status.
+  avgStatusViews   Int?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews          AccountReview[]
+
+  @@unique([userId, network])
+}
+
+// Every verification decision and its reason, kept for audit even after the
+// creator removes the account.
+model AccountReview {
+  id         String         @id @default(uuid())
+  accountId  String?
+  userId     String
+  network    SocialNetwork
+  // Null when the decision was made automatically.
+  reviewerId String?
+  status     AccountStatus
+  reason     String?
+  createdAt  DateTime       @default(now())
+  account    SocialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([accountId, createdAt])
+  @@index([userId, createdAt])
+}
+
+enum CreatorTaskType {
+  POST_PROVIDED_VISUAL
+  POST_PROVIDED_VIDEO
+  CREATE_ORIGINAL_VIDEO
+}
+
+enum CreatorSpecialty {
+  FACECAM
+  VLOG
+  PRODUCT_DEMO
+  UNBOXING
+  TUTORIAL
+  DANCE_CHALLENGE
+  HUMOR_SKETCH
+  STREET_INTERVIEW
+  FULL_EDITING
+  MOTION_DESIGN
+  VOICE_OVER
+  PRODUCT_PHOTO
+}
+
+// Answers to the creator skills form.
+model CreatorSkills {
+  userId          String             @id
+  taskTypes       CreatorTaskType[]
+  specialties     CreatorSpecialty[]
+  showsFace       Boolean
+  phoneModel      String?
+  microphone      String?
+  lighting        String?
+  editingSoftware String?
+  // 3 to 5 links to videos made by the creator.
+  exampleLinks    String[]
+  languages       String[]
+  // Countries (ISO codes) and cities where the creator can shoot.
+  countries       String[]
+  cities          String[]
+  themes          String[]
+  tasksPerWeek    Int
+  updatedAt       DateTime           @updatedAt
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
