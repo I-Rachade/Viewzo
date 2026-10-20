@@ -13,6 +13,15 @@ import {
   WalletSummary,
   WalletTransaction,
 } from "@/lib/api";
+import { CountUp } from "../count-up";
+
+const PAYMENT_TONES: Record<PaymentView["status"], string> = {
+  REQUESTED: "pending",
+  PROCESSING: "pending",
+  SUCCEEDED: "paid",
+  FAILED: "refused",
+  REJECTED: "refused",
+};
 
 const DATE = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" });
 
@@ -100,22 +109,25 @@ export default function WalletPage() {
     <div className="card wide">
       <h1>Mon portefeuille</h1>
 
-      <div className="stats">
-        <div>
-          <small>Disponible</small>
-          <strong>{formatFcfa(summary.available)}</strong>
-        </div>
-        <div>
-          <small>Gains en attente</small>
-          <strong>{formatFcfa(summary.held)}</strong>
-        </div>
-        <div>
-          <small>En séquestre</small>
-          <strong>{formatFcfa(summary.escrow)}</strong>
-        </div>
-        <div>
-          <small>Retraits en cours</small>
-          <strong>{formatFcfa(summary.pendingWithdrawals)}</strong>
+      <div className="balance">
+        <small>Disponible</small>
+        <span className="amount">
+          <CountUp value={summary.available} format={formatFcfa} />
+        </span>
+        <div className="pills">
+          <span className="pill pending">
+            En attente : {formatFcfa(summary.held)}
+          </span>
+          {summary.escrow > 0 && (
+            <span className="pill">
+              En séquestre : {formatFcfa(summary.escrow)}
+            </span>
+          )}
+          {summary.pendingWithdrawals > 0 && (
+            <span className="pill neutral">
+              Retraits en cours : {formatFcfa(summary.pendingWithdrawals)}
+            </span>
+          )}
         </div>
       </div>
       <p className="hint">
@@ -134,7 +146,9 @@ export default function WalletPage() {
             required
           />
         </label>
-        <button disabled={busy}>Recharger</button>
+        <button className="secondary" disabled={busy}>
+          Recharger
+        </button>
       </form>
 
       <h2>Retirer</h2>
@@ -184,7 +198,10 @@ export default function WalletPage() {
             Envoyé sur ton numéro Viewzo. Minimum{" "}
             {formatFcfa(summary.minWithdrawal)}.
           </p>
-          <button disabled={busy || summary.available < summary.minWithdrawal}>
+          <button
+            className="coral"
+            disabled={busy || summary.available < summary.minWithdrawal}
+          >
             Demander le retrait
           </button>
         </form>
@@ -200,39 +217,51 @@ export default function WalletPage() {
       {withdrawals.length > 0 && (
         <>
           <h2>Mes retraits</h2>
-          {withdrawals.map((w) => (
-            <p key={w.id}>
-              {DATE.format(new Date(w.createdAt))} · {formatFcfa(w.amount)} ·{" "}
-              {PAYMENT_STATUS_LABELS[w.status]}
-              {w.failureReason && ` (${w.failureReason})`}
-            </p>
-          ))}
+          <div className="stagger">
+            {withdrawals.map((w) => (
+              <div key={w.id} className="line">
+                <span>
+                  {formatFcfa(w.amount)}
+                  <br />
+                  <small>
+                    {DATE.format(new Date(w.createdAt))}
+                    {w.failureReason && ` · ${w.failureReason}`}
+                  </small>
+                </span>
+                <span className={`pill ${PAYMENT_TONES[w.status]}`}>
+                  {PAYMENT_STATUS_LABELS[w.status]}
+                </span>
+              </div>
+            ))}
+          </div>
         </>
       )}
 
       <h2>Historique</h2>
       {history.length === 0 && <p>Aucune opération pour l’instant.</p>}
-      {history.map((t) => (
-        <div key={t.id} className="line">
-          <span>
-            {TRANSACTION_LABELS[t.type]}
-            {t.note && <small> · {t.note}</small>}
-            <br />
-            <small>
-              {DATE.format(new Date(t.createdAt))}
-              {t.status === "PENDING" && " · en attente"}
-              {t.status === "CANCELLED" && " · annulé"}
-              {t.type === "EARNING" &&
-                new Date(t.availableAt) > new Date() &&
-                ` · disponible le ${DATE.format(new Date(t.availableAt))}`}
-            </small>
-          </span>
-          <strong className={t.amount < 0 ? "debit" : "credit"}>
-            {t.amount > 0 ? "+" : ""}
-            {formatFcfa(t.amount)}
-          </strong>
-        </div>
-      ))}
+      <div className="stagger">
+        {history.map((t) => (
+          <div key={t.id} className="line">
+            <span>
+              {TRANSACTION_LABELS[t.type]}
+              {t.note && <small> · {t.note}</small>}
+              <br />
+              <small>
+                {DATE.format(new Date(t.createdAt))}
+                {t.status === "PENDING" && " · en attente"}
+                {t.status === "CANCELLED" && " · annulé"}
+                {t.type === "EARNING" &&
+                  new Date(t.availableAt) > new Date() &&
+                  ` · disponible le ${DATE.format(new Date(t.availableAt))}`}
+              </small>
+            </span>
+            <strong className={t.amount < 0 ? "debit" : "credit"}>
+              {t.amount > 0 ? "+" : ""}
+              {formatFcfa(t.amount)}
+            </strong>
+          </div>
+        ))}
+      </div>
 
       <Link className="button secondary" href="/dashboard">
         Tableau de bord

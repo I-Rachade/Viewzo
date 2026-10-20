@@ -99,7 +99,9 @@ void main() {
       return json({'accessToken': 'token', 'user': userJson()});
     });
 
-    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.pumpWidget(
+      ViewzoApp(session: session, loggedIn: false, showSplash: false),
+    );
     expect(find.text('E-mail'), findsOneWidget);
     expect(find.text('Téléphone'), findsOneWidget);
     await tester.enterText(
@@ -118,6 +120,8 @@ void main() {
 
     expect(find.text('Tu es inscrit n° 237 (TG)'), findsOneWidget);
     expect(find.text('Badge Fondateur'), findsOneWidget);
+    await tester.tap(find.text('Profil'));
+    await tester.pumpAndSettle();
     expect(find.text('ama@exemple.com'), findsOneWidget);
     expect(find.text('Ajouter un numéro'), findsOneWidget);
     expect(session.api.token, 'token');
@@ -132,7 +136,9 @@ void main() {
       }, 401),
     );
 
-    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.pumpWidget(
+      ViewzoApp(session: session, loggedIn: false, showSplash: false),
+    );
     await tester.enterText(
       find.byKey(const Key('identifier')),
       'ama@exemple.com',
@@ -153,7 +159,9 @@ void main() {
       }, 403),
     );
 
-    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.pumpWidget(
+      ViewzoApp(session: session, loggedIn: false, showSplash: false),
+    );
     await tester.tap(find.text('Téléphone'));
     await tester.pump();
     await tester.enterText(find.byKey(const Key('identifier')), '+22890123456');
@@ -172,7 +180,9 @@ void main() {
       registerBackend(onComplete: (body) => completed = body),
     );
 
-    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.pumpWidget(
+      ViewzoApp(session: session, loggedIn: false, showSplash: false),
+    );
     await reachPasswordStep(tester);
     expect(enabled(tester, 'Créer mon compte'), isFalse);
     await tester.enterText(
@@ -207,7 +217,9 @@ void main() {
   testWidgets('tells when the two passwords differ', (tester) async {
     final session = sessionWith(registerBackend());
 
-    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.pumpWidget(
+      ViewzoApp(session: session, loggedIn: false, showSplash: false),
+    );
     await reachPasswordStep(tester);
     await tester.enterText(
       find.descendant(
@@ -233,7 +245,9 @@ void main() {
     var starts = 0;
     final session = sessionWith(registerBackend(onStart: () => starts++));
 
-    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.pumpWidget(
+      ViewzoApp(session: session, loggedIn: false, showSplash: false),
+    );
     await tester.tap(find.text('Pas encore de compte ? Créer un compte'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Je veux faire connaître ma marque'));
@@ -276,7 +290,9 @@ void main() {
       (_) async => json({'message': 'Un compte existe déjà'}, 409),
     );
 
-    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.pumpWidget(
+      ViewzoApp(session: session, loggedIn: false, showSplash: false),
+    );
     await tester.tap(find.text('Pas encore de compte ? Créer un compte'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Je veux faire connaître ma marque'));
@@ -318,6 +334,8 @@ void main() {
         ),
       ),
     );
+    await tester.tap(find.text('Profil'));
+    await tester.pumpAndSettle();
     expect(find.text('Non renseigné'), findsOneWidget);
     await tester.tap(find.text('Ajouter un numéro'));
     await tester.pumpAndSettle();

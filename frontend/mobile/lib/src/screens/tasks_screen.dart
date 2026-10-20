@@ -4,6 +4,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
 import '../task_models.dart';
+import '../ui/theme.dart';
+import '../ui/widgets.dart';
 
 /// Tasks the creator can take, and the ones they accepted with the link to
 /// submit once posted.
@@ -120,12 +122,17 @@ class _TasksScreenState extends State<TasksScreen> {
               'Aucune tâche pour toi en ce moment. Vérifie que tes comptes '
               'sont éligibles et que tes compétences sont à jour.',
             ),
-          for (final task in tasks)
-            _TaskCard(
-              task: task,
-              action: FilledButton(
-                onPressed: () => _accept(task),
-                child: const Text('Accepter'),
+          for (final (i, task) in tasks.indexed)
+            FadeSlideIn(
+              index: i,
+              child: _TaskCard(
+                task: task,
+                action: _AcceptButton(
+                  onAccept: () async {
+                    await _accept(task);
+                    return _error == null;
+                  },
+                ),
               ),
             ),
         ],
@@ -145,19 +152,22 @@ class _TasksScreenState extends State<TasksScreen> {
         children: [
           if (assignments.isEmpty)
             const Text('Tu n’as pas encore accepté de tâche.'),
-          for (final a in assignments)
-            _TaskCard(
-              task: a.task,
-              status: a.submitted ? 'Lien envoyé' : 'À publier',
-              action: a.submitted
-                  ? OutlinedButton(
-                      onPressed: () => _submit(a),
-                      child: const Text('Modifier le lien'),
-                    )
-                  : FilledButton(
-                      onPressed: () => _submit(a),
-                      child: const Text('J’ai publié'),
-                    ),
+          for (final (i, a) in assignments.indexed)
+            FadeSlideIn(
+              index: i,
+              child: _TaskCard(
+                task: a.task,
+                status: a.submitted ? 'Lien envoyé' : 'À publier',
+                action: a.submitted
+                    ? OutlinedButton(
+                        onPressed: () => _submit(a),
+                        child: const Text('Modifier le lien'),
+                      )
+                    : FilledButton(
+                        onPressed: () => _submit(a),
+                        child: const Text('J’ai publié'),
+                      ),
+              ),
             ),
         ],
       ),
@@ -186,6 +196,7 @@ class _TaskCard extends StatelessWidget {
     };
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -195,17 +206,33 @@ class _TaskCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(child: Text(brief.title, style: text.titleMedium)),
-                if (status != null) Chip(label: Text(status!)),
+                if (status != null)
+                  Pill(
+                    status!,
+                    tone: status == 'Lien envoyé'
+                        ? PillTone.pending
+                        : PillTone.violet,
+                  ),
               ],
             ),
-            Text(
-              '${task.network.label} · ${task.contentType.label}',
-              style: text.bodyMedium,
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Pill(task.network.label, tone: PillTone.paid),
+                Text(task.contentType.label, style: text.bodyMedium),
+              ],
             ),
             Text(
               '${task.ratePer1000} FCFA pour 1 000 vues · '
               'jusqu’au ${_date(brief.endsAt)}',
-              style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+              style: text.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF7BE0B0)
+                    : VzColors.paidText,
+              ),
             ),
             Row(
               children: [
@@ -301,4 +328,78 @@ class _SubmitDialogState extends State<_SubmitDialog> {
       FilledButton(onPressed: _send, child: const Text('Envoyer')),
     ],
   );
+}
+
+/// Turns into a spinner while the task is being accepted, then a green tick.
+class _AcceptButton extends StatefulWidget {
+  const _AcceptButton({required this.onAccept});
+
+  /// Returns whether the task was accepted.
+  final Future<bool> Function() onAccept;
+
+  @override
+  State<_AcceptButton> createState() => _AcceptButtonState();
+}
+
+enum _Step { idle, loading, done }
+
+class _AcceptButtonState extends State<_AcceptButton> {
+  _Step _step = _Step.idle;
+
+  Future<void> _press() async {
+    setState(() => _step = _Step.loading);
+    final accepted = await widget.onAccept();
+    if (mounted) setState(() => _step = accepted ? _Step.done : _Step.idle);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = VzMotion.of(context, VzMotion.wide);
+    final child = switch (_step) {
+      _Step.idle => const Text('Accepter', key: ValueKey('idle')),
+      _Step.loading => const SizedBox.square(
+        key: ValueKey('loading'),
+        dimension: 22,
+        child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+      ),
+      _Step.done => const Icon(
+        Icons.check_rounded,
+        key: ValueKey('done'),
+        color: Colors.white,
+      ),
+    };
+    return Pressable(
+      child: AnimatedContainer(
+        duration: wide,
+        curve: VzMotion.easeOut,
+        width: _step == _Step.loading ? 56 : 132,
+        height: 48,
+        child: FilledButton(
+          style: FilledButton.styleFrom(
+            padding: EdgeInsets.zero,
+            backgroundColor: switch (_step) {
+              _Step.idle => VzColors.coral,
+              _Step.loading => Theme.of(context).colorScheme.primary,
+              _Step.done => VzColors.paid,
+            },
+            foregroundColor: VzColors.ink,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(
+                _step == _Step.loading ? 28 : 14,
+              ),
+            ),
+          ),
+          onPressed: _step == _Step.idle ? _press : () {},
+          child: AnimatedSwitcher(
+            duration: VzMotion.of(context, VzMotion.standard),
+            transitionBuilder: (child, animation) => ScaleTransition(
+              scale: CurvedAnimation(parent: animation, curve: VzMotion.spring),
+              child: FadeTransition(opacity: animation, child: child),
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
 }
