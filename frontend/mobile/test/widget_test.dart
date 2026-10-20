@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:viewzo/main.dart';
 import 'package:viewzo/src/api_client.dart';
@@ -33,13 +34,22 @@ Session sessionWith(MockClientHandler handler) => Session(
   store: MemoryStore(),
 );
 
-Finder buttonOf(String text) => find.ancestor(
-  of: find.text(text),
-  matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
-);
+/// The Material or shadcn button that holds [text].
+Finder buttonOf(String text) => find
+    .ancestor(
+      of: find.text(text),
+      matching: find.byWidgetPredicate(
+        (w) => w is ButtonStyleButton || w is ShadButton,
+      ),
+    )
+    .first;
 
 bool enabled(WidgetTester tester, String text) =>
-    tester.widget<ButtonStyleButton>(buttonOf(text)).onPressed != null;
+    switch (tester.widget(buttonOf(text))) {
+      final ShadButton b => b.enabled && b.onPressed != null,
+      final ButtonStyleButton b => b.onPressed != null,
+      _ => throw StateError('No button for $text'),
+    };
 
 /// Goes from the login screen to the password step of the e-mail sign-up.
 Future<void> reachPasswordStep(WidgetTester tester) async {
@@ -276,14 +286,7 @@ void main() {
       tester.widget<Text>(resend).data,
       matches(RegExp(r'^Renvoyer le code dans (2:00|1:5\d)$')),
     );
-    expect(
-      tester
-          .widget<TextButton>(
-            find.ancestor(of: resend, matching: find.byType(TextButton)),
-          )
-          .onPressed,
-      isNull,
-    );
+    expect(enabled(tester, tester.widget<Text>(resend).data!), isFalse);
     await tester.tap(resend);
     await tester.pump();
     expect(starts, 1);
@@ -337,7 +340,7 @@ void main() {
     session.api.token = 'token';
 
     await tester.pumpWidget(
-      MaterialApp(
+      VzApp(
         home: HomeScreen(
           session: session,
           initialUser: UserView.fromJson(userJson()),

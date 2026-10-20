@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../api_client.dart';
 import '../session.dart';
+import '../ui/theme.dart';
+import '../ui/widgets.dart';
 import 'auth_widgets.dart';
 
 const countries = {
@@ -106,7 +109,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final theme = ShadTheme.of(context);
     return PopScope(
       canPop: _step == 0,
       onPopInvokedWithResult: (didPop, _) {
@@ -115,93 +118,147 @@ class _RegisterScreenState extends State<RegisterScreen>
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Créer un compte'),
-          leading: IconButton(
-            tooltip: 'Retour',
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _back,
+          leading: Tooltip(
+            message: 'Retour',
+            child: ShadIconButton.ghost(
+              icon: const Icon(LucideIcons.arrowLeft, size: 22),
+              onPressed: _back,
+            ),
           ),
         ),
         body: ListView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
           children: [
             Text(
               'Étape ${_step + 1} sur $_stepCount',
-              style: theme.textTheme.labelLarge,
-            ),
-            const SizedBox(height: 8),
-            LinearProgressIndicator(value: (_step + 1) / _stepCount),
-            const SizedBox(height: 24),
-            ...switch (_step) {
-              0 => _roleStep(theme),
-              1 => _identifierStep(),
-              2 => _codeStep(theme),
-              _ => _passwordStep(),
-            },
-            errorText(),
-            if (_alreadyRegistered)
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Se connecter'),
+              style: theme.textTheme.small.copyWith(
+                color: theme.colorScheme.mutedForeground,
               ),
+            ),
+            const SizedBox(height: 10),
+            TweenAnimationBuilder<double>(
+              tween: Tween(end: (_step + 1) / _stepCount),
+              duration: VzMotion.of(context, VzMotion.standard),
+              curve: VzMotion.easeOut,
+              builder: (context, value, _) =>
+                  ShadProgress(value: value, minHeight: 6),
+            ),
+            const SizedBox(height: 28),
+            // A new key per step replays the entrance on each step.
+            KeyedSubtree(
+              key: ValueKey(_step),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ...switch (_step) {
+                    0 => _roleStep(theme),
+                    1 => _identifierStep(),
+                    2 => _codeStep(theme),
+                    _ => _passwordStep(),
+                  },
+                ],
+              ),
+            ),
+            errorText(),
+            if (_alreadyRegistered) ...[
+              const SizedBox(height: 8),
+              ShadButton.outline(
+                width: double.infinity,
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Flexible(
+                  child: Text('Se connecter', overflow: TextOverflow.ellipsis),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  List<Widget> _roleStep(ThemeData theme) => [
-    _roleCard(
-      ProfileType.creator,
-      Icons.trending_up,
-      "Je veux gagner de l'argent avec mes réseaux",
+  List<Widget> _roleStep(ShadThemeData theme) => [
+    FadeSlideIn(
+      child: _roleCard(
+        ProfileType.creator,
+        LucideIcons.trendingUp,
+        "Je veux gagner de l'argent avec mes réseaux",
+      ),
     ),
     const SizedBox(height: 12),
-    _roleCard(
-      ProfileType.advertiser,
-      Icons.campaign_outlined,
-      'Je veux faire connaître ma marque',
+    FadeSlideIn(
+      index: 1,
+      child: _roleCard(
+        ProfileType.advertiser,
+        LucideIcons.megaphone,
+        'Je veux faire connaître ma marque',
+      ),
     ),
-    const SizedBox(height: 12),
+    const SizedBox(height: 16),
     Text(
       "Tu pourras ajouter l'autre profil plus tard.",
-      style: theme.textTheme.bodySmall,
+      style: theme.textTheme.muted.copyWith(fontSize: 13),
     ),
   ];
 
   Widget _roleCard(ProfileType type, IconData icon, String title) {
     final selected = _role == type;
-    final colors = Theme.of(context).colorScheme;
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: selected ? colors.primary : colors.outlineVariant,
-          width: selected ? 2 : 1,
-        ),
-      ),
-      child: InkWell(
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
+    return Pressable(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () {
           _role = type;
           _goTo(1);
         },
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Row(
-            children: [
-              Icon(icon, size: 36, color: colors.primary),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(type.label),
-                  ],
+        child: Semantics(
+          button: true,
+          selected: selected,
+          child: ShadCard(
+            padding: const EdgeInsets.all(20),
+            radius: BorderRadius.circular(18),
+            border: ShadBorder.all(
+              color: selected ? colors.primary : colors.border,
+              width: selected ? 2 : 1,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colors.secondary,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(icon, size: 26, color: colors.primary),
                 ),
-              ),
-            ],
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.p.copyWith(
+                          fontFamily: 'Sora',
+                          fontWeight: FontWeight.w600,
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(type.label, style: theme.textTheme.muted),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  LucideIcons.chevronRight,
+                  size: 20,
+                  color: colors.mutedForeground,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -210,6 +267,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   List<Widget> _identifierStep() {
     final locked = lockedFor(_identifier.text);
+    final canSend = !busy && !locked && _identifier.text.trim().isNotEmpty;
     return [
       IdentifierInput(
         kind: _kind,
@@ -223,67 +281,129 @@ class _RegisterScreenState extends State<RegisterScreen>
       ),
       if (_kind == IdentifierKind.email) ...[
         const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          key: const Key('country'),
-          initialValue: _country,
-          decoration: const InputDecoration(labelText: 'Pays'),
-          items: [
-            for (final c in countries.entries)
-              DropdownMenuItem(value: c.key, child: Text(c.value)),
-          ],
+        _CountryField(
+          value: _country,
           onChanged: (v) => setState(() => _country = v ?? _country),
         ),
       ],
-      const SizedBox(height: 16),
-      FilledButton(
-        onPressed: busy || locked || _identifier.text.trim().isEmpty
-            ? null
-            : _requestCode,
-        child: Text(
-          locked ? 'Nouveau code dans ${formatWait(wait)}' : 'Recevoir un code',
+      const SizedBox(height: 28),
+      Pressable(
+        child: ShadButton(
+          size: ShadButtonSize.lg,
+          width: double.infinity,
+          enabled: canSend,
+          onPressed: canSend ? _requestCode : null,
+          child: Flexible(
+            child: Text(
+              locked
+                  ? 'Nouveau code dans ${formatWait(wait)}'
+                  : 'Recevoir un code',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ),
       ),
-      if (locked)
-        TextButton(
+      if (locked) ...[
+        const SizedBox(height: 8),
+        ShadButton.ghost(
+          width: double.infinity,
           onPressed: () => _goTo(2),
-          child: const Text("J'ai déjà un code"),
+          child: const Flexible(
+            child: Text("J'ai déjà un code", overflow: TextOverflow.ellipsis),
+          ),
         ),
+      ],
     ];
   }
 
-  List<Widget> _codeStep(ThemeData theme) => [
-    Text('Code envoyé à $sentTo'),
-    const SizedBox(height: 8),
-    Text(codeHint, style: theme.textTheme.bodySmall),
-    const SizedBox(height: 16),
-    CodeField(controller: _code),
-    FilledButton(
-      onPressed: busy ? null : _verify,
-      child: const Text('Valider'),
+  List<Widget> _codeStep(ShadThemeData theme) => [
+    Text(
+      'Code envoyé à $sentTo',
+      style: theme.textTheme.p.copyWith(fontWeight: FontWeight.w600),
     ),
+    const SizedBox(height: 6),
+    Text(codeHint, style: theme.textTheme.muted.copyWith(fontSize: 13)),
+    const SizedBox(height: 20),
+    CodeField(controller: _code),
+    const SizedBox(height: 24),
+    Pressable(
+      child: ShadButton(
+        size: ShadButtonSize.lg,
+        width: double.infinity,
+        enabled: !busy,
+        onPressed: busy ? null : _verify,
+        child: const Flexible(
+          child: Text('Valider', overflow: TextOverflow.ellipsis),
+        ),
+      ),
+    ),
+    const SizedBox(height: 8),
     resendButton(_requestCode),
-    TextButton(
+    ShadButton.ghost(
+      width: double.infinity,
       onPressed: () => _goTo(1),
-      child: Text(
-        _kind == IdentifierKind.email
-            ? "Changer d'adresse e-mail"
-            : 'Changer de numéro',
+      child: Flexible(
+        child: Text(
+          _kind == IdentifierKind.email
+              ? "Changer d'adresse e-mail"
+              : 'Changer de numéro',
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     ),
   ];
 
-  List<Widget> _passwordStep() => [
-    NewPasswordFields(
-      password: _password,
-      confirm: _confirm,
-      onChanged: () => setState(() {}),
-    ),
-    const SizedBox(height: 24),
-    FilledButton(
-      onPressed: busy || !NewPasswordFields.valid(_password.text, _confirm.text)
-          ? null
-          : _complete,
-      child: const Text('Créer mon compte'),
-    ),
-  ];
+  List<Widget> _passwordStep() {
+    final canCreate =
+        !busy && NewPasswordFields.valid(_password.text, _confirm.text);
+    return [
+      NewPasswordFields(
+        password: _password,
+        confirm: _confirm,
+        onChanged: () => setState(() {}),
+      ),
+      const SizedBox(height: 28),
+      Pressable(
+        child: ShadButton(
+          size: ShadButtonSize.lg,
+          width: double.infinity,
+          enabled: canCreate,
+          onPressed: canCreate ? _complete : null,
+          child: const Flexible(
+            child: Text('Créer mon compte', overflow: TextOverflow.ellipsis),
+          ),
+        ),
+      ),
+    ];
+  }
+}
+
+/// The country of an e-mail sign-up, phone numbers carrying their own.
+class _CountryField extends StatelessWidget {
+  const _CountryField({required this.value, required this.onChanged});
+  final String value;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: 8,
+      children: [
+        Text('Pays', style: theme.textTheme.small),
+        ShadSelect<String>(
+          key: const Key('country'),
+          initialValue: value,
+          maxHeight: 320,
+          options: [
+            for (final c in countries.entries)
+              ShadOption(value: c.key, child: Text(c.value)),
+          ],
+          selectedOptionBuilder: (context, v) => Text(countries[v] ?? v),
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
 }

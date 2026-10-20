@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../api_client.dart';
 import '../session.dart';
+import '../ui/theme.dart';
 import 'home_screen.dart';
 
 // Codes can take a few minutes to arrive, and every new code cancels the
@@ -99,18 +101,24 @@ mixin CodeFormState<T extends StatefulWidget> on State<T> {
       ? const SizedBox.shrink()
       : Padding(
           padding: const EdgeInsets.only(top: 16),
-          child: Text(
-            error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          child: ShadAlert.destructive(
+            icon: const Icon(LucideIcons.circleAlert),
+            title: Text(error!),
+            titleStyle: const TextStyle(height: 1.35),
           ),
         );
 
-  Widget resendButton(VoidCallback onResend) => TextButton(
+  Widget resendButton(VoidCallback onResend) => ShadButton.ghost(
+    width: double.infinity,
+    enabled: !busy && !waiting,
     onPressed: busy || waiting ? null : onResend,
-    child: Text(
-      waiting
-          ? 'Renvoyer le code dans ${formatWait(wait)}'
-          : 'Renvoyer le code',
+    child: Flexible(
+      child: Text(
+        waiting
+            ? 'Renvoyer le code dans ${formatWait(wait)}'
+            : 'Renvoyer le code',
+        overflow: TextOverflow.ellipsis,
+      ),
     ),
   );
 
@@ -141,24 +149,9 @@ class IdentifierInput extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SegmentedButton<IdentifierKind>(
-          segments: const [
-            ButtonSegment(
-              value: IdentifierKind.email,
-              label: Text('E-mail'),
-              icon: Icon(Icons.mail_outline),
-            ),
-            ButtonSegment(
-              value: IdentifierKind.phone,
-              label: Text('Téléphone'),
-              icon: Icon(Icons.phone_outlined),
-            ),
-          ],
-          selected: {kind},
-          onSelectionChanged: (s) => onKindChanged(s.first),
-        ),
-        const SizedBox(height: 16),
-        TextField(
+        _KindBar(value: kind, onChanged: onKindChanged),
+        const SizedBox(height: 20),
+        ShadInputFormField(
           key: const Key('identifier'),
           controller: controller,
           keyboardType: email
@@ -167,13 +160,105 @@ class IdentifierInput extends StatelessWidget {
           autofillHints: [
             email ? AutofillHints.email : AutofillHints.telephoneNumber,
           ],
-          decoration: InputDecoration(
-            labelText: email ? 'Adresse e-mail' : 'Numéro de téléphone',
-            hintText: email ? 'nom@exemple.com' : '+228 90 12 34 56',
+          label: Text(email ? 'Adresse e-mail' : 'Numéro de téléphone'),
+          placeholder: Text(email ? 'nom@exemple.com' : '+228 90 12 34 56'),
+          leading: Icon(
+            email ? LucideIcons.mail : LucideIcons.phone,
+            size: 18,
+            color: ShadTheme.of(context).colorScheme.mutedForeground,
           ),
           onChanged: onChanged,
         ),
       ],
+    );
+  }
+}
+
+/// E-mail or phone: a segmented control in the iOS manner, like the wallet
+/// filter.
+class _KindBar extends StatelessWidget {
+  const _KindBar({required this.value, required this.onChanged});
+  final IdentifierKind value;
+  final ValueChanged<IdentifierKind> onChanged;
+
+  static const _labels = {
+    IdentifierKind.email: 'E-mail',
+    IdentifierKind.phone: 'Téléphone',
+  };
+  static const _icons = {
+    IdentifierKind.email: LucideIcons.mail,
+    IdentifierKind.phone: LucideIcons.phone,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: colors.muted,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          for (final k in IdentifierKind.values)
+            Expanded(
+              child: Semantics(
+                button: true,
+                selected: k == value,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onChanged(k),
+                  child: AnimatedContainer(
+                    duration: VzMotion.of(context, VzMotion.standard),
+                    curve: VzMotion.easeOut,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: k == value ? colors.card : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                      boxShadow: k == value
+                          ? const [
+                              BoxShadow(
+                                color: Color(0x14000000),
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      spacing: 8,
+                      children: [
+                        Icon(
+                          _icons[k],
+                          size: 16,
+                          color: k == value
+                              ? colors.foreground
+                              : colors.mutedForeground,
+                        ),
+                        Flexible(
+                          child: Text(
+                            _labels[k]!,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.small.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: k == value
+                                  ? colors.foreground
+                                  : colors.mutedForeground,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -200,19 +285,28 @@ class _PasswordFieldState extends State<PasswordField> {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
+    final muted = ShadTheme.of(context).colorScheme.mutedForeground;
+    return ShadInputFormField(
       controller: widget.controller,
       obscureText: !_visible,
       autofillHints: [
         widget.newPassword ? AutofillHints.newPassword : AutofillHints.password,
       ],
-      decoration: InputDecoration(
-        labelText: widget.label,
-        suffixIcon: IconButton(
-          tooltip: _visible
-              ? 'Masquer le mot de passe'
-              : 'Afficher le mot de passe',
-          icon: Icon(_visible ? Icons.visibility_off : Icons.visibility),
+      label: Text(widget.label),
+      leading: Icon(LucideIcons.lock, size: 18, color: muted),
+      trailing: Tooltip(
+        message: _visible
+            ? 'Masquer le mot de passe'
+            : 'Afficher le mot de passe',
+        child: ShadIconButton.ghost(
+          width: 32,
+          height: 32,
+          padding: EdgeInsets.zero,
+          icon: Icon(
+            _visible ? LucideIcons.eyeOff : LucideIcons.eye,
+            size: 18,
+            color: muted,
+          ),
           onPressed: () => setState(() => _visible = !_visible),
         ),
       ),
@@ -238,10 +332,11 @@ class NewPasswordFields extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final theme = ShadTheme.of(context);
     final ruleBroken =
         password.text.isNotEmpty && !isValidPassword(password.text);
     final mismatch = confirm.text.isNotEmpty && confirm.text != password.text;
+    final hint = theme.textTheme.muted.copyWith(fontSize: 13);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -252,14 +347,14 @@ class NewPasswordFields extends StatelessWidget {
           newPassword: true,
           onChanged: (_) => onChanged(),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
           passwordRule,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: ruleBroken ? theme.colorScheme.error : null,
+          style: hint.copyWith(
+            color: ruleBroken ? theme.colorScheme.destructive : null,
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         PasswordField(
           key: const Key('confirm'),
           controller: confirm,
@@ -268,12 +363,10 @@ class NewPasswordFields extends StatelessWidget {
           onChanged: (_) => onChanged(),
         ),
         if (mismatch) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             'Les mots de passe ne correspondent pas',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.error,
-            ),
+            style: hint.copyWith(color: theme.colorScheme.destructive),
           ),
         ],
       ],
@@ -288,13 +381,19 @@ class CodeField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
+    return ShadInputFormField(
       key: const Key('code'),
       controller: controller,
       keyboardType: TextInputType.number,
       maxLength: 6,
       autofillHints: const [AutofillHints.oneTimeCode],
-      decoration: const InputDecoration(labelText: 'Code à 6 chiffres'),
+      label: const Text('Code à 6 chiffres'),
+      style: const TextStyle(
+        fontFamily: 'Sora',
+        fontSize: 20,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 6,
+      ),
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'theme.dart';
 
@@ -359,9 +360,9 @@ class SkeletonList extends StatelessWidget {
     physics: const NeverScrollableScrollPhysics(),
     children: [
       for (var i = 0; i < count; i++)
-        const Card(
-          margin: EdgeInsets.only(bottom: 12),
-          child: Padding(
+        const Padding(
+          padding: EdgeInsets.only(bottom: 12),
+          child: ShadCard(
             padding: EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

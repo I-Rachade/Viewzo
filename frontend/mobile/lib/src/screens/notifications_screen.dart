@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../api_client.dart';
 import '../task_models.dart';
@@ -44,7 +45,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     final items = _items;
-    final text = Theme.of(context).textTheme;
+    final theme = ShadTheme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('Notifications')),
       body: items == null
@@ -52,48 +53,145 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ? const SkeletonList()
                 : Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    child: ShadAlert.destructive(
+                      icon: const Icon(LucideIcons.circleAlert),
+                      title: Text(_error!),
                     ),
                   ))
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                 children: [
                   if (items.isEmpty)
-                    const Text('Rien de nouveau pour l’instant.'),
-                  for (final (i, n) in items.indexed)
-                    FadeSlideIn(
-                      index: i,
-                      child: Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        clipBehavior: Clip.antiAlias,
-                        child: ListTile(
-                          leading: n.read
-                              ? const Icon(Icons.notifications_none_rounded)
-                              : const Icon(
-                                  Icons.notifications_active_rounded,
-                                  color: VzColors.coral,
-                                ),
-                          title: Text(n.title),
-                          subtitle: Text(
-                            '${n.body}\n${_when(n.createdAt)}',
-                            style: text.bodySmall,
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 48),
+                      child: Column(
+                        spacing: 12,
+                        children: [
+                          Icon(
+                            LucideIcons.bell,
+                            size: 32,
+                            color: theme.colorScheme.mutedForeground,
                           ),
-                          isThreeLine: true,
-                          onTap: n.link == null || widget.onOpen == null
-                              ? null
-                              : () => widget.onOpen!(n.link!),
-                        ),
+                          Text(
+                            'Rien de nouveau pour l’instant.',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.muted,
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ShadCard(
+                      padding: EdgeInsets.zero,
+                      child: Column(
+                        children: [
+                          for (final (i, n) in items.indexed) ...[
+                            if (i > 0)
+                              const ShadSeparator.horizontal(
+                                margin: EdgeInsets.only(left: 72),
+                              ),
+                            FadeSlideIn(
+                              index: i,
+                              child: _NotificationTile(
+                                n,
+                                onTap: n.link == null || widget.onOpen == null
+                                    ? null
+                                    : () => widget.onOpen!(n.link!),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _NotificationTile extends StatelessWidget {
+  const _NotificationTile(this.n, {required this.onTap});
+  final AppNotification n;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
+    final row = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: 14,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: n.read
+                  ? colors.secondary
+                  : VzColors.coral.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              n.read ? LucideIcons.bell : LucideIcons.bellRing,
+              size: 20,
+              color: n.read ? colors.mutedForeground : VzColors.coral,
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 2,
+              children: [
+                Text(
+                  n.title,
+                  style: theme.textTheme.p.copyWith(
+                    fontWeight: n.read ? FontWeight.w600 : FontWeight.w700,
+                    height: 1.3,
+                  ),
+                ),
+                Text(
+                  n.body,
+                  style: theme.textTheme.small.copyWith(
+                    fontWeight: FontWeight.w400,
+                    height: 1.4,
+                  ),
+                ),
+                Text(
+                  _when(n.createdAt),
+                  style: theme.textTheme.muted.copyWith(
+                    fontSize: 12.5,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onTap != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 11),
+              child: Icon(
+                LucideIcons.chevronRight,
+                size: 18,
+                color: colors.mutedForeground,
+              ),
+            ),
+        ],
+      ),
+    );
+    if (onTap == null) return row;
+    return Semantics(
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Pressable(scale: 0.98, child: row),
+      ),
     );
   }
 }

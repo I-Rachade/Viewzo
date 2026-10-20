@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../session.dart';
+import '../ui/widgets.dart';
 import 'auth_widgets.dart';
 
 /// Resets a forgotten password, or sets one for accounts created before
@@ -69,59 +71,97 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   @override
   Widget build(BuildContext context) {
     final locked = lockedFor(_identifier.text);
+    final theme = ShadTheme.of(context);
+    final canSave =
+        !busy && NewPasswordFields.valid(_password.text, _confirm.text);
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
         children: [
           if (!_enteringCode) ...[
-            IdentifierInput(
-              kind: _kind,
-              controller: _identifier,
-              onKindChanged: (kind) => setState(() {
-                _kind = kind;
-                _identifier.clear();
-              }),
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: busy || locked ? null : _requestCode,
-              child: Text(
-                locked
-                    ? 'Nouveau code dans ${formatWait(wait)}'
-                    : 'Recevoir un code',
+            FadeSlideIn(
+              child: IdentifierInput(
+                kind: _kind,
+                controller: _identifier,
+                onKindChanged: (kind) => setState(() {
+                  _kind = kind;
+                  _identifier.clear();
+                }),
+                onChanged: (_) => setState(() {}),
               ),
             ),
-            if (locked)
-              TextButton(
+            const SizedBox(height: 28),
+            Pressable(
+              child: ShadButton(
+                size: ShadButtonSize.lg,
+                width: double.infinity,
+                enabled: !busy && !locked,
+                onPressed: busy || locked ? null : _requestCode,
+                child: Flexible(
+                  child: Text(
+                    locked
+                        ? 'Nouveau code dans ${formatWait(wait)}'
+                        : 'Recevoir un code',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+            if (locked) ...[
+              const SizedBox(height: 8),
+              ShadButton.ghost(
+                width: double.infinity,
                 onPressed: () => setState(() => _enteringCode = true),
-                child: const Text("J'ai déjà un code"),
+                child: const Flexible(
+                  child: Text(
+                    "J'ai déjà un code",
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
+            ],
           ] else ...[
-            Text('Code envoyé à $sentTo'),
-            const SizedBox(height: 8),
-            Text(codeHint, style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 16),
+            Text(
+              'Code envoyé à $sentTo',
+              style: theme.textTheme.p.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Text(codeHint, style: theme.textTheme.muted.copyWith(fontSize: 13)),
+            const SizedBox(height: 20),
             CodeField(controller: _code),
+            const SizedBox(height: 16),
             NewPasswordFields(
               password: _password,
               confirm: _confirm,
               onChanged: () => setState(() {}),
             ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed:
-                  busy ||
-                      !NewPasswordFields.valid(_password.text, _confirm.text)
-                  ? null
-                  : _save,
-              child: const Text('Enregistrer le mot de passe'),
+            const SizedBox(height: 28),
+            Pressable(
+              child: ShadButton(
+                size: ShadButtonSize.lg,
+                width: double.infinity,
+                enabled: canSave,
+                onPressed: canSave ? _save : null,
+                child: const Flexible(
+                  child: Text(
+                    'Enregistrer le mot de passe',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
             ),
+            const SizedBox(height: 8),
             resendButton(_requestCode),
-            TextButton(
+            ShadButton.ghost(
+              width: double.infinity,
               onPressed: () => setState(() => _enteringCode = false),
-              child: const Text("Changer d'identifiant"),
+              child: const Flexible(
+                child: Text(
+                  "Changer d'identifiant",
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ),
           ],
           errorText(),

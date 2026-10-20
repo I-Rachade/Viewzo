@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../api_client.dart';
 import '../creator_models.dart';
@@ -141,29 +142,33 @@ class _SkillsScreenState extends State<SkillsScreen> {
       body: _loading
           ? const SkeletonList(count: 2)
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               children: [
-                _section('Types de tâches acceptés'),
-                for (final type in CreatorTaskType.values)
-                  CheckboxListTile(
-                    value: _taskTypes.contains(type),
-                    title: Text(type.label),
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: (on) => setState(
-                      () =>
-                          on! ? _taskTypes.add(type) : _taskTypes.remove(type),
+                _section('Types de tâches acceptés', first: true),
+                _group([
+                  for (final type in CreatorTaskType.values)
+                    _ToggleRow(
+                      label: type.label,
+                      value: _taskTypes.contains(type),
+                      onChanged: (on) => setState(
+                        () =>
+                            on ? _taskTypes.add(type) : _taskTypes.remove(type),
+                      ),
                     ),
-                  ),
+                ]),
                 if (createsVideos) ...[
                   _section('Spécialités'),
                   _chips(CreatorSpecialty.values, (s) => s.label, _specialties),
                 ],
-                SwitchListTile(
-                  value: _showsFace,
-                  title: const Text('J’accepte de montrer mon visage'),
-                  contentPadding: EdgeInsets.zero,
-                  onChanged: (on) => setState(() => _showsFace = on),
-                ),
+                const SizedBox(height: 12),
+                _group([
+                  _ToggleRow(
+                    label: 'J’accepte de montrer mon visage',
+                    value: _showsFace,
+                    asSwitch: true,
+                    onChanged: (on) => setState(() => _showsFace = on),
+                  ),
+                ]),
                 _section('Matériel'),
                 _field(_phoneModel, 'Téléphone ou caméra (marque et modèle)'),
                 _field(_microphone, 'Micro'),
@@ -192,26 +197,42 @@ class _SkillsScreenState extends State<SkillsScreen> {
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 16),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    child: ShadAlert.destructive(
+                      icon: const Icon(LucideIcons.circleAlert),
+                      title: Text(_error!),
                     ),
                   ),
-                const SizedBox(height: 16),
-                FilledButton(
+                const SizedBox(height: 24),
+                ShadButton(
+                  size: ShadButtonSize.lg,
+                  width: double.infinity,
+                  enabled: !_busy,
                   onPressed: _busy ? null : _save,
-                  child: const Text('Enregistrer'),
+                  child: const Flexible(
+                    child: Text('Enregistrer', overflow: TextOverflow.ellipsis),
+                  ),
                 ),
               ],
             ),
     );
   }
 
-  Widget _section(String title) => Padding(
-    padding: const EdgeInsets.only(top: 16, bottom: 8),
-    child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+  Widget _section(String title, {bool first = false}) => Padding(
+    padding: EdgeInsets.only(top: first ? 8 : 28, bottom: 12),
+    child: Text(title, style: ShadTheme.of(context).textTheme.h4),
+  );
+
+  /// Rows in one card, split by hairlines, in the iOS settings manner.
+  Widget _group(List<Widget> rows) => ShadCard(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: Column(
+      children: [
+        for (final (i, row) in rows.indexed) ...[
+          if (i > 0) const ShadSeparator.horizontal(margin: EdgeInsets.zero),
+          row,
+        ],
+      ],
+    ),
   );
 
   Widget _field(
@@ -220,12 +241,13 @@ class _SkillsScreenState extends State<SkillsScreen> {
     int maxLines = 1,
     TextInputType? keyboardType,
   }) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: TextField(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: ShadInputFormField(
       controller: controller,
       maxLines: maxLines,
+      minLines: maxLines > 1 ? 3 : null,
       keyboardType: keyboardType,
-      decoration: InputDecoration(labelText: label),
+      label: Text(label),
     ),
   );
 
@@ -235,16 +257,102 @@ class _SkillsScreenState extends State<SkillsScreen> {
     Set<T> selected,
   ) => Wrap(
     spacing: 8,
-    runSpacing: 4,
+    runSpacing: 8,
     children: [
       for (final option in options)
-        FilterChip(
-          label: Text(label(option)),
+        _Choice(
+          label: label(option),
           selected: selected.contains(option),
-          onSelected: (on) => setState(
-            () => on ? selected.add(option) : selected.remove(option),
+          onTap: () => setState(
+            () => selected.contains(option)
+                ? selected.remove(option)
+                : selected.add(option),
           ),
         ),
     ],
   );
+}
+
+/// A label with a checkbox, or a switch, at the end; the whole row toggles.
+class _ToggleRow extends StatelessWidget {
+  const _ToggleRow({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.asSwitch = false,
+  });
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final bool asSwitch;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    return Semantics(
+      toggled: asSwitch ? value : null,
+      checked: asSwitch ? null : value,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onChanged(!value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Row(
+            spacing: 12,
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.p.copyWith(
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+              if (asSwitch)
+                ShadSwitch(value: value, onChanged: onChanged)
+              else
+                ShadCheckbox(value: value, size: 20, onChanged: onChanged),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A toggle button for one option of a multiple choice.
+class _Choice extends StatelessWidget {
+  const _Choice({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    return Semantics(
+      selected: selected,
+      child: ShadButton.raw(
+        variant: selected
+            ? ShadButtonVariant.secondary
+            : ShadButtonVariant.outline,
+        size: ShadButtonSize.sm,
+        onPressed: onTap,
+        leading: selected
+            ? Icon(LucideIcons.check, size: 16, color: colors.primary)
+            : null,
+        decoration: selected
+            ? ShadDecoration(
+                border: ShadBorder.all(color: colors.primary, width: 1.5),
+              )
+            : null,
+        child: Text(label),
+      ),
+    );
+  }
 }

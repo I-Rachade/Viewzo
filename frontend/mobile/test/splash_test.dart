@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:viewzo/main.dart';
 import 'package:viewzo/src/api_client.dart';
 import 'package:viewzo/src/screens/splash_screen.dart';
@@ -28,6 +29,7 @@ void main() {
     expect(find.text('+12 vues'), findsOne);
     expect(find.text('+60 F'), findsOne);
     expect(find.text('Tes vues, payées. Partout dans le monde.'), findsOne);
+    expect(find.widgetWithText(ShadButton, 'Commencer à gagner'), findsOne);
 
     await tester.tap(find.text('Commencer à gagner'));
     await tester.pumpAndSettle();
@@ -37,7 +39,7 @@ void main() {
 
   testWidgets('goes straight on when already signed in', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(
+      const VzApp(
         home: SplashScreen(next: Text('Accueil'), waitForStart: false),
       ),
     );
