@@ -80,28 +80,72 @@ class ApiException implements Exception {
 
 class ApiClient {
   ApiClient({http.Client? client, this.baseUrl = apiUrl})
-    : _client = client ?? http.Client();
+    : _raw = client ?? http.Client() {
+    _client = _RenewingClient(_raw, this);
+  }
 
-  final http.Client _client;
+  final http.Client _raw;
+  late final http.Client _client;
   final String baseUrl;
+
+  /// Short-lived; renewed with [refreshToken] when the API refuses it.
   String? token;
+  String? refreshToken;
+
+  /// Called after a renewal or when the session ended, to save the tokens.
+  Future<void> Function()? onTokensChanged;
+
+  Future<bool>? _refreshing;
+
+  /// Swaps the refresh token for new tokens; false when the session is over.
+  Future<bool> renew() {
+    return _refreshing ??= _renew().whenComplete(() => _refreshing = null);
+  }
+
+  Future<bool> _renew() async {
+    final current = refreshToken;
+    if (current == null) return false;
+    final res = await _raw.post(
+      Uri.parse('$baseUrl/auth/refresh'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'refreshToken': current}),
+    );
+    if (res.statusCode == 401) {
+      token = null;
+      refreshToken = null;
+      await onTokensChanged?.call();
+      return false;
+    }
+    if (res.statusCode >= 400) return false;
+    _keepTokens(_decode(res));
+    await onTokensChanged?.call();
+    return true;
+  }
+
+  /// Ends the session on the server; the tokens are forgotten either way.
+  Future<void> logout() async {
+    final current = refreshToken;
+    token = null;
+    refreshToken = null;
+    if (current == null) return;
+    try {
+      await _raw.post(
+        Uri.parse('$baseUrl/auth/logout'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'refreshToken': current}),
+      );
+    } catch (_) {
+      // Offline: the server session expires on its own.
+    }
+  }
+
+  void _keepTokens(Map<String, dynamic> body) {
+    token = body['accessToken'] as String;
+    refreshToken = body['refreshToken'] as String?;
+  }
 
   /// Random id kept on this phone; the team sees when accounts share one.
   String? deviceId;
-
-  Future<String> requestCode(String phone) async {
-    final body = await _post('/auth/otp/request', {'phone': phone});
-    return body['phone'] as String;
-  }
-
-  Future<UserView> verifyCode(String phone, String code) async {
-    final body = await _post('/auth/otp/verify', {
-      'phone': phone,
-      'code': code,
-    });
-    token = body['accessToken'] as String;
-    return UserView.fromJson(body['user'] as Map<String, dynamic>);
-  }
 
   /// [identifier] is an e-mail address or a phone number.
   Future<String> registerStart(String identifier) async {
@@ -185,7 +229,7 @@ class ApiClient {
   }
 
   UserView _signIn(Map<String, dynamic> body) {
-    token = body['accessToken'] as String;
+    _keepTokens(body);
     return UserView.fromJson(body['user'] as Map<String, dynamic>);
   }
 
@@ -442,4 +486,57 @@ class ApiClient {
     }
     return body;
   }
+}
+
+/// Adds the access token to every request and, when the API says it
+/// expired, renews it once and sends the request again.
+class _RenewingClient extends http.BaseClient {
+  _RenewingClient(this._inner, this._api);
+  final http.Client _inner;
+  final ApiClient _api;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (request.url.path.startsWith('/auth/') || _api.token == null) {
+      return _inner.send(request);
+    }
+    // Renew ahead of time: an upload can't be sent twice.
+    if (_expiresSoon(_api.token!)) await _api.renew();
+    // A plain request can be sent twice; keep its body for the retry.
+    final retry = request is http.Request ? _copy(request) : null;
+    _authorize(request);
+    final res = await _inner.send(request);
+    if (res.statusCode != 401 || _api.refreshToken == null) return res;
+    if (!await _api.renew()) return res;
+    if (retry == null) return res;
+    await res.stream.drain<void>();
+    _authorize(retry);
+    return _inner.send(retry);
+  }
+
+  /// Whether the access token expires within the next 30 seconds.
+  static bool _expiresSoon(String token) {
+    try {
+      final payload = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(token.split('.')[1]))),
+      );
+      final exp = (payload as Map<String, dynamic>)['exp'] as int;
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      return exp - now < 30;
+    } catch (_) {
+      // Not a token we can read: let the API decide.
+      return false;
+    }
+  }
+
+  void _authorize(http.BaseRequest request) {
+    final token = _api.token;
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+  }
+
+  http.Request _copy(http.Request r) => http.Request(r.method, r.url)
+    ..headers.addAll(r.headers)
+    ..bodyBytes = r.bodyBytes
+    ..followRedirects = r.followRedirects
+    ..maxRedirects = r.maxRedirects;
 }
