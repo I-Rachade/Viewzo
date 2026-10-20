@@ -30,8 +30,9 @@ export class StaffAccountsController {
     @Req() req: StaffRequest,
     @Query('status', new ParseEnumPipe(AccountStatus, { optional: true }))
     status?: AccountStatus,
+    @Query('auto') auto?: string,
   ) {
-    return this.accounts.queue(req.staff, status);
+    return this.accounts.queue(req.staff, status, auto === '1');
   }
 
   @Get('by-code/:code')

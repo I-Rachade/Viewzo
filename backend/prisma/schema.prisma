@@ -70,21 +70,21 @@ model User {
 // A signed-in device. The refresh token is stored hashed and replaced on
 // every use; a reused (stolen) token ends the whole family.
 model Session {
-  id         String    @id @default(uuid())
-  userId     String
+  id                String    @id @default(uuid())
+  userId            String
   // sha256 of the current refresh token.
-  tokenHash  String    @unique
+  tokenHash         String    @unique
   // The token it replaced, accepted without alarm for a few seconds: two
   // browser tabs may refresh at the same moment with the same cookie.
   previousTokenHash String?
   rotatedAt         DateTime?
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  lastUsedAt DateTime  @default(now())
-  userAgent  String?
-  ip         String?
-  createdAt  DateTime  @default(now())
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  lastUsedAt        DateTime  @default(now())
+  userAgent         String?
+  ip                String?
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
 }
@@ -172,30 +172,55 @@ enum AccountStatus {
   SUSPENDED // Suspendu (fraude ou plainte)
 }
 
+// Who gave the follower count the team relies on.
+enum FollowersSource {
+  CREATOR // declared by the creator, confirmed by the team
+  ADMIN // entered by the team
+  SYSTEM // read from the platform
+}
+
+// Why the system refused an account on its own, before anyone reviewed it.
+enum AutoRejection {
+  NOT_FOUND // Compte introuvable
+  ANONYMOUS // Compte anonyme
+}
+
 // A creator's account on one network, verified before tasks are offered on it.
 model SocialAccount {
-  id               String          @id @default(uuid())
-  userId           String
-  network          SocialNetwork
+  id                      String           @id @default(uuid())
+  userId                  String
+  network                 SocialNetwork
   // Handle or profile link; for WhatsApp Statut the phone number used.
-  handle           String
+  handle                  String
+  // The handle without @, link or case, so one account is only claimed once.
+  handleKey               String
   // Unique code placed in the bio, or sent by WhatsApp to the verification number.
-  verificationCode String          @unique
-  status           AccountStatus   @default(PENDING)
+  verificationCode        String           @unique
+  status                  AccountStatus    @default(PENDING)
   // What the creator must fix, or why the account is not eligible or suspended.
-  statusReason     String?
-  retryAfter       DateTime?
+  statusReason            String?
+  retryAfter              DateTime?
   // Last time the account was (re)sent to verification; review is due within 48 h.
-  submittedAt      DateTime        @default(now())
-  followers        Int?
+  submittedAt             DateTime         @default(now())
+  followers               Int?
   // WhatsApp Statut only: average viewers per status.
-  avgStatusViews   Int?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reviews          AccountReview[]
+  avgStatusViews          Int?
+  // What the creator said when adding the account (viewers per status for
+  // WhatsApp Statut); the team confirms it into followers or avgStatusViews.
+  declaredFollowers       Int?
+  followersSource         FollowersSource?
+  // The creator confirmed the account is theirs and not anonymous.
+  notAnonymousConfirmedAt DateTime?
+  autoRejection           AutoRejection?
+  // Last time the platform was asked about the account.
+  autoCheckedAt           DateTime?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews                 AccountReview[]
 
   @@unique([userId, network])
+  @@unique([network, handleKey])
 }
 
 // Every verification decision and its reason, kept for audit even after the

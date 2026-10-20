@@ -108,6 +108,7 @@ describe('Posts, proofs and reports (e2e)', () => {
           userId: creatorId,
           network: 'WHATSAPP_STATUS',
           handle: '+22895000002',
+          handleKey: '22895000002',
           verificationCode: 'VZ-900001',
           status: 'ELIGIBLE',
           avgStatusViews: 1000,
@@ -116,6 +117,7 @@ describe('Posts, proofs and reports (e2e)', () => {
           userId: creatorId,
           network: 'TIKTOK',
           handle: '@ama',
+          handleKey: 'ama',
           verificationCode: 'VZ-900002',
           status: 'ELIGIBLE',
           followers: 5000,
@@ -487,6 +489,18 @@ describe('Posts, proofs and reports (e2e)', () => {
       .get('/me/connections/TIKTOK/start')
       .set(auth(creator))
       .expect(400);
+    // Configured apps stay unused while connecting by login is switched off.
+    process.env.TIKTOK_CLIENT_KEY = 'key';
+    process.env.TIKTOK_CLIENT_SECRET = 'secret';
+    try {
+      await http()
+        .get('/me/connections/TIKTOK/start')
+        .set(auth(creator))
+        .expect(400);
+    } finally {
+      delete process.env.TIKTOK_CLIENT_KEY;
+      delete process.env.TIKTOK_CLIENT_SECRET;
+    }
     const res = await http()
       .get('/connections/tiktok/callback?code=abc&state=forged.sig')
       .expect(302);

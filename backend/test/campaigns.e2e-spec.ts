@@ -103,6 +103,7 @@ describe('Campaigns and tasks (e2e)', () => {
         userId: c.id,
         network: 'TIKTOK',
         handle: '@kossi',
+        handleKey: 'kossi',
         verificationCode: 'VZ-900001',
         status: 'ELIGIBLE',
         followers: 12_400,
@@ -242,6 +243,26 @@ describe('Campaigns and tasks (e2e)', () => {
       campaign: { hashtag: `#${campaign.code}` },
     });
     expect(task).not.toHaveProperty('budget');
+    expect(task).toMatchObject({ locked: false });
+
+    // Without an eligible account on the network the task shows locked and
+    // cannot be accepted.
+    await prisma.socialAccount.updateMany({
+      where: { handleKey: 'kossi' },
+      data: { status: 'PENDING' },
+    });
+    tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
+    expect(tasks.body).toEqual([
+      expect.objectContaining({ id: task.id, locked: true }),
+    ]);
+    await http()
+      .post(`/tasks/${task.id}/accept`)
+      .set(auth(creator))
+      .expect(403);
+    await prisma.socialAccount.updateMany({
+      where: { handleKey: 'kossi' },
+      data: { status: 'ELIGIBLE' },
+    });
 
     await http()
       .post(`/tasks/${task.id}/accept`)
@@ -341,9 +362,15 @@ describe('Campaigns and tasks (e2e)', () => {
       },
     });
     tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
-    // Only TikTok: the creator has no eligible Instagram account.
-    expect((tasks.body as TaskView[]).map((t) => t.network)).toEqual([
-      'TIKTOK',
+    // Instagram comes last, locked: the creator has no eligible account there.
+    expect(
+      (tasks.body as (TaskView & { locked: boolean })[]).map((t) => [
+        t.network,
+        t.locked,
+      ]),
+    ).toEqual([
+      ['TIKTOK', false],
+      ['INSTAGRAM', true],
     ]);
     expect((tasks.body as TaskView[])[0].creatorRatePer1000).toBe(585);
   });
