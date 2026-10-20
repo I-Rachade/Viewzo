@@ -6,12 +6,17 @@ import 'package:viewzo/main.dart';
 import 'package:viewzo/src/api_client.dart';
 import 'package:viewzo/src/session.dart';
 
+import 'memory_store.dart';
+
 void main() {
   testWidgets('opens on the animated mark, then the login screen', (
     tester,
   ) async {
     final client = MockClient((_) async => http.Response('{}', 404));
-    final session = Session(ApiClient(client: client, baseUrl: 'http://test'));
+    final session = Session(
+      ApiClient(client: client, baseUrl: 'http://test'),
+      store: MemoryStore(),
+    );
 
     await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
     await tester.pump(const Duration(milliseconds: 1200));

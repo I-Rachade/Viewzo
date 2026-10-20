@@ -73,6 +73,8 @@ export function proofPlan(
   };
 }
 
+export const MAX_PROOFS_PER_POST = 20;
+
 export interface ProofSource {
   deviceId?: string;
   ip?: string;
@@ -94,6 +96,7 @@ export class ProofsService {
     source: ProofSource,
   ) {
     const assignment = await this.owned(creatorId, assignmentId);
+    await this.assertRoom(this.prisma, assignmentId);
     const saved = await this.storage.save(file);
     const capturedAt = input.capturedAt ? new Date(input.capturedAt) : null;
     if (capturedAt && capturedAt.getTime() > Date.now() + 5 * 60 * 1000) {
@@ -150,6 +153,7 @@ export class ProofsService {
     url: string,
     source: ProofSource,
   ) {
+    await this.assertRoom(tx, assignment.id);
     await tx.postProof.create({
       data: {
         assignmentId: assignment.id,
@@ -160,6 +164,19 @@ export class ProofsService {
       },
     });
     return this.backToReview(assignment);
+  }
+
+  // Enough for a full WhatsApp schedule plus corrections; stops disk filling.
+  private async assertRoom(
+    db: Prisma.TransactionClient | PrismaService,
+    assignmentId: string,
+  ) {
+    const count = await db.postProof.count({ where: { assignmentId } });
+    if (count >= MAX_PROOFS_PER_POST) {
+      throw new BadRequestException(
+        'Trop de preuves pour cette publication, contacte le support',
+      );
+    }
   }
 
   /** Throws when the team refused the post: nothing more can be sent. */

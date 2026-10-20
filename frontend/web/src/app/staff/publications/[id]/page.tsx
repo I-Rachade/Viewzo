@@ -22,12 +22,23 @@ import { RiskBadge } from "../../_sections/risk-badge";
 import { DATE } from "../../_sections/use-queue";
 import { useSession } from "../../../_shell/session";
 import { useStaffOnly } from "../../_sections/use-staff";
+import { confirmed } from "../../_sections/confirm";
 
 const SOURCE_LABELS = {
   CREATOR: "déclaré avec une capture",
   STAFF: "validé par l’équipe",
   API: "relevé sur la plateforme",
 } as const;
+
+// Decisions that pay or can't be taken back are confirmed first.
+const CONFIRM: Partial<Record<PostDecision, (views: number) => string>> = {
+  VALIDATE: (views) =>
+    `Valider ${views.toLocaleString("fr-FR")} vues ? Le créateur est payé pour ces vues.`,
+  REJECT: () =>
+    "Refuser cette publication ? Les gains encore bloqués sont repris et le créateur ne pourra plus rien envoyer.",
+  SUSPEND_ACCOUNT: () =>
+    "Suspendre ce compte réseau ? Le créateur ne recevra plus de tâches sur ce réseau.",
+};
 
 // Everything about one post, and the decisions the team can take on it.
 export default function PostDossierPage() {
@@ -64,6 +75,8 @@ export default function PostDossierPage() {
       setError("Écris la raison, le créateur la verra.");
       return;
     }
+    const question = CONFIRM[decision];
+    if (question && !confirmed(question(views))) return;
     setBusy(true);
     setError(null);
     try {

@@ -23,8 +23,12 @@ import {
   SocialNetwork,
 } from '@prisma/client';
 import { randomInt } from 'crypto';
+import { AuditService } from '../audit/audit.service';
+import { assertCountry, assertNotSelf, countryScope } from '../auth/staff';
+import type { StaffActor } from '../auth/staff';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ProofSource, ProofsService } from '../posts/proofs.service';
+import { linkMatchesNetwork } from '../posts/risk';
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
@@ -50,6 +54,7 @@ export class CampaignsService {
     private readonly wallet: WalletService,
     private readonly proofs: ProofsService,
     private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
   ) {}
 
   quote(pkg: CampaignPackage, budget: number, platforms: SocialNetwork[]) {
@@ -95,13 +100,11 @@ export class CampaignsService {
     if (new Set(networks).size !== networks.length) {
       throw new BadRequestException('Chaque plateforme une seule fois');
     }
-    if (profile.level < 2) {
-      if (dto.package !== CampaignPackage.BASIC) {
-        throw new ForbiddenException(
-          'Vérifie ton compte pour accéder aux autres packages',
-        );
-      }
-      await this.assertMonthlyBudget(advertiserId, dto.budget);
+    const unverified = profile.level < 2;
+    if (unverified && dto.package !== CampaignPackage.BASIC) {
+      throw new ForbiddenException(
+        'Vérifie ton compte pour accéder aux autres packages',
+      );
     }
 
     const { overLimit } = platformOptions(dto.package, dto.budget, networks);
@@ -114,7 +117,13 @@ export class CampaignsService {
     this.assertContent(dto);
     const allocation = this.allocate(dto);
 
-    const campaign = await this.createWithCode({
+    // The monthly cap is checked under a lock, so parallel requests can't
+    // both fit under it.
+    const guard = unverified
+      ? (tx: Prisma.TransactionClient) =>
+          this.assertMonthlyBudget(tx, advertiserId, dto.budget)
+      : undefined;
+    const campaign = await this.createWithCode(guard, {
       advertiserId,
       title: dto.title.trim(),
       objective: dto.objective,
@@ -173,9 +182,13 @@ export class CampaignsService {
   }
 
   // Back-office: campaigns waiting for moderation, oldest first.
-  async queue(status: CampaignStatus = CampaignStatus.PENDING_REVIEW) {
+  async queue(
+    actor: StaffActor,
+    status: CampaignStatus = CampaignStatus.PENDING_REVIEW,
+  ) {
+    const scope = countryScope(actor);
     const campaigns = await this.prisma.campaign.findMany({
-      where: { status },
+      where: { status, ...(scope ? { countries: { hasSome: scope } } : {}) },
       orderBy: { createdAt: 'asc' },
       include: {
         tasks: { orderBy: { position: 'asc' } },
@@ -187,31 +200,60 @@ export class CampaignsService {
       ...this.toAdvertiserView(c),
       // The moderator checks the provided assets before anything is posted.
       assetUrls: c.assetUrls,
+      advertiserId: c.advertiserId,
       advertiser: c.advertiser,
     }));
   }
 
-  async review(reviewerId: string, id: string, dto: ReviewCampaignDto) {
+  async review(actor: StaffActor, id: string, dto: ReviewCampaignDto) {
     const campaign = await this.prisma.campaign.findUnique({ where: { id } });
     if (!campaign) throw new NotFoundException();
+    assertCountry(actor, campaign.countries);
+    assertNotSelf(actor, campaign.advertiserId);
     if (campaign.status !== CampaignStatus.PENDING_REVIEW) {
       throw new ConflictException('Campagne déjà traitée');
     }
     const reason = dto.reason?.trim() || null;
     const updated = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.campaign.update({
-        where: { id },
+      // Payments to this campaign wait until the decision is saved.
+      await this.wallet.lock(tx, `campaign:${id}`);
+      // Only one decision wins, even on a double click or two moderators.
+      const claimed = await tx.campaign.updateMany({
+        where: { id, status: CampaignStatus.PENDING_REVIEW },
         data: { status: dto.status, statusReason: reason },
-        include: { tasks: { orderBy: { position: 'asc' } } },
       });
+      if (claimed.count === 0) {
+        throw new ConflictException('Campagne déjà traitée');
+      }
       await tx.campaignReview.create({
-        data: { campaignId: id, reviewerId, status: dto.status, reason },
+        data: {
+          campaignId: id,
+          reviewerId: actor.userId,
+          status: dto.status,
+          reason,
+        },
       });
       // A refused campaign gives its escrow back to the advertiser.
-      if (dto.status === CampaignStatus.REJECTED) {
-        await this.wallet.refundCampaign(tx, campaign);
-      }
-      return result;
+      const refunded =
+        dto.status === CampaignStatus.REJECTED
+          ? await this.wallet.refundCampaign(tx, id)
+          : 0;
+      await this.audit.record(tx, {
+        actor,
+        action:
+          dto.status === CampaignStatus.ACTIVE
+            ? 'CAMPAIGN_APPROVE'
+            : 'CAMPAIGN_REJECT',
+        entity: 'Campaign',
+        entityId: id,
+        before: { status: campaign.status },
+        after: { status: dto.status, refunded },
+        reason,
+      });
+      return tx.campaign.findUniqueOrThrow({
+        where: { id },
+        include: { tasks: { orderBy: { position: 'asc' } } },
+      });
     });
     await this.notifications.notify(campaign.advertiserId, {
       type: NotificationType.CAMPAIGN_REVIEWED,
@@ -369,6 +411,14 @@ export class CampaignsService {
       throw new NotFoundException();
     }
     this.proofs.assertOpen(assignment);
+    if (
+      !postUrl.startsWith('https://') ||
+      !linkMatchesNetwork(assignment.task.network, postUrl)
+    ) {
+      throw new BadRequestException(
+        "Ce lien n'est pas une publication du bon réseau",
+      );
+    }
     if (assignment.task.campaign.endsAt <= new Date()) {
       throw new BadRequestException('Échéance dépassée');
     }
@@ -401,11 +451,16 @@ export class CampaignsService {
     );
   }
 
-  private async assertMonthlyBudget(advertiserId: string, budget: number) {
+  private async assertMonthlyBudget(
+    tx: Prisma.TransactionClient,
+    advertiserId: string,
+    budget: number,
+  ) {
+    await this.wallet.lock(tx, `monthly-budget:${advertiserId}`);
     const start = new Date();
     start.setUTCDate(1);
     start.setUTCHours(0, 0, 0, 0);
-    const spent = await this.prisma.campaign.aggregate({
+    const spent = await tx.campaign.aggregate({
       where: {
         advertiserId,
         createdAt: { gte: start },
@@ -479,13 +534,17 @@ export class CampaignsService {
   }
 
   private async createWithCode(
+    guard: ((tx: Prisma.TransactionClient) => Promise<void>) | undefined,
     data: Omit<Prisma.CampaignUncheckedCreateInput, 'code'>,
   ) {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.prisma.campaign.create({
-          data: { ...data, code: `VZ${randomInt(1000, 1_000_000)}` },
-          include: { tasks: { orderBy: { position: 'asc' } } },
+        return await this.prisma.$transaction(async (tx) => {
+          if (guard) await guard(tx);
+          return tx.campaign.create({
+            data: { ...data, code: `VZ${randomInt(1000, 1_000_000)}` },
+            include: { tasks: { orderBy: { position: 'asc' } } },
+          });
         });
       } catch (e) {
         if (

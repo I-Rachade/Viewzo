@@ -13,7 +13,8 @@ import {
 } from '@nestjs/common';
 import { AccountStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import type { AuthUser } from '../auth/jwt.strategy';
+import { MODERATION, StaffRoles } from '../auth/staff';
+import type { StaffRequest } from '../auth/staff';
 import { StaffGuard } from '../auth/staff.guard';
 import { AccountsService } from './accounts.service';
 import { ReviewAccountDto } from './dto/review-account.dto';
@@ -26,24 +27,26 @@ export class StaffAccountsController {
 
   @Get()
   queue(
+    @Req() req: StaffRequest,
     @Query('status', new ParseEnumPipe(AccountStatus, { optional: true }))
     status?: AccountStatus,
   ) {
-    return this.accounts.queue(status);
+    return this.accounts.queue(req.staff, status);
   }
 
   @Get('by-code/:code')
-  byCode(@Param('code') code: string) {
-    return this.accounts.findByCode(code);
+  byCode(@Req() req: StaffRequest, @Param('code') code: string) {
+    return this.accounts.findByCode(req.staff, code);
   }
 
   @Post(':id/review')
+  @StaffRoles(...MODERATION)
   @HttpCode(200)
   review(
-    @Req() req: { user: AuthUser },
+    @Req() req: StaffRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReviewAccountDto,
   ) {
-    return this.accounts.review(req.user.userId, id, dto);
+    return this.accounts.review(req.staff, id, dto);
   }
 }

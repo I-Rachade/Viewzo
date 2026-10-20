@@ -24,7 +24,10 @@ import {
   ViewSource,
 } from '@prisma/client';
 import { randomBytes } from 'crypto';
+import { AuditService } from '../audit/audit.service';
 import { parsePhone } from '../auth/phone';
+import { assertCountry, assertNotSelf, countryScope } from '../auth/staff';
+import type { StaffActor } from '../auth/staff';
 import { PrismaService } from '../prisma/prisma.service';
 import { DepositDto } from './dto/deposit.dto';
 import { FundCampaignDto } from './dto/fund-campaign.dto';
@@ -37,12 +40,18 @@ import {
   payableViews,
 } from './earnings';
 import { FLUTTERWAVE_OPERATORS } from './gateways/flutterwave.gateway';
-import { GatewayStatus, PayinResult } from './gateways/gateway';
+import {
+  GatewayNotConfigured,
+  GatewayStatus,
+  PayinResult,
+} from './gateways/gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentRouter } from './payment-router';
 
 const CURRENCY = 'XOF';
 const DEFAULT_MIN_WITHDRAWAL = 1_000;
+// From this amount a second finance member must approve a withdrawal.
+const DEFAULT_SECOND_APPROVAL_FROM = 100_000;
 
 type Tx = Prisma.TransactionClient;
 
@@ -55,6 +64,7 @@ export class WalletService {
     private readonly config: ConfigService,
     private readonly router: PaymentRouter,
     private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
   ) {}
 
   async summary(userId: string) {
@@ -137,6 +147,7 @@ export class WalletService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, `campaign:${campaignId}`);
       await this.lock(tx, userId);
       const fresh = await tx.campaign.findUniqueOrThrow({
         where: { id: campaignId },
@@ -257,9 +268,17 @@ export class WalletService {
 
   // ---- Back-office ------------------------------------------------------
 
-  async withdrawalQueue(status: PaymentStatus = PaymentStatus.REQUESTED) {
+  async withdrawalQueue(
+    actor: StaffActor,
+    status: PaymentStatus = PaymentStatus.REQUESTED,
+  ) {
+    const scope = countryScope(actor);
     const payments = await this.prisma.payment.findMany({
-      where: { kind: PaymentKind.PAYOUT, status },
+      where: {
+        kind: PaymentKind.PAYOUT,
+        status,
+        ...(scope ? { user: { country: { in: scope } } } : {}),
+      },
       orderBy: { createdAt: 'asc' },
       take: 100,
       include: {
@@ -277,46 +296,115 @@ export class WalletService {
       beneficiaryName: p.beneficiaryName,
       phone: p.phone,
       operator: p.operator,
+      userId: p.userId,
       user: p.user,
+      needsSecondApproval: p.amount >= this.secondApprovalFrom(),
+      firstApprovedById: p.firstApprovedById,
     }));
   }
 
   async reviewWithdrawal(
-    staffId: string,
+    actor: StaffActor,
     id: string,
     decision: 'APPROVE' | 'REJECT',
     reason?: string,
   ) {
-    const payment = await this.prisma.payment.findUnique({ where: { id } });
-    if (!payment || payment.kind !== PaymentKind.PAYOUT) {
-      throw new NotFoundException();
-    }
-    // Claim the request so two staff members can't send it twice.
-    const claimed = await this.prisma.payment.updateMany({
-      where: { id, status: PaymentStatus.REQUESTED },
-      data: {
-        status:
-          decision === 'APPROVE'
-            ? PaymentStatus.PROCESSING
-            : PaymentStatus.REJECTED,
-        reviewedById: staffId,
-        failureReason: decision === 'REJECT' ? reason?.trim() || null : null,
-      },
-    });
-    if (claimed.count === 0) {
-      throw new ConflictException('Retrait déjà traité');
-    }
+    const payment = await this.staffPayment(actor, id);
+    const note = reason?.trim() || null;
 
     if (decision === 'REJECT') {
-      await this.prisma.transaction.update({
-        where: { paymentId: id },
-        data: { status: TransactionStatus.CANCELLED, note: reason?.trim() },
-      });
-      const rejected = await this.prisma.payment.findUniqueOrThrow({
-        where: { id },
+      const rejected = await this.prisma.$transaction(async (tx) => {
+        // Claim the request so two members can't decide on it twice.
+        const claimed = await tx.payment.updateMany({
+          where: { id, status: PaymentStatus.REQUESTED },
+          data: {
+            status: PaymentStatus.REJECTED,
+            reviewedById: actor.userId,
+            failureReason: note,
+          },
+        });
+        if (claimed.count === 0) {
+          throw new ConflictException('Retrait déjà traité');
+        }
+        await tx.transaction.update({
+          where: { paymentId: id },
+          data: {
+            status: TransactionStatus.CANCELLED,
+            note: note ?? undefined,
+          },
+        });
+        await this.audit.record(tx, {
+          actor,
+          action: 'WITHDRAWAL_REJECT',
+          entity: 'Payment',
+          entityId: id,
+          before: { status: payment.status },
+          after: { status: PaymentStatus.REJECTED },
+          reason: note,
+        });
+        return tx.payment.findUniqueOrThrow({ where: { id } });
       });
       await this.notifyWithdrawal(rejected);
       return this.toPaymentView(rejected);
+    }
+
+    // Four eyes: a large withdrawal needs two different finance members.
+    if (payment.amount >= this.secondApprovalFrom()) {
+      if (!payment.firstApprovedById) {
+        const first = await this.prisma.$transaction(async (tx) => {
+          const claimed = await tx.payment.updateMany({
+            where: {
+              id,
+              status: PaymentStatus.REQUESTED,
+              firstApprovedById: null,
+            },
+            data: {
+              firstApprovedById: actor.userId,
+              firstApprovedAt: new Date(),
+            },
+          });
+          if (claimed.count === 0) {
+            throw new ConflictException('Retrait déjà traité');
+          }
+          await this.audit.record(tx, {
+            actor,
+            action: 'WITHDRAWAL_FIRST_APPROVAL',
+            entity: 'Payment',
+            entityId: id,
+            reason: note,
+          });
+          return tx.payment.findUniqueOrThrow({ where: { id } });
+        });
+        return { ...this.toPaymentView(first), awaitingSecondApproval: true };
+      }
+      if (payment.firstApprovedById === actor.userId) {
+        throw new ConflictException(
+          'Un deuxième membre de la finance doit valider ce retrait',
+        );
+      }
+    }
+
+    // Claim the request so two members can't send it twice.
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.payment.updateMany({
+        where: { id, status: PaymentStatus.REQUESTED },
+        data: { status: PaymentStatus.PROCESSING, reviewedById: actor.userId },
+      });
+      if (result.count > 0) {
+        await this.audit.record(tx, {
+          actor,
+          action: 'WITHDRAWAL_APPROVE',
+          entity: 'Payment',
+          entityId: id,
+          before: { status: PaymentStatus.REQUESTED },
+          after: { status: PaymentStatus.PROCESSING },
+          reason: note,
+        });
+      }
+      return result.count;
+    });
+    if (claimed === 0) {
+      throw new ConflictException('Retrait déjà traité');
     }
 
     const { country } = parsePhone(payment.phone, 'TG');
@@ -337,13 +425,21 @@ export class WalletService {
         notifyUrl: this.notifyUrl(payment.provider),
       });
     } catch (e) {
-      // Nothing was sent: back in the queue with the reason.
+      const message = e instanceof Error ? e.message : 'Erreur du fournisseur';
+      if (e instanceof GatewayNotConfigured) {
+        // Nothing was sent: back in the queue with the reason.
+        await this.prisma.payment.update({
+          where: { id },
+          data: { status: PaymentStatus.REQUESTED, failureReason: message },
+        });
+        throw e;
+      }
+      // The provider may have paid before failing or timing out. Never send
+      // again automatically: finance checks and resolves it by hand.
       await this.prisma.payment.update({
         where: { id },
         data: {
-          status: PaymentStatus.REQUESTED,
-          failureReason:
-            e instanceof Error ? e.message : 'Erreur du fournisseur',
+          failureReason: `À vérifier chez le fournisseur avant toute action : ${message}`,
         },
       });
       throw e;
@@ -357,11 +453,47 @@ export class WalletService {
     );
   }
 
+  /**
+   * Finance closes a withdrawal whose provider answer was lost, after checking
+   * the provider's dashboard: sent, or failed and back on the balance.
+   */
+  async resolvePayout(
+    actor: StaffActor,
+    id: string,
+    outcome: 'SUCCEEDED' | 'FAILED',
+    reason: string,
+  ) {
+    const payment = await this.staffPayment(actor, id);
+    if (payment.status !== PaymentStatus.PROCESSING) {
+      throw new ConflictException('Ce retrait n’est pas en cours');
+    }
+    const updated = await this.applyPayout(payment, outcome, reason, actor);
+    return this.toPaymentView(updated);
+  }
+
   /** Re-reads a payment's status from its provider (stuck payments). */
-  async refreshById(id: string) {
-    const payment = await this.prisma.payment.findUnique({ where: { id } });
+  async refreshById(actor: StaffActor, id: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id },
+      include: { user: { select: { country: true } } },
+    });
     if (!payment) throw new NotFoundException();
+    assertCountry(actor, payment.user.country);
     return this.toPaymentView(await this.refresh(payment));
+  }
+
+  /** A payout the back-office acts on: in scope and not the member's own. */
+  private async staffPayment(actor: StaffActor, id: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id },
+      include: { user: { select: { country: true } } },
+    });
+    if (!payment || payment.kind !== PaymentKind.PAYOUT) {
+      throw new NotFoundException();
+    }
+    assertCountry(actor, payment.user.country);
+    assertNotSelf(actor, payment.userId);
+    return payment;
   }
 
   /**
@@ -371,13 +503,20 @@ export class WalletService {
   async recordViews(
     assignmentId: string,
     totalViews: number,
-    reviewerId?: string,
+    actor: StaffActor,
+    // Validating a post that was refused before puts it back in review.
+    reopen = false,
   ) {
     const assignment = await this.prisma.taskAssignment.findUnique({
       where: { id: assignmentId },
-      include: { task: { include: { campaign: true } } },
+      include: {
+        task: { include: { campaign: true } },
+        creator: { select: { country: true } },
+      },
     });
     if (!assignment) throw new NotFoundException();
+    assertCountry(actor, assignment.creator.country);
+    assertNotSelf(actor, assignment.creatorId);
     if (assignment.status !== AssignmentStatus.SUBMITTED) {
       throw new BadRequestException(
         'Le lien de la publication n’a pas été envoyé',
@@ -386,7 +525,7 @@ export class WalletService {
     if (!assignment.task.campaign.fundedAt) {
       throw new BadRequestException('Campagne non financée');
     }
-    if (assignment.reviewStatus === PostReviewStatus.REJECTED) {
+    if (assignment.reviewStatus === PostReviewStatus.REJECTED && !reopen) {
       throw new BadRequestException('Publication refusée');
     }
     if (totalViews < assignment.validViews) {
@@ -396,6 +535,9 @@ export class WalletService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // The task budget is shared by every creator on the campaign: one
+      // validation at a time per campaign, then per creator for the balance.
+      await this.lock(tx, `campaign:${assignment.task.campaignId}`);
       await this.lock(tx, assignment.creatorId);
       const current = await tx.taskAssignment.findUniqueOrThrow({
         where: { id: assignmentId },
@@ -432,6 +574,9 @@ export class WalletService {
       const costDelta =
         advertiserCost(views, task.contentType) -
         advertiserCost(current.validViews, task.contentType);
+      if (task.campaign.spent + costDelta > task.campaign.budget) {
+        throw new ConflictException('Budget de la campagne épuisé');
+      }
 
       const updated = await tx.taskAssignment.update({
         where: { id: current.id },
@@ -449,19 +594,35 @@ export class WalletService {
           assignmentId: current.id,
           views: totalViews,
           source: ViewSource.STAFF,
-          recordedById: reviewerId,
+          recordedById: actor.userId,
         },
       });
-      if (reviewerId) {
-        await tx.postReview.create({
-          data: {
-            assignmentId: current.id,
-            reviewerId,
-            action: PostReviewAction.VIEWS,
-            views: totalViews,
-          },
-        });
-      }
+      await tx.postReview.create({
+        data: {
+          assignmentId: current.id,
+          reviewerId: actor.userId,
+          action: PostReviewAction.VIEWS,
+          views: totalViews,
+        },
+      });
+      await this.audit.record(tx, {
+        actor,
+        action: 'POST_VIEWS',
+        entity: 'TaskAssignment',
+        entityId: current.id,
+        before: {
+          validViews: current.validViews,
+          earned: current.earned,
+          reviewStatus: current.reviewStatus,
+        },
+        after: {
+          validViews: views,
+          earned,
+          reviewStatus: PostReviewStatus.VALIDATED,
+          declaredViews: totalViews,
+          campaignCost: costDelta,
+        },
+      });
       if (costDelta > 0) {
         await tx.campaign.update({
           where: { id: task.campaignId },
@@ -509,6 +670,7 @@ export class WalletService {
       include: { task: true },
     });
     if (a.validViews === 0 && a.earned === 0) return;
+    await this.lock(tx, `campaign:${a.task.campaignId}`);
     await this.lock(tx, a.creatorId);
     const now = new Date();
     const earnings = await tx.transaction.findMany({
@@ -540,11 +702,20 @@ export class WalletService {
   }
 
   /** Gives back what is left in escrow when a funded campaign is refused. */
-  async refundCampaign(tx: Tx, campaign: Campaign) {
-    if (!campaign.fundedAt) return;
+  async refundCampaign(tx: Tx, campaignId: string) {
+    // Read again under the locks: a payment or a validation may have landed.
+    await this.lock(tx, `campaign:${campaignId}`);
+    const { advertiserId } = await tx.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: { advertiserId: true },
+    });
+    await this.lock(tx, advertiserId);
+    const campaign = await tx.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+    });
+    if (!campaign.fundedAt) return 0;
     const remaining = campaign.budget - campaign.spent;
-    if (remaining <= 0) return;
-    await this.lock(tx, campaign.advertiserId);
+    if (remaining <= 0) return 0;
     await tx.campaign.update({
       where: { id: campaign.id },
       data: { spent: campaign.budget },
@@ -559,6 +730,7 @@ export class WalletService {
         note: `Remboursement #${campaign.code}`,
       },
     });
+    return remaining;
   }
 
   // ---- Internals --------------------------------------------------------
@@ -635,9 +807,14 @@ export class WalletService {
     if (result.status === 'PROCESSING') return payment;
     let status = result.status;
     let reason = result.reason ?? null;
+    // A real provider must say how much was paid; the local test gateway
+    // has no amount to report.
+    const amountUnknown =
+      payment.provider !== 'local' && !Number.isFinite(result.amount);
     if (
       status === 'SUCCEEDED' &&
-      ((Number.isFinite(result.amount) && result.amount! < payment.amount) ||
+      (amountUnknown ||
+        (Number.isFinite(result.amount) && result.amount! < payment.amount) ||
         (result.currency && result.currency !== payment.currency))
     ) {
       this.logger.error(
@@ -648,6 +825,9 @@ export class WalletService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      if (payment.campaignId) {
+        await this.lock(tx, `campaign:${payment.campaignId}`);
+      }
       await this.lock(tx, payment.userId);
       // Only the first notification changes anything.
       const claimed = await tx.payment.updateMany({
@@ -661,6 +841,17 @@ export class WalletService {
           completedAt: new Date(),
         },
       });
+      if (claimed.count > 0) {
+        await this.audit.record(tx, {
+          actor: null,
+          action: 'PAYIN_PROVIDER_RESULT',
+          entity: 'Payment',
+          entityId: payment.id,
+          before: { status: PaymentStatus.PROCESSING },
+          after: { status, amount: payment.amount, provider: payment.provider },
+          reason,
+        });
+      }
       if (claimed.count > 0 && status === 'SUCCEEDED') {
         await tx.transaction.create({
           data: {
@@ -688,6 +879,8 @@ export class WalletService {
     payment: Payment,
     status: GatewayStatus,
     reason?: string,
+    // Set when finance resolves the payout by hand.
+    actor?: StaffActor,
   ) {
     if (status === 'PROCESSING') {
       return this.prisma.payment.findUniqueOrThrow({
@@ -716,6 +909,15 @@ export class WalletService {
                 ? TransactionStatus.COMPLETED
                 : TransactionStatus.CANCELLED,
           },
+        });
+        await this.audit.record(tx, {
+          actor: actor ?? null,
+          action: actor ? 'WITHDRAWAL_RESOLVE' : 'WITHDRAWAL_PROVIDER_RESULT',
+          entity: 'Payment',
+          entityId: payment.id,
+          before: { status: PaymentStatus.PROCESSING },
+          after: { status, provider: payment.provider },
+          reason: reason ?? null,
         });
       }
       return tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
@@ -816,9 +1018,13 @@ export class WalletService {
     return result._sum.amount ?? 0;
   }
 
-  // Serializes balance changes of one user inside a database transaction.
-  private async lock(tx: Tx, userId: string) {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+  /**
+   * Serializes changes inside a database transaction: a user id for balance
+   * changes, `campaign:<id>` for a campaign's escrow. Always take the campaign
+   * lock before the user lock, so two transactions never wait on each other.
+   */
+  async lock(tx: Tx, key: string) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
   }
 
   private async user(userId: string) {
@@ -848,6 +1054,13 @@ export class WalletService {
 
   private reference(kind: 'P' | 'R') {
     return `VZ${kind}${randomBytes(8).toString('hex').toUpperCase()}`;
+  }
+
+  private secondApprovalFrom() {
+    return Number(
+      this.config.get('PAYOUT_SECOND_APPROVAL_FROM') ??
+        DEFAULT_SECOND_APPROVAL_FROM,
+    );
   }
 
   private minWithdrawal() {

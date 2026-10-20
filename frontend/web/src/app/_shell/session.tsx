@@ -13,9 +13,9 @@ import {
 } from "react";
 import {
   api,
-  getToken,
+  logout as endSession,
   notificationsApi,
-  setToken,
+  sessionVersion,
   StaffOverview,
   staffApi,
   UserView,
@@ -77,7 +77,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     readMode,
     () => null,
   );
-  const token = useRef<string | null | undefined>(undefined);
+  const loaded = useRef<number | undefined>(undefined);
 
   const refreshUnread = useCallback(() => {
     notificationsApi.unread().then((r) => setUnread(r.unread), () => {});
@@ -87,14 +87,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const current = getToken();
-    if (current === token.current) return;
-    token.current = current;
+    const current = sessionVersion();
+    if (current === loaded.current) return;
+    loaded.current = current;
     void (async () => {
-      const me = current ? await api.me().catch(() => null) : null;
-      if (token.current !== current) return;
+      if (current < 0) {
+        setUser(null);
+        return;
+      }
+      let me: UserView;
+      try {
+        me = await api.me();
+      } catch {
+        // Expired: the API client already forgot the session. Offline or a
+        // server error: keep the page as it is and try again on the next one.
+        if (sessionVersion() < 0) setUser(null);
+        else loaded.current = undefined;
+        return;
+      }
+      if (loaded.current !== current) return;
       setUser(me);
-      if (!me) return;
       refreshUnread();
       if (me.isStaff) refreshStaff();
     })();
@@ -127,8 +139,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   function logout() {
-    setToken(null);
-    token.current = null;
+    void endSession();
+    loaded.current = sessionVersion();
     setUser(null);
   }
 

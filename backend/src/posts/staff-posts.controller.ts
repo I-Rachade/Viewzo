@@ -11,7 +11,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import type { AuthUser } from '../auth/jwt.strategy';
+import { MODERATION, StaffRoles } from '../auth/staff';
+import type { StaffRequest } from '../auth/staff';
 import { StaffGuard } from '../auth/staff.guard';
 import { PostFiltersDto } from './dto/post-filters.dto';
 import { ReviewPostDto } from './dto/review-post.dto';
@@ -23,27 +24,28 @@ export class StaffPostsController {
   constructor(private readonly posts: StaffPostsService) {}
 
   @Get('posts')
-  list(@Query() filters: PostFiltersDto) {
-    return this.posts.list(filters);
+  list(@Req() req: StaffRequest, @Query() filters: PostFiltersDto) {
+    return this.posts.list(req.staff, filters);
   }
 
   @Get('posts/:id')
-  dossier(@Param('id', ParseUUIDPipe) id: string) {
-    return this.posts.dossier(id);
+  dossier(@Req() req: StaffRequest, @Param('id', ParseUUIDPipe) id: string) {
+    return this.posts.dossier(req.staff, id);
   }
 
   @Post('posts/:id/review')
+  @StaffRoles(...MODERATION)
   @HttpCode(200)
   review(
-    @Req() req: { user: AuthUser },
+    @Req() req: StaffRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReviewPostDto,
   ) {
-    return this.posts.review(req.user.userId, id, dto);
+    return this.posts.review(req.staff, id, dto);
   }
 
   @Get('creators/:id')
-  creator(@Param('id', ParseUUIDPipe) id: string) {
-    return this.posts.creatorFile(id);
+  creator(@Req() req: StaffRequest, @Param('id', ParseUUIDPipe) id: string) {
+    return this.posts.creatorFile(req.staff, id);
   }
 }

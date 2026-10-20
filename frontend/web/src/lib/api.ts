@@ -1,5 +1,10 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
-const TOKEN_KEY = "viewzo.token";
+// Only a marker that a session may exist; the lasting token is an httpOnly
+// cookie the page can't read, and the short access token stays in memory.
+const SESSION_KEY = "viewzo.session";
+const LEGACY_TOKEN_KEY = "viewzo.token";
+// Tells the API to put the refresh token in a cookie, not in the body.
+const CLIENT_HEADER = { "X-Viewzo-Client": "web" };
 
 export type ProfileType = "CREATOR" | "ADVERTISER" | "PROVIDER";
 
@@ -23,13 +28,123 @@ export const PROFILE_LABELS: Record<ProfileType, string> = {
   PROVIDER: "Prestataire créatif",
 };
 
-export function getToken() {
-  return typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY);
+let accessToken: string | null = null;
+let version = 0;
+
+function storage(action: (store: Storage) => void) {
+  try {
+    action(localStorage);
+  } catch {
+    // Storage blocked: the session lasts until the tab closes.
+  }
 }
 
+/** Whether this browser has signed in (the session may still have expired). */
+export function hasSession() {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(SESSION_KEY) === "1";
+  } catch {
+    return accessToken !== null;
+  }
+}
+
+/** Changes on every sign-in and sign-out, so the menu knows to reload. */
+export function sessionVersion() {
+  return hasSession() ? version : -1;
+}
+
+/** Keeps the access token from a sign-in, or forgets the session. */
 export function setToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  accessToken = token;
+  version += 1;
+  storage((s) => {
+    s.removeItem(LEGACY_TOKEN_KEY);
+    if (token) s.setItem(SESSION_KEY, "1");
+    else s.removeItem(SESSION_KEY);
+  });
+}
+
+/** Ends the session on the server too, then forgets it here. */
+export async function logout() {
+  // Forget it here first; the cookie is enough to end it on the server.
+  setToken(null);
+  try {
+    await fetch(`${API_URL}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: CLIENT_HEADER,
+    });
+  } catch {
+    // Offline: the server session expires on its own.
+  }
+}
+
+let refreshing: Promise<boolean> | null = null;
+
+// One refresh at a time: parallel calls wait for the same new token.
+function refresh() {
+  refreshing ??= (async () => {
+    try {
+      const renew = () =>
+        fetch(`${API_URL}/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+          headers: CLIENT_HEADER,
+        });
+      let res = await renew();
+      // Another tab renewed it a moment ago; its new cookie is being set.
+      if (res.status === 409) {
+        await new Promise((r) => setTimeout(r, 800));
+        res = await renew();
+      }
+      if (res.status === 401) {
+        setToken(null);
+        return false;
+      }
+      if (!res.ok) return false;
+      accessToken = ((await res.json()) as { accessToken: string }).accessToken;
+      return true;
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
+// Sends a request with the access token, renewing it once when it expired.
+async function send(path: string, init: RequestInit): Promise<Response> {
+  const auth = path.startsWith("/auth/");
+  if (!accessToken && hasSession() && !auth) await refresh();
+  const attempt = () =>
+    fetch(`${API_URL}${path}`, {
+      ...init,
+      // The refresh cookie only travels to /auth.
+      credentials: auth ? "include" : "same-origin",
+      headers: {
+        ...CLIENT_HEADER,
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        ...init.headers,
+      },
+    });
+  const res = await attempt();
+  if (res.status !== 401 || auth || !hasSession()) return res;
+  return (await refresh()) ? attempt() : res;
+}
+
+async function parse<T>(res: Response): Promise<T> {
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = Array.isArray(body.message)
+      ? body.message[0]
+      : body.message;
+    throw new ApiError(
+      message ?? "Une erreur est survenue",
+      body.code,
+      res.status,
+    );
+  }
+  return body as T;
 }
 
 // Carries the API's optional error code, e.g. PASSWORD_NOT_SET.
@@ -37,29 +152,19 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly code?: string,
+    readonly status?: number,
   ) {
     super(message);
   }
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = getToken();
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init.headers,
-    },
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const message = Array.isArray(body.message)
-      ? body.message[0]
-      : body.message;
-    throw new ApiError(message ?? "Une erreur est survenue", body.code);
-  }
-  return body as T;
+  return parse<T>(
+    await send(path, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...init.headers },
+    }),
+  );
 }
 
 interface Session {
@@ -385,7 +490,32 @@ export function contactOf(user: {
   return user.phone ?? user.email ?? "—";
 }
 
+export type StaffRole =
+  | "SUPER_ADMIN"
+  | "COUNTRY_MANAGER"
+  | "MODERATOR"
+  | "FINANCE"
+  | "SUPPORT";
+
+export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
+  SUPER_ADMIN: "Super-admin",
+  COUNTRY_MANAGER: "Responsable pays",
+  MODERATOR: "Modérateur",
+  FINANCE: "Finance",
+  SUPPORT: "Support",
+};
+
+// What each role may decide on; the API checks it again.
+export const CAN_MODERATE: StaffRole[] = [
+  "SUPER_ADMIN",
+  "COUNTRY_MANAGER",
+  "MODERATOR",
+];
+export const CAN_PAY: StaffRole[] = ["SUPER_ADMIN", "FINANCE"];
+
 export interface StaffOverview {
+  // The member's own role and countries (empty: all countries).
+  me: { staffRole: StaffRole; countries: string[] };
   accounts: number;
   campaigns: number;
   withdrawals: number;
@@ -416,6 +546,9 @@ export interface StaffWithdrawal extends PaymentView {
   beneficiaryName: string | null;
   phone: string | null;
   operator: string | null;
+  // Large withdrawals need two different finance members.
+  needsSecondApproval: boolean;
+  firstApprovedById: string | null;
   user: StaffUser & { profiles: { type: ProfileType; level: number }[] };
 }
 
@@ -424,7 +557,14 @@ export interface StaffMember {
   phone: string | null;
   email: string | null;
   country: string;
+  staffRole: StaffRole;
+  staffCountries: string[];
   createdAt: string;
+}
+
+export interface MemberRights {
+  staffRole: StaffRole;
+  countries?: string[];
 }
 
 const post = (body: object) => ({
@@ -451,14 +591,29 @@ export const staffApi = {
     id: string,
     input: { status: "ACTIVE" | "REJECTED"; reason?: string },
   ) => call<CampaignView>(`/staff/campaigns/${id}/review`, post(input)),
-  withdrawals: () => call<StaffWithdrawal[]>("/staff/withdrawals"),
+  withdrawals: (status: "REQUESTED" | "PROCESSING" = "REQUESTED") =>
+    call<StaffWithdrawal[]>(`/staff/withdrawals?status=${status}`),
   reviewWithdrawal: (
     id: string,
     input: { decision: "APPROVE" | "REJECT"; reason?: string },
-  ) => call<PaymentView>(`/staff/withdrawals/${id}/review`, post(input)),
+  ) =>
+    call<PaymentView & { awaitingSecondApproval?: boolean }>(
+      `/staff/withdrawals/${id}/review`,
+      post(input),
+    ),
+  // Closes a payout whose provider result never came, after checking it there.
+  resolveWithdrawal: (
+    id: string,
+    input: { outcome: "SUCCEEDED" | "FAILED"; reason: string },
+  ) => call<PaymentView>(`/staff/withdrawals/${id}/resolve`, post(input)),
   members: () => call<StaffMember[]>("/staff/members"),
-  addMember: (phone: string) =>
-    call<StaffMember>("/staff/members", post({ phone })),
+  addMember: (phone: string, rights: MemberRights) =>
+    call<StaffMember>("/staff/members", post({ phone, ...rights })),
+  updateMember: (id: string, rights: MemberRights) =>
+    call<StaffMember>(`/staff/members/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(rights),
+    }),
   removeMember: (id: string) =>
     call<void>(`/staff/members/${id}`, { method: "DELETE" }),
 };
@@ -528,20 +683,7 @@ export interface CreatorResults {
 }
 
 async function upload<T>(path: string, form: FormData): Promise<T> {
-  const token = getToken();
-  const res = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const message = Array.isArray(body.message)
-      ? body.message[0]
-      : body.message;
-    throw new ApiError(message ?? "Une erreur est survenue", body.code);
-  }
-  return body as T;
+  return parse<T>(await send(path, { method: "POST", body: form }));
 }
 
 export const creatorApi = {

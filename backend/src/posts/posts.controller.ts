@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
+import { clientIp } from '../auth/client-ip';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
@@ -31,10 +32,9 @@ export function proofSource(req: Request): ProofSource {
     const v = req.headers[name];
     return (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
   };
-  const forwarded = header('x-forwarded-for')?.split(',')[0]?.trim();
   return {
     deviceId: header('x-device-id')?.slice(0, 100),
-    ip: (header('cf-connecting-ip') ?? forwarded ?? req.ip)?.slice(0, 64),
+    ip: clientIp(req),
   };
 }
 

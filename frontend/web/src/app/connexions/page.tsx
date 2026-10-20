@@ -13,6 +13,15 @@ const RETURN_MESSAGES: Record<string, string> = {
   cancelled: "Connexion annulée.",
 };
 
+// Why Viewzo refused the account; fixed texts, only the code is in the link.
+const REFUSAL_MESSAGES: Record<string, string> = {
+  NOT_DECLARED:
+    "Ajoute d’abord ce compte dans « Mes comptes » et fais-le vérifier, puis connecte-le.",
+  OTHER_ACCOUNT:
+    "Ce compte n’est pas celui que tu as déclaré. Connecte-toi sur le réseau avec le compte vérifié, puis réessaie.",
+  LINKED_ELSEWHERE: "Ce compte est déjà relié à un autre compte Viewzo.",
+};
+
 export default function ConnectionsPage() {
   return (
     <Suspense fallback={<LoadingCard />}>
@@ -27,6 +36,8 @@ function Connections() {
   const router = useRouter();
   const params = useSearchParams();
   const returned = params.get("status");
+  // Why the API refused the account, e.g. another handle than the verified one.
+  const returnedReason = params.get("reason");
   const [items, setItems] = useState<Connection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,6 +88,9 @@ function Connections() {
           message={RETURN_MESSAGES[returned]}
           onDone={() => router.replace("/connexions")}
         />
+      )}
+      {returnedReason && REFUSAL_MESSAGES[returnedReason] && (
+        <p className="error">{REFUSAL_MESSAGES[returnedReason]}</p>
       )}
       <h1>Comptes connectés</h1>
       <p>

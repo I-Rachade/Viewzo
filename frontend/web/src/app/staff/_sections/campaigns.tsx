@@ -10,6 +10,7 @@ import {
   staffApi,
   StaffCampaign,
 } from "@/lib/api";
+import { confirmed } from "./confirm";
 import { DATE, useQueue } from "./use-queue";
 
 export function CampaignsSection({ onChange }: { onChange: () => void }) {
@@ -24,14 +25,19 @@ export function CampaignsSection({ onChange }: { onChange: () => void }) {
           key={c.id}
           campaign={c}
           busy={queue.busy}
-          onReview={(status, reason) =>
+          onReview={(status, reason) => {
+            const question =
+              status === "ACTIVE"
+                ? `Publier la campagne « ${c.title} » auprès des créateurs ?`
+                : `Refuser la campagne « ${c.title} » ? Le budget payé est remboursé à l’annonceur.`;
+            if (!confirmed(question)) return;
             queue.act(() =>
               staffApi.reviewCampaign(c.id, {
                 status,
                 ...(reason ? { reason } : {}),
               }),
-            )
-          }
+            );
+          }}
         />
       ))}
     </>

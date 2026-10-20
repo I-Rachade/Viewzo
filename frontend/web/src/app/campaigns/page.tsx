@@ -8,7 +8,7 @@ import {
   campaignsApi,
   CONTENT_TYPE_LABELS,
   formatFcfa,
-  getToken,
+  hasSession,
   NETWORK_LABELS,
   PACKAGE_LABELS,
   STATUS_LABELS,
@@ -32,7 +32,7 @@ export default function CampaignsPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!getToken()) {
+    if (!hasSession()) {
       router.replace("/login");
       return;
     }

@@ -88,7 +88,7 @@ describe('Posts, proofs and reports (e2e)', () => {
     advertiser = await login('+22895000004');
     await prisma.user.update({
       where: { phone: '+22895000001' },
-      data: { role: 'STAFF' },
+      data: { role: 'STAFF', staffRole: 'SUPER_ADMIN' },
     });
     const ids = await prisma.user.findMany({
       where: {

@@ -10,6 +10,8 @@ import 'package:viewzo/src/api_client.dart';
 import 'package:viewzo/src/screens/home_screen.dart';
 import 'package:viewzo/src/session.dart';
 
+import 'memory_store.dart';
+
 Map<String, dynamic> userJson({
   String? email = 'ama@exemple.com',
   String? phone,
@@ -26,8 +28,10 @@ Map<String, dynamic> userJson({
 http.Response json(Object body, [int status = 200]) =>
     http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
-Session sessionWith(MockClientHandler handler) =>
-    Session(ApiClient(client: MockClient(handler), baseUrl: 'http://test'));
+Session sessionWith(MockClientHandler handler) => Session(
+  ApiClient(client: MockClient(handler), baseUrl: 'http://test'),
+  store: MemoryStore(),
+);
 
 Finder buttonOf(String text) => find.ancestor(
   of: find.text(text),
@@ -80,6 +84,7 @@ MockClientHandler registerBackend({
       onComplete?.call(body);
       return json({
         'accessToken': 'token',
+        'refreshToken': 'refresh',
         'isNew': true,
         'user': userJson(),
       }, 201);
@@ -96,7 +101,11 @@ void main() {
       final body = jsonDecode(request.body);
       expect(body['identifier'], 'ama@exemple.com');
       expect(body['password'], 'secret123');
-      return json({'accessToken': 'token', 'user': userJson()});
+      return json({
+        'accessToken': 'token',
+        'refreshToken': 'refresh',
+        'user': userJson(),
+      });
     });
 
     await tester.pumpWidget(
@@ -125,8 +134,9 @@ void main() {
     expect(find.text('ama@exemple.com'), findsOneWidget);
     expect(find.text('Ajouter un numéro'), findsOneWidget);
     expect(session.api.token, 'token');
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('viewzo.token'), 'token');
+    final store = session.store as MemoryStore;
+    expect(store.values['viewzo.access'], 'token');
+    expect(store.values['viewzo.refresh'], 'refresh');
   });
 
   testWidgets('shows the login error from the server', (tester) async {

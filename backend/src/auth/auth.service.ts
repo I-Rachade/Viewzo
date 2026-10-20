@@ -20,6 +20,7 @@ import { OTP_PROVIDER } from './otp-provider';
 import type { OtpProvider } from './otp-provider';
 import { hashPassword, verifyPassword } from './password';
 import { parsePhone } from './phone';
+import { ClientInfo, SessionsService } from './sessions.service';
 
 const MAX_FAILED_LOGINS = 5;
 const LOCK_MS = 15 * 60 * 1000;
@@ -44,20 +45,43 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly sessions: SessionsService,
   ) {}
 
-  // Code-only login kept until every app has the password screens.
+  // Code-only login kept for accounts from before passwords. An account with
+  // a password signs in with it: a code alone (a stolen SMS, a swapped SIM)
+  // is not enough.
   async requestCode(rawPhone: string) {
     const { e164 } = this.parsePhone(rawPhone);
     await this.otp.request(e164);
     return { phone: e164 };
   }
 
-  async verifyCode(rawPhone: string, code: string) {
+  async verifyCode(rawPhone: string, code: string, client: ClientInfo) {
     const { e164, country } = this.parsePhone(rawPhone);
     await this.otp.verify(e164, code);
     const { user, isNew } = await this.users.findOrCreateByPhone(e164, country);
-    return { ...(await this.session(user)), isNew };
+    if (user.passwordHash) {
+      throw new ForbiddenException({
+        code: 'PASSWORD_LOGIN_REQUIRED',
+        message: 'Connecte-toi avec ton mot de passe',
+      });
+    }
+    return { ...(await this.session(user, client)), isNew };
+  }
+
+  /** New tokens for a device that is still signed in. */
+  async refresh(refreshToken: string, client: ClientInfo) {
+    const { user, session } = await this.sessions.refresh(refreshToken, client);
+    const full = await this.prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      include: { profiles: true },
+    });
+    return { ...session, user: this.users.toView(full) };
+  }
+
+  logout(sessionOrToken: string) {
+    return this.sessions.revoke(sessionOrToken);
   }
 
   async startRegistration(raw: string) {
@@ -82,12 +106,15 @@ export class AuthService {
     return { ticket: await this.jwt.signAsync(ticket, { expiresIn: '15m' }) };
   }
 
-  async completeRegistration(input: {
-    ticket: string;
-    password: string;
-    role: ProfileType;
-    country?: string;
-  }) {
+  async completeRegistration(
+    input: {
+      ticket: string;
+      password: string;
+      role: ProfileType;
+      country?: string;
+    },
+    client: ClientInfo,
+  ) {
     const ticket = await this.readTicket(input.ticket);
     const country =
       ticket.kind === 'phone'
@@ -102,10 +129,10 @@ export class AuthService {
       passwordHash: await hashPassword(input.password),
       role: input.role,
     });
-    return { ...(await this.session(user)), isNew: true };
+    return { ...(await this.session(user, client)), isNew: true };
   }
 
-  async login(raw: string, password: string) {
+  async login(raw: string, password: string, client: ClientInfo) {
     const user = await this.users.findByContact(this.parse(raw));
     if (!user) {
       await verifyPassword(password, await this.decoyHash);
@@ -128,14 +155,21 @@ export class AuthService {
     }
 
     if (!(await verifyPassword(password, user.passwordHash))) {
-      const failed = user.failedLogins + 1;
-      await this.prisma.user.update({
+      // Counted in the database, so parallel attempts all count.
+      const { failedLogins } = await this.prisma.user.update({
         where: { id: user.id },
-        data:
-          failed >= MAX_FAILED_LOGINS
-            ? { failedLogins: 0, lockedUntil: new Date(Date.now() + LOCK_MS) }
-            : { failedLogins: failed },
+        data: { failedLogins: { increment: 1 } },
+        select: { failedLogins: true },
       });
+      if (failedLogins >= MAX_FAILED_LOGINS) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            failedLogins: 0,
+            lockedUntil: new Date(Date.now() + LOCK_MS),
+          },
+        });
+      }
       throw new UnauthorizedException(WRONG_CREDENTIALS);
     }
 
@@ -145,7 +179,7 @@ export class AuthService {
         data: { failedLogins: 0, lockedUntil: null },
       });
     }
-    return this.session(user);
+    return this.session(user, client);
   }
 
   // Answers the same whether or not the account exists.
@@ -155,7 +189,12 @@ export class AuthService {
     return { sentTo: id.value };
   }
 
-  async resetPassword(raw: string, code: string, password: string) {
+  async resetPassword(
+    raw: string,
+    code: string,
+    password: string,
+    client: ClientInfo,
+  ) {
     const id = this.parse(raw);
     const user = await this.users.findByContact(id);
     if (!user) {
@@ -173,7 +212,8 @@ export class AuthService {
       },
       include: { profiles: true },
     });
-    return this.session(updated);
+    await this.sessions.revokeAll(user.id);
+    return this.session(updated, client);
   }
 
   async requestContact(userId: string, raw: string) {
@@ -196,12 +236,12 @@ export class AuthService {
     return this.users.toView(await this.users.setContact(userId, id));
   }
 
-  private async session(user: User & { profiles: UserProfile[] }) {
-    const accessToken = await this.jwt.signAsync({
-      sub: user.id,
-      ver: user.tokenVersion,
-    });
-    return { accessToken, user: this.users.toView(user) };
+  private async session(
+    user: User & { profiles: UserProfile[] },
+    client: ClientInfo,
+  ) {
+    const issued = await this.sessions.issue(user, client);
+    return { ...issued, user: this.users.toView(user) };
   }
 
   private async readTicket(token: string): Promise<RegisterTicket> {

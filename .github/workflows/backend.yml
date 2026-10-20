@@ -29,6 +29,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/viewzo
       JWT_SECRET: ci-jwt-secret
       OTP_SECRET: ci-otp-secret
+      TOKEN_ENCRYPTION_KEY: ci-token-encryption-key
+      RATE_LIMITS: 'off'
       # Every payment succeeds at once in tests.
       PAYMENT_MODE: local
     steps:
@@ -42,5 +44,6 @@ jobs:
       - run: npm run lint
       - run: npm run db:deploy
       - run: npm test
-      - run: npm run test:e2e
+      # Fails when payment and counting logic drops below 70% of lines covered.
+      - run: npm run test:e2e:cov
       - run: npm run build

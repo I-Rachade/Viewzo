@@ -1,9 +1,56 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
-  "rootDir": ".",
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
+  "rootDir": "..",
+  "roots": [
+    "<rootDir>/test"
+  ],
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "setupFiles": [
+    "<rootDir>/test/setup-env.ts"
+  ],
+  "coverageDirectory": "<rootDir>/coverage-e2e",
+  "collectCoverageFrom": [
+    "src/wallet/wallet.service.ts",
+    "src/wallet/earnings.ts",
+    "src/campaigns/campaigns.service.ts",
+    "src/posts/proofs.service.ts",
+    "src/posts/staff-posts.service.ts",
+    "src/posts/report.service.ts",
+    "src/auth/sessions.service.ts",
+    "src/auth/otp-store.ts"
+  ],
+  "coverageThreshold": {
+    "./src/wallet/wallet.service.ts": {
+      "lines": 70
+    },
+    "./src/wallet/earnings.ts": {
+      "lines": 70
+    },
+    "./src/campaigns/campaigns.service.ts": {
+      "lines": 70
+    },
+    "./src/posts/proofs.service.ts": {
+      "lines": 70
+    },
+    "./src/posts/staff-posts.service.ts": {
+      "lines": 70
+    },
+    "./src/posts/report.service.ts": {
+      "lines": 70
+    },
+    "./src/auth/sessions.service.ts": {
+      "lines": 70
+    },
+    "./src/auth/otp-store.ts": {
+      "lines": 70
+    }
   }
 }

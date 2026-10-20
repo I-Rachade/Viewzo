@@ -11,6 +11,7 @@ import { EmailOtpService } from './email-otp.service';
 import { LocalOtpService } from './local-otp.service';
 import { OTP_PROVIDER } from './otp-provider';
 import { OtpStore } from './otp-store';
+import { SessionsService } from './sessions.service';
 
 @Module({
   imports: [
@@ -20,13 +21,15 @@ import { OtpStore } from './otp-store';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '30d' },
+        // Sessions set their own lifetimes (see SessionsService).
+        signOptions: { expiresIn: '15m' },
       }),
     }),
   ],
   controllers: [AuthController],
   providers: [
     AuthService,
+    SessionsService,
     JwtStrategy,
     OtpStore,
     LocalOtpService,
@@ -42,5 +45,6 @@ import { OtpStore } from './otp-store';
       ) => (config.get('OTP_PROVIDER') === 'didit' ? didit : local),
     },
   ],
+  exports: [SessionsService],
 })
 export class AuthModule {}

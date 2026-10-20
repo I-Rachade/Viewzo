@@ -29,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   UserView? _user;
   String? _error;
+  bool _offline = false;
   int _tab = 0;
   int _unread = 0;
   // Tabs are built the first time they are opened, then kept.
@@ -86,11 +87,17 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _load() async {
+    setState(() => _offline = false);
     try {
       final user = await widget.session.api.me();
       setState(() => _user = user);
+    } on ApiException catch (e) {
+      // Only an ended session leads back to the login screen.
+      if (e.statusCode == 401) return _logout();
+      if (mounted) setState(() => _offline = true);
     } catch (_) {
-      await _logout();
+      // No network: keep the session and offer to try again.
+      if (mounted) setState(() => _offline = true);
     }
   }
 
@@ -136,6 +143,26 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     final user = _user;
+    if (user == null && _offline) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Impossible de joindre Viewzo. Vérifie ta connexion.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                FilledButton(onPressed: _load, child: const Text('Réessayer')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     if (user == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }

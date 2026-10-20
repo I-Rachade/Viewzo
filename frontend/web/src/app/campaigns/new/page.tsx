@@ -11,7 +11,7 @@ import {
   CONTENT_TYPE_LABELS,
   ContentType,
   formatFcfa,
-  getToken,
+  hasSession,
   NETWORK_LABELS,
   NoAssetsChoice,
   OBJECTIVE_LABELS,
@@ -74,7 +74,7 @@ export default function NewCampaignPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!getToken()) {
+    if (!hasSession()) {
       router.replace("/login");
       return;
     }

@@ -94,7 +94,7 @@ describe('Wallet and escrow (e2e)', () => {
     staff = await login('+22893000003');
     await prisma.user.update({
       where: { phone: '+22893000003' },
-      data: { role: 'STAFF' },
+      data: { role: 'STAFF', staffRole: 'SUPER_ADMIN' },
     });
     await http()
       .post('/me/profiles')

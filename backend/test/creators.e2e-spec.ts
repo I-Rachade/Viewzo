@@ -57,7 +57,7 @@ describe('Creator accounts and skills (e2e)', () => {
     staff = await login('+22891000002');
     await prisma.user.update({
       where: { phone: '+22891000002' },
-      data: { role: 'STAFF' },
+      data: { role: 'STAFF', staffRole: 'SUPER_ADMIN' },
     });
   });
 

@@ -16,6 +16,9 @@ import {
   SocialNetwork,
 } from '@prisma/client';
 import { randomInt } from 'crypto';
+import { AuditService } from '../audit/audit.service';
+import { assertCountry, assertNotSelf, countryScope } from '../auth/staff';
+import type { StaffActor } from '../auth/staff';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReviewAccountDto } from './dto/review-account.dto';
@@ -40,6 +43,7 @@ export class AccountsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
   ) {}
 
   async list(userId: string) {
@@ -134,9 +138,13 @@ export class AccountsService {
   }
 
   // Back-office: accounts waiting for a decision, oldest first.
-  async queue(status: AccountStatus = AccountStatus.PENDING) {
+  async queue(
+    actor: StaffActor,
+    status: AccountStatus = AccountStatus.PENDING,
+  ) {
+    const scope = countryScope(actor);
     const accounts = await this.prisma.socialAccount.findMany({
-      where: { status },
+      where: { status, ...(scope ? { user: { country: { in: scope } } } : {}) },
       orderBy: { submittedAt: 'asc' },
       include: { user: true },
       take: 100,
@@ -145,28 +153,32 @@ export class AccountsService {
   }
 
   // Back-office: links a WhatsApp conversation to the creator by its code.
-  async findByCode(code: string) {
+  async findByCode(actor: StaffActor, code: string) {
     const account = await this.prisma.socialAccount.findUnique({
       where: { verificationCode: code.trim().toUpperCase() },
       include: { user: true },
     });
     if (!account) throw new NotFoundException('Code inconnu');
+    assertCountry(actor, account.user.country);
     return this.toStaffView(account);
   }
 
-  async review(reviewerId: string, id: string, dto: ReviewAccountDto) {
+  async review(actor: StaffActor, id: string, dto: ReviewAccountDto) {
     const account = await this.prisma.socialAccount.findUnique({
       where: { id },
+      include: { user: { select: { country: true } } },
     });
     if (!account) throw new NotFoundException();
+    assertCountry(actor, account.user.country);
+    assertNotSelf(actor, account.userId);
     const followers = dto.followers ?? account.followers;
     const avgStatusViews = dto.avgStatusViews ?? account.avgStatusViews;
     if (dto.status === AccountStatus.ELIGIBLE) {
       this.assertAudience(account.network, followers, avgStatusViews);
     }
     const reason = dto.reason?.trim() || null;
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.socialAccount.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.socialAccount.update({
         where: { id },
         data: {
           status: dto.status,
@@ -179,18 +191,32 @@ export class AccountsService {
           avgStatusViews,
         },
         include: { user: true },
-      }),
-      this.prisma.accountReview.create({
+      });
+      await tx.accountReview.create({
         data: {
           accountId: id,
           userId: account.userId,
           network: account.network,
-          reviewerId,
+          reviewerId: actor.userId,
           status: dto.status,
           reason,
         },
-      }),
-    ]);
+      });
+      await this.audit.record(tx, {
+        actor,
+        action: 'ACCOUNT_REVIEW',
+        entity: 'SocialAccount',
+        entityId: id,
+        before: {
+          status: account.status,
+          followers: account.followers,
+          avgStatusViews: account.avgStatusViews,
+        },
+        after: { status: dto.status, followers, avgStatusViews },
+        reason,
+      });
+      return result;
+    });
     const label = ACCOUNT_STATUS_TEXT[dto.status];
     if (label) {
       await this.notifications.notify(account.userId, {

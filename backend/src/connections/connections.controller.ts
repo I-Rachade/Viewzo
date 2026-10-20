@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -70,8 +71,12 @@ export class ConnectionCallbackController {
     const web = this.config
       .get<string>('WEB_ORIGIN', 'http://localhost:3000')
       .split(',')[0];
-    const back = (status: string) => ({
-      url: `${web}/connexions?${new URLSearchParams({ network, status })}`,
+    const back = (status: string, reason?: string) => ({
+      url: `${web}/connexions?${new URLSearchParams({
+        network,
+        status,
+        ...(reason ? { reason } : {}),
+      })}`,
     });
     if (!Object.values(SocialNetwork).includes(network) || error || !code) {
       return back('cancelled');
@@ -81,7 +86,15 @@ export class ConnectionCallbackController {
       return back('ok');
     } catch (e) {
       this.logger.warn(`${network} callback: ${(e as Error).message}`);
-      return back('error');
+      // Our own refusals (wrong account) are shown to the creator, as a code:
+      // free text in the link could be used to show anything on our page.
+      const response =
+        e instanceof BadRequestException ? e.getResponse() : undefined;
+      const reason =
+        typeof response === 'object' && response && 'code' in response
+          ? String(response.code)
+          : undefined;
+      return back('error', reason);
     }
   }
 }

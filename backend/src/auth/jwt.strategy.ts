@@ -2,17 +2,18 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { PrismaService } from '../prisma/prisma.service';
+import { SessionsService } from './sessions.service';
 
 export interface AuthUser {
   userId: string;
+  sessionId: string;
 }
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     config: ConfigService,
-    private readonly prisma: PrismaService,
+    private readonly sessions: SessionsService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -23,18 +24,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: {
     sub?: string;
     ver?: number;
+    sid?: string;
     purpose?: string;
   }): Promise<AuthUser> {
-    // Registration tickets are signed with the same key but are not sessions.
-    if (payload.purpose || !payload.sub) throw new UnauthorizedException();
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { tokenVersion: true },
-    });
-    // A password change bumps the version and ends older sessions.
-    if (!user || user.tokenVersion !== (payload.ver ?? 0)) {
+    // Registration tickets are signed with the same key but are not sessions,
+    // and tokens from before server-side sessions carry no session id.
+    if (payload.purpose || !payload.sub || !payload.sid) {
       throw new UnauthorizedException();
     }
-    return { userId: payload.sub };
+    // A logout, a password change or a removal from the team ends the session
+    // at once, not when the access token expires.
+    if (
+      !(await this.sessions.isActive(
+        payload.sid,
+        payload.sub,
+        payload.ver ?? 0,
+      ))
+    ) {
+      throw new UnauthorizedException();
+    }
+    return { userId: payload.sub, sessionId: payload.sid };
   }
 }
