@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../api_client.dart';
 import '../creator_models.dart';
+import '../ui/widgets.dart';
 
 /// The creator skills form; tasks are only offered for the skills declared here.
 class SkillsScreen extends StatefulWidget {
@@ -121,9 +122,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
         ),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Compétences enregistrées')));
+      showVzToast(context, 'Compétences enregistrées');
       Navigator.of(context).pop();
     } on ApiException catch (e) {
       setState(() => _error = e.message);
@@ -140,7 +139,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Mes compétences')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonList(count: 2)
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [

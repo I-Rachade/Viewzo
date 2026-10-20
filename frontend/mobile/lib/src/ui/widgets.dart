@@ -286,3 +286,207 @@ class _MarkPainter extends CustomPainter {
   bool shouldRepaint(_MarkPainter old) =>
       old.ring != ring || old.draw != draw || old.intro != intro;
 }
+
+/// A grey placeholder that shimmers while content loads. The shimmer stops
+/// after about half a minute so a stuck request doesn't animate forever.
+class Skeleton extends StatefulWidget {
+  const Skeleton({super.key, this.height = 16, this.width, this.radius = 8});
+  final double height;
+  final double? width;
+  final double radius;
+
+  @override
+  State<Skeleton> createState() => _SkeletonState();
+}
+
+class _SkeletonState extends State<Skeleton>
+    with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_controller.isAnimating) return;
+    if (VzMotion.of(context, VzMotion.wide) != Duration.zero) {
+      _controller.repeat(count: 25);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final base = scheme.outline;
+    final light = Color.lerp(base, scheme.surface, 0.6)!;
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final t = _controller.value * 3 - 1;
+        return Container(
+          height: widget.height,
+          width: widget.width,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(widget.radius),
+            gradient: LinearGradient(
+              begin: Alignment(t - 1, 0),
+              end: Alignment(t + 1, 0),
+              colors: [base, light, base],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Cards of placeholders, for a list that is still loading.
+class SkeletonList extends StatelessWidget {
+  const SkeletonList({super.key, this.count = 3});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    children: [
+      for (var i = 0; i < count; i++)
+        const Card(
+          margin: EdgeInsets.only(bottom: 12),
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Skeleton(height: 18, width: 180),
+                SizedBox(height: 12),
+                Skeleton(width: 120),
+                SizedBox(height: 8),
+                Skeleton(),
+                SizedBox(height: 8),
+                Skeleton(width: 220),
+              ],
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
+/// A message that drops in from the top with a bounce, then leaves on its
+/// own. Replaces the snack bar for good news.
+void showVzToast(
+  BuildContext context,
+  String message, {
+  IconData icon = Icons.check_circle_rounded,
+}) {
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) =>
+        _Toast(message: message, icon: icon, onDone: () => entry.remove()),
+  );
+  overlay.insert(entry);
+}
+
+class _Toast extends StatefulWidget {
+  const _Toast({
+    required this.message,
+    required this.icon,
+    required this.onDone,
+  });
+  final String message;
+  final IconData icon;
+  final VoidCallback onDone;
+
+  @override
+  State<_Toast> createState() => _ToastState();
+}
+
+class _ToastState extends State<_Toast> with SingleTickerProviderStateMixin {
+  // In, a pause long enough to read, out: one controller, no timer.
+  late final _controller =
+      AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 3200),
+      )..addStatusListener((s) {
+        if (s == AnimationStatus.completed) widget.onDone();
+      });
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final still = VzMotion.of(context, VzMotion.wide) == Duration.zero;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Positioned(
+      top: MediaQuery.paddingOf(context).top + 12,
+      left: 16,
+      right: 16,
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            final v = _controller.value;
+            final enter = still
+                ? 1.0
+                : VzMotion.spring.transform((v / 0.2).clamp(0.0, 1.0));
+            final leave = Curves.easeIn.transform(
+              ((v - 0.88) / 0.12).clamp(0.0, 1.0),
+            );
+            return Opacity(
+              opacity: (1 - leave) * (still ? 1 : enter.clamp(0.0, 1.0)),
+              child: Transform.translate(
+                offset: Offset(0, -80 * (1 - enter) - 40 * leave),
+                child: child,
+              ),
+            );
+          },
+          child: Material(
+            color: dark ? Colors.white : VzColors.ink,
+            elevation: 6,
+            shadowColor: Colors.black38,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(widget.icon, color: VzColors.paid),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      widget.message,
+                      style: TextStyle(
+                        color: dark ? VzColors.ink : Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

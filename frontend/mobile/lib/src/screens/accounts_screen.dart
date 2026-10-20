@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
 import '../creator_models.dart';
+import '../ui/widgets.dart';
 
 /// "Mes comptes": the creator's networks and where each one is in verification.
 class AccountsScreen extends StatefulWidget {
@@ -123,7 +124,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                 ),
               ),
             if (accounts == null && _error == null)
-              const Center(child: CircularProgressIndicator()),
+              const SkeletonList(count: 2),
             if (accounts != null && accounts.isEmpty)
               const Text(
                 'Choisis les réseaux sur lesquels tu veux publier. '

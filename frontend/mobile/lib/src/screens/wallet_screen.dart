@@ -81,11 +81,7 @@ class _WalletScreenState extends State<WalletScreen> {
       );
       await _load();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Demande envoyée, l’équipe Viewzo la valide'),
-          ),
-        );
+        showVzToast(context, 'Demande envoyée, l’équipe Viewzo la valide');
       }
     });
   }
@@ -100,7 +96,7 @@ class _WalletScreenState extends State<WalletScreen> {
       body: summary == null
           ? Center(
               child: _error == null
-                  ? const CircularProgressIndicator()
+                  ? const SkeletonList(count: 2)
                   : Text(_error!),
             )
           : RefreshIndicator(

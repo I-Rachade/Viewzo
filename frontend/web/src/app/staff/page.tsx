@@ -9,6 +9,7 @@ import { CampaignsSection } from "./_sections/campaigns";
 import { TeamSection } from "./_sections/team";
 import { ViewsSection } from "./_sections/views";
 import { WithdrawalsSection } from "./_sections/withdrawals";
+import { LoadingCard } from "../loading-card";
 
 type Tab = keyof StaffOverview | "team";
 
@@ -49,7 +50,7 @@ export default function StaffPage() {
       .catch(() => router.replace("/login"));
   }, [router, refresh]);
 
-  if (!user) return <p>Chargement…</p>;
+  if (!user) return <LoadingCard />;
 
   return (
     <div className="card wide">

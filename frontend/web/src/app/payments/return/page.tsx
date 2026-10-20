@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { formatFcfa, PaymentView, walletApi } from "@/lib/api";
+import { LoadingCard } from "../../loading-card";
 
 // Where the payment provider sends the user back after its checkout.
 export default function PaymentReturnPage() {
   return (
-    <Suspense fallback={<p>Chargement…</p>}>
+    <Suspense fallback={<LoadingCard />}>
       <PaymentStatus />
     </Suspense>
   );

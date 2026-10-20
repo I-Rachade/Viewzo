@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
+import '../creator_models.dart';
 import '../task_models.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
@@ -20,6 +21,7 @@ class TasksScreen extends StatefulWidget {
 class _TasksScreenState extends State<TasksScreen> {
   List<CampaignTask>? _available;
   List<Assignment>? _assignments;
+  SocialNetwork? _network;
   String? _error;
 
   @override
@@ -54,24 +56,27 @@ class _TasksScreenState extends State<TasksScreen> {
     await widget.api.acceptTask(task.id);
     await _load();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Tâche acceptée, retrouve-la dans Mes tâches'),
-        ),
-      );
+      showVzToast(context, 'Tâche acceptée, retrouve-la dans Mes tâches');
     }
   });
 
-  Future<void> _submit(Assignment assignment) async {
+  /// Null when the creator closes the dialog without sending.
+  Future<bool?> _submit(Assignment assignment, VoidCallback sending) async {
     final url = await showDialog<String>(
       context: context,
       builder: (_) => _SubmitDialog(initial: assignment.postUrl),
     );
-    if (url == null) return;
+    if (url == null) return null;
+    sending();
     await _run(() async {
       await widget.api.submitPost(assignment.id, url);
       await _load();
     });
+    if (_error != null) return false;
+    if (mounted) {
+      showVzToast(context, 'Lien envoyé, on compte tes vues');
+    }
+    return true;
   }
 
   @override
@@ -111,7 +116,11 @@ class _TasksScreenState extends State<TasksScreen> {
 
   Widget _availableList() {
     final tasks = _available;
-    if (tasks == null) return const Center(child: CircularProgressIndicator());
+    if (tasks == null) return const SkeletonList();
+    final networks = {for (final t in tasks) t.network}.toList();
+    final shown = _network == null
+        ? tasks
+        : tasks.where((t) => t.network == _network).toList();
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -122,13 +131,38 @@ class _TasksScreenState extends State<TasksScreen> {
               'Aucune tâche pour toi en ce moment. Vérifie que tes comptes '
               'sont éligibles et que tes compétences sont à jour.',
             ),
-          for (final (i, task) in tasks.indexed)
+          if (networks.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _Filter(
+                    label: 'Tous',
+                    selected: _network == null,
+                    onTap: () => setState(() => _network = null),
+                  ),
+                  for (final n in networks)
+                    _Filter(
+                      label: n.label,
+                      selected: _network == n,
+                      onTap: () => setState(() => _network = n),
+                    ),
+                ],
+              ),
+            ),
+          for (final (i, task) in shown.indexed)
             FadeSlideIn(
+              key: ValueKey(task.id),
               index: i,
               child: _TaskCard(
                 task: task,
-                action: _AcceptButton(
-                  onAccept: () async {
+                action: _MorphButton(
+                  label: 'Accepter',
+                  color: VzColors.coral,
+                  onPress: (loading) async {
+                    loading();
                     await _accept(task);
                     return _error == null;
                   },
@@ -142,9 +176,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
   Widget _assignmentList() {
     final assignments = _assignments;
-    if (assignments == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (assignments == null) return const SkeletonList();
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -160,12 +192,14 @@ class _TasksScreenState extends State<TasksScreen> {
                 status: a.submitted ? 'Lien envoyé' : 'À publier',
                 action: a.submitted
                     ? OutlinedButton(
-                        onPressed: () => _submit(a),
+                        onPressed: () => _submit(a, () {}),
                         child: const Text('Modifier le lien'),
                       )
-                    : FilledButton(
-                        onPressed: () => _submit(a),
-                        child: const Text('J’ai publié'),
+                    : _MorphButton(
+                        label: 'J’ai publié',
+                        color: Theme.of(context).colorScheme.primary,
+                        foreground: Theme.of(context).colorScheme.onPrimary,
+                        onPress: (loading) => _submit(a, loading),
                       ),
               ),
             ),
@@ -330,33 +364,84 @@ class _SubmitDialogState extends State<_SubmitDialog> {
   );
 }
 
-/// Turns into a spinner while the task is being accepted, then a green tick.
-class _AcceptButton extends StatefulWidget {
-  const _AcceptButton({required this.onAccept});
-
-  /// Returns whether the task was accepted.
-  final Future<bool> Function() onAccept;
+class _Filter extends StatelessWidget {
+  const _Filter({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
-  State<_AcceptButton> createState() => _AcceptButtonState();
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Pressable(
+      child: AnimatedContainer(
+        duration: VzMotion.of(context, VzMotion.standard),
+        curve: VzMotion.easeOut,
+        decoration: BoxDecoration(
+          color: selected ? scheme.primary : scheme.surface,
+          borderRadius: BorderRadius.circular(99),
+          border: Border.all(color: selected ? scheme.primary : scheme.outline),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(99),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: selected ? scheme.onPrimary : scheme.onSurface,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Turns into a spinner while its action runs, then a green tick.
+class _MorphButton extends StatefulWidget {
+  const _MorphButton({
+    required this.label,
+    required this.color,
+    required this.onPress,
+    this.foreground = VzColors.ink,
+  });
+  final String label;
+  final Color color;
+  final Color foreground;
+
+  /// Calls `loading` when the work starts. Returns whether it worked, or
+  /// null when the user backed out before anything was sent.
+  final Future<bool?> Function(VoidCallback loading) onPress;
+
+  @override
+  State<_MorphButton> createState() => _MorphButtonState();
 }
 
 enum _Step { idle, loading, done }
 
-class _AcceptButtonState extends State<_AcceptButton> {
+class _MorphButtonState extends State<_MorphButton> {
   _Step _step = _Step.idle;
 
   Future<void> _press() async {
-    setState(() => _step = _Step.loading);
-    final accepted = await widget.onAccept();
-    if (mounted) setState(() => _step = accepted ? _Step.done : _Step.idle);
+    final ok = await widget.onPress(() {
+      if (mounted) setState(() => _step = _Step.loading);
+    });
+    if (mounted) setState(() => _step = ok == true ? _Step.done : _Step.idle);
   }
 
   @override
   Widget build(BuildContext context) {
     final wide = VzMotion.of(context, VzMotion.wide);
     final child = switch (_step) {
-      _Step.idle => const Text('Accepter', key: ValueKey('idle')),
+      _Step.idle => Text(widget.label, key: const ValueKey('idle')),
       _Step.loading => const SizedBox.square(
         key: ValueKey('loading'),
         dimension: 22,
@@ -372,17 +457,17 @@ class _AcceptButtonState extends State<_AcceptButton> {
       child: AnimatedContainer(
         duration: wide,
         curve: VzMotion.easeOut,
-        width: _step == _Step.loading ? 56 : 132,
+        width: _step == _Step.loading ? 56 : 140,
         height: 48,
         child: FilledButton(
           style: FilledButton.styleFrom(
             padding: EdgeInsets.zero,
             backgroundColor: switch (_step) {
-              _Step.idle => VzColors.coral,
+              _Step.idle => widget.color,
               _Step.loading => Theme.of(context).colorScheme.primary,
               _Step.done => VzColors.paid,
             },
-            foregroundColor: VzColors.ink,
+            foregroundColor: widget.foreground,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(
                 _step == _Step.loading ? 28 : 14,
