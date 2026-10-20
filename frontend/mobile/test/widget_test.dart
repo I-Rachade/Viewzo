@@ -16,10 +16,12 @@ import 'memory_store.dart';
 Map<String, dynamic> userJson({
   String? email = 'ama@exemple.com',
   String? phone,
+  bool phoneRequired = false,
 }) => {
   'phone': phone,
   'email': email,
   'hasPassword': true,
+  'phoneRequired': phoneRequired,
   'country': 'TG',
   'priorityRank': 237,
   'isFounder': true,
@@ -371,5 +373,48 @@ void main() {
 
     expect(find.text('+22890123456'), findsOneWidget);
     expect(find.text('Non renseigné'), findsNothing);
+  });
+
+  testWidgets('asks a creator signed up by e-mail for a phone first', (
+    tester,
+  ) async {
+    final session = sessionWith((request) async {
+      switch (request.url.path) {
+        case '/auth/contact/request':
+          return json({'sentTo': '+228****3456'});
+        case '/auth/contact/verify':
+          final body = jsonDecode(request.body);
+          expect(body, {'identifier': '90123456', 'code': '654321'});
+          return json(userJson(phone: '+22890123456'));
+        case '/me/notifications/unread':
+          return json({'unread': 0});
+      }
+      return json({}, 404);
+    });
+    session.api.token = 'token';
+
+    await tester.pumpWidget(
+      VzApp(
+        home: HomeScreen(
+          session: session,
+          initialUser: UserView.fromJson(userJson(phoneRequired: true)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Ajoute ton numéro'), findsOneWidget);
+    expect(find.text('Profil'), findsNothing);
+    expect(find.text('Voir les campagnes'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('phone')), '90123456');
+    await tester.tap(find.text('Recevoir un code'));
+    await tester.pumpAndSettle();
+    expect(find.text('Code envoyé à +228****3456'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('code')), '654321');
+    await tester.tap(find.text('Valider'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ajoute ton numéro'), findsNothing);
+    expect(find.text('Profil'), findsOneWidget);
   });
 }

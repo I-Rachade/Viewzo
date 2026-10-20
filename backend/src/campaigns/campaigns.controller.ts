@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PhoneVerifiedGuard } from '../auth/phone-verified.guard';
 import type { AuthUser } from '../auth/jwt.strategy';
 import { proofSource } from '../posts/posts.controller';
 import { CampaignsService } from './campaigns.service';
@@ -58,6 +59,7 @@ export class CampaignsController {
   }
 
   @Post('tasks/:id/accept')
+  @UseGuards(PhoneVerifiedGuard)
   accept(
     @Req() req: { user: AuthUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -71,6 +73,7 @@ export class CampaignsController {
   }
 
   @Post('me/assignments/:id/submit')
+  @UseGuards(PhoneVerifiedGuard)
   @HttpCode(200)
   submit(
     @Req() req: Request & { user: AuthUser },

@@ -12,6 +12,7 @@ import 'auth_widgets.dart';
 import 'connections_screen.dart';
 import 'login_screen.dart';
 import 'notifications_screen.dart';
+import 'phone_required_screen.dart';
 import 'skills_screen.dart';
 import 'tasks_screen.dart';
 import 'wallet_screen.dart';
@@ -180,6 +181,14 @@ class _HomeScreenState extends State<HomeScreen>
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     final api = widget.session.api;
+    if (user.phoneRequired) {
+      return PhoneRequiredScreen(
+        api: api,
+        user: user,
+        onVerified: (user) => setState(() => _user = user),
+        onLogout: _logout,
+      );
+    }
     final creator = user.profiles.any((p) => p.type == ProfileType.creator);
     Widget lazy(int tab, Widget Function() build) =>
         _opened.contains(tab) ? build() : const SizedBox.shrink();

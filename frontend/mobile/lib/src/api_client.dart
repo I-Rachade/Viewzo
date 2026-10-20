@@ -35,6 +35,7 @@ class UserView {
     required this.phone,
     required this.email,
     required this.hasPassword,
+    this.phoneRequired = false,
     required this.country,
     required this.priorityRank,
     required this.isFounder,
@@ -45,6 +46,7 @@ class UserView {
     phone: json['phone'] as String?,
     email: json['email'] as String?,
     hasPassword: json['hasPassword'] as bool? ?? false,
+    phoneRequired: json['phoneRequired'] as bool? ?? false,
     country: json['country'] as String,
     priorityRank: json['priorityRank'] as int,
     isFounder: json['isFounder'] as bool,
@@ -60,6 +62,9 @@ class UserView {
   final String? phone;
   final String? email;
   final bool hasPassword;
+
+  /// A creator without a verified phone: only the phone screen is open.
+  final bool phoneRequired;
   final String country;
   final int priorityRank;
   final bool isFounder;

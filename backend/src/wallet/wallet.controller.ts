@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PhoneVerifiedGuard } from '../auth/phone-verified.guard';
 import type { AuthUser } from '../auth/jwt.strategy';
 import { DepositDto } from './dto/deposit.dto';
 import { FundCampaignDto } from './dto/fund-campaign.dto';
@@ -43,6 +44,7 @@ export class WalletController {
   }
 
   @Post('me/wallet/withdrawals')
+  @UseGuards(PhoneVerifiedGuard)
   withdraw(@Req() req: { user: AuthUser }, @Body() dto: WithdrawDto) {
     return this.wallet.requestWithdrawal(req.user.userId, dto);
   }

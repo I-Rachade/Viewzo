@@ -85,7 +85,7 @@ export default function RegisterPage() {
         ...(kind === "email" ? { country } : {}),
       });
       setToken(res.accessToken);
-      router.push("/dashboard");
+      router.push(res.user.phoneRequired ? "/telephone" : "/dashboard");
     });
   }
 

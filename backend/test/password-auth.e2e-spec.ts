@@ -231,7 +231,8 @@ describe('Password auth (e2e)', () => {
       .post('/auth/contact/request')
       .set('Authorization', `Bearer ${token}`)
       .send({ identifier: '+2290197000009' })
-      .expect(409);
+      // A Beninese number on a Togolese account (phone-required.e2e covers 409).
+      .expect(400);
     await http()
       .post('/auth/contact/request')
       .set('Authorization', `Bearer ${token}`)
