@@ -3,23 +3,34 @@ import 'package:flutter/material.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 
-/// The opening: the ring spins in, the V draws itself, the name and the
-/// promise rise, then [next] fades in.
+/// The opening: the ring spins in, the V draws itself, the name, the promise
+/// and two floating earnings bubbles rise. Someone new taps "Commencer à
+/// gagner" to go on; someone already signed in goes straight to [next].
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key, required this.next});
+  const SplashScreen({super.key, required this.next, this.waitForStart = true});
   final Widget next;
+
+  /// Shows the "Commencer à gagner" button and waits for it.
+  final bool waitForStart;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // 1 900 ms in all: 900 for the mark, the rest for the words and a pause.
-  late final _controller = AnimationController(
+  late final _intro = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1900),
-  )..addStatusListener(_onStatus);
+  )..addStatusListener(_onIntro);
+
+  // After the intro the ring keeps turning slowly and the bubbles float. It
+  // runs a few rounds then rests, so the screen never animates forever.
+  late final _life = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3200),
+  );
 
   bool _started = false;
 
@@ -29,15 +40,22 @@ class _SplashScreenState extends State<SplashScreen>
     if (_started) return;
     _started = true;
     if (VzMotion.of(context, VzMotion.wide) == Duration.zero) {
-      _controller.value = 1;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _leave());
+      _intro.value = 1;
+      if (!widget.waitForStart) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _leave());
+      }
     } else {
-      _controller.forward();
+      _intro.forward();
     }
   }
 
-  void _onStatus(AnimationStatus status) {
-    if (status == AnimationStatus.completed) _leave();
+  void _onIntro(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    if (widget.waitForStart) {
+      _life.repeat(count: 6);
+    } else {
+      _leave();
+    }
   }
 
   void _leave() {
@@ -56,62 +74,186 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _controller.dispose();
+    _intro.dispose();
+    _life.dispose();
     super.dispose();
   }
 
   double _part(double start, double end, Curve curve) {
-    final t = ((_controller.value - start) / (end - start)).clamp(0.0, 1.0);
+    final t = ((_intro.value - start) / (end - start)).clamp(0.0, 1.0);
     return curve.transform(t);
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: VzColors.ink,
-    body: Center(
+    body: SafeArea(
       child: AnimatedBuilder(
-        animation: _controller,
+        animation: Listenable.merge([_intro, _life]),
         builder: (context, _) {
           final intro = _part(0, 0.47, VzMotion.spring);
           final draw = _part(0.22, 0.5, VzMotion.easeOut);
           final name = _part(0.37, 0.6, VzMotion.easeOut);
-          final promise = _part(0.46, 0.7, VzMotion.easeOut);
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              VzMark(
-                size: 152,
-                tile: false,
-                intro: intro,
-                draw: draw,
-                ring: _controller.value / 6,
-              ),
-              const SizedBox(height: 24),
-              _Rise(
-                t: name,
-                child: const Text(
-                  'Viewzo',
-                  style: TextStyle(
-                    fontFamily: 'Sora',
-                    fontWeight: FontWeight.w800,
-                    fontSize: 40,
-                    letterSpacing: -1.2,
-                    color: Colors.white,
+          final subtitle = _part(0.46, 0.7, VzMotion.easeOut);
+          final views = _part(0.58, 0.8, VzMotion.easeOut);
+          final money = _part(0.68, 0.9, VzMotion.easeOut);
+          final action = _part(0.6, 0.84, VzMotion.easeOut);
+          // Gentle up and down, the second bubble half a beat behind.
+          double bob(double shift) {
+            final t = (_life.value + shift) % 1;
+            return -8 * Curves.easeInOut.transform(t < 0.5 ? t * 2 : 2 - t * 2);
+          }
+
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+            child: Column(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 280,
+                          height: 168,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              VzMark(
+                                size: 168,
+                                tile: false,
+                                intro: intro,
+                                draw: draw,
+                                ring: _intro.value / 6 + _life.value / 4,
+                              ),
+                              if (widget.waitForStart) ...[
+                                Positioned(
+                                  left: 0,
+                                  top: 6,
+                                  child: _Rise(
+                                    t: views,
+                                    child: Transform.translate(
+                                      offset: Offset(0, bob(0)),
+                                      child: const _Bubble(
+                                        '+12 vues',
+                                        background: VzColors.violetTintDark,
+                                        color: Color(0xFFC9BEFF),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  right: 0,
+                                  bottom: 18,
+                                  child: _Rise(
+                                    t: money,
+                                    child: Transform.translate(
+                                      offset: Offset(0, bob(0.5)),
+                                      child: const _Bubble(
+                                        '+60 F',
+                                        background: Color(0xFF3A1F26),
+                                        color: Color(0xFFFFB3B3),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        _Rise(
+                          t: name,
+                          child: const Text(
+                            'Viewzo',
+                            style: TextStyle(
+                              fontFamily: 'Sora',
+                              fontWeight: FontWeight.w800,
+                              fontSize: 40,
+                              letterSpacing: -1.2,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _Rise(
+                          t: subtitle,
+                          child: Text(
+                            widget.waitForStart
+                                ? 'Ton audience vaut de l’argent.'
+                                : 'Tes vues, payées. Partout dans le monde.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              color: VzColors.mutedDark,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              _Rise(
-                t: promise,
-                child: const Text(
-                  'Tes vues, payées. Partout dans le monde.',
-                  style: TextStyle(fontSize: 16, color: VzColors.mutedDark),
-                ),
-              ),
-            ],
+                if (widget.waitForStart)
+                  _Rise(
+                    t: action,
+                    child: Column(
+                      children: [
+                        Pressable(
+                          child: SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: VzColors.coral,
+                                foregroundColor: VzColors.ink,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              onPressed: _leave,
+                              child: const Text(
+                                'Commencer à gagner',
+                                style: TextStyle(fontSize: 16),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Tes vues, payées. Partout dans le monde.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: VzColors.mutedDark,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           );
         },
       ),
+    ),
+  );
+}
+
+class _Bubble extends StatelessWidget {
+  const _Bubble(this.label, {required this.background, required this.color});
+  final String label;
+  final Color background;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(99),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w700),
     ),
   );
 }

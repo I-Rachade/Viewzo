@@ -34,7 +34,9 @@ class ViewzoApp extends StatelessWidget {
       title: 'Viewzo',
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
-      home: showSplash ? SplashScreen(next: start) : start,
+      home: showSplash
+          ? SplashScreen(next: start, waitForStart: !loggedIn)
+          : start,
     );
   }
 }
