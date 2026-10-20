@@ -125,6 +125,7 @@ export class AuthService {
       password: string;
       role: ProfileType;
       country?: string;
+      firstName?: string;
     },
     client: ClientInfo,
   ) {
@@ -141,6 +142,7 @@ export class AuthService {
       country,
       passwordHash: await hashPassword(input.password),
       role: input.role,
+      firstName: input.firstName,
     });
     return { ...(await this.session(user, client)), isNew: true };
   }

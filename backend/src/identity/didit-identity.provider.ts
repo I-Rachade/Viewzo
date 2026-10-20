@@ -52,6 +52,7 @@ export function mapDiditDecision(body: Json): IdentityDecision {
     providerStatus,
     outcome: outcomeOf(providerStatus),
     fullName,
+    firstName: str(id?.first_name),
     dateOfBirth: str(id?.date_of_birth),
     documentType: str(id?.document_type),
     documentCountry: str(id?.issuing_state),

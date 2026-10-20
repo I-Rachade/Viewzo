@@ -21,6 +21,7 @@ import { assertCountry, assertNotSelf, countryScope } from '../auth/staff';
 import type { StaffActor } from '../auth/staff';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { cleanFirstName } from '../users/users.service';
 import { IDENTITY_PROVIDER } from './identity-provider';
 import type { IdentityDecision, IdentityProvider } from './identity-provider';
 
@@ -401,6 +402,14 @@ export class IdentityService {
       if (claimed.count === 0 || after.status === check.status) return after;
       if (status === IdentityCheckStatus.APPROVED) {
         await this.raiseLevels(tx, check.userId);
+        // Greets the person by the first name on the ID, unless they gave one.
+        const firstName = cleanFirstName(decision.firstName);
+        if (firstName) {
+          await tx.user.updateMany({
+            where: { id: check.userId, firstName: null },
+            data: { firstName },
+          });
+        }
       }
       await this.audit.record(tx, {
         actor: null,

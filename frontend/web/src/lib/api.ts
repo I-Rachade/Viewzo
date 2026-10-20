@@ -13,6 +13,8 @@ export interface UserView {
   // At least one of phone and email is set.
   phone: string | null;
   email: string | null;
+  // Null until given at sign-up, on the dashboard or by the verified ID.
+  firstName: string | null;
   hasPassword: boolean;
   // A creator without a verified phone; only /telephone is open to them.
   phoneRequired: boolean;
@@ -194,6 +196,7 @@ export const authApi = {
     password: string;
     role: "CREATOR" | "ADVERTISER";
     country?: string;
+    firstName?: string;
   }) => call<Session>("/auth/register/complete", post(body)),
   login: (identifier: string, password: string) =>
     call<Session>("/auth/login", post({ identifier, password })),
@@ -209,6 +212,11 @@ export const authApi = {
 
 export const api = {
   me: () => call<UserView>("/me"),
+  setFirstName: (firstName: string) =>
+    call<UserView>("/me", {
+      method: "PATCH",
+      body: JSON.stringify({ firstName }),
+    }),
   activateProfile: (type: ProfileType) =>
     call<UserView>("/me/profiles", {
       method: "POST",

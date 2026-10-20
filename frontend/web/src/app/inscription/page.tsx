@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useState } from "react";
 import { authApi, setToken } from "@/lib/api";
 import { CountrySelect } from "../country-select";
+import { LoadingCard } from "../loading-card";
 import { AuthScreen } from "../_auth/auth-screen";
 import { CodeField } from "../_auth/code-field";
 import { IdentifierField, IdentifierKind } from "../_auth/identifier-field";
@@ -28,9 +29,21 @@ const ROLES: { role: Role; title: string; subtitle: string }[] = [
 ];
 
 export default function RegisterPage() {
+  return (
+    <Suspense fallback={<LoadingCard />}>
+      <Register />
+    </Suspense>
+  );
+}
+
+function Register() {
   const router = useRouter();
-  const [step, setStep] = useState(1);
-  const [role, setRole] = useState<Role | null>(null);
+  // The home page's cards already say which profile to start with.
+  const asked = useSearchParams().get("profil");
+  const chosen = ROLES.find((r) => r.role === asked);
+  const [step, setStep] = useState(chosen ? 2 : 1);
+  const [role, setRole] = useState<Role | null>(chosen?.role ?? null);
+  const [firstName, setFirstName] = useState("");
   const [kind, setKind] = useState<IdentifierKind>("email");
   const [identifier, setIdentifier] = useState("");
   const [country, setCountry] = useState("TG");
@@ -82,6 +95,7 @@ export default function RegisterPage() {
         ticket,
         password,
         role: role!,
+        firstName,
         ...(kind === "email" ? { country } : {}),
       });
       setToken(res.accessToken);
@@ -163,13 +177,27 @@ export default function RegisterPage() {
 
       {step === 4 && (
         <form className="stack" onSubmit={submitPassword}>
+          <label>
+            Ton prénom
+            <input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              autoComplete="given-name"
+              maxLength={40}
+              required
+            />
+          </label>
           <NewPasswordFields
             password={password}
             confirm={confirm}
             onPassword={setPassword}
             onConfirm={setConfirm}
           />
-          <button disabled={busy || !passwordsReady(password, confirm)}>
+          <button
+            disabled={
+              busy || !firstName.trim() || !passwordsReady(password, confirm)
+            }
+          >
             Créer mon compte
           </button>
         </form>

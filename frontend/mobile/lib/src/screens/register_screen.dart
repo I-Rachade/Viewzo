@@ -23,6 +23,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     with CodeFormState<RegisterScreen> {
   final _identifier = TextEditingController();
   final _code = TextEditingController();
+  final _firstName = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   var _step = 0;
@@ -74,6 +75,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     final user = await widget.session.api.registerComplete(
       ticket: _ticket!,
       password: _password.text,
+      firstName: _firstName.text.trim(),
       role: _role!,
       country: _kind == IdentifierKind.email ? _country : null,
     );
@@ -85,6 +87,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   void dispose() {
     _identifier.dispose();
     _code.dispose();
+    _firstName.dispose();
     _password.dispose();
     _confirm.dispose();
     super.dispose();
@@ -339,8 +342,20 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   List<Widget> _passwordStep() {
     final canCreate =
-        !busy && NewPasswordFields.valid(_password.text, _confirm.text);
+        !busy &&
+        _firstName.text.trim().isNotEmpty &&
+        NewPasswordFields.valid(_password.text, _confirm.text);
     return [
+      ShadInputFormField(
+        key: const Key('firstName'),
+        controller: _firstName,
+        label: const Text('Ton prénom'),
+        autofillHints: const [AutofillHints.givenName],
+        textCapitalization: TextCapitalization.words,
+        maxLength: 40,
+        onChanged: (_) => setState(() {}),
+      ),
+      const SizedBox(height: 16),
       NewPasswordFields(
         password: _password,
         confirm: _confirm,

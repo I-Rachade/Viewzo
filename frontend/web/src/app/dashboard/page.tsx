@@ -56,7 +56,8 @@ export default function DashboardPage() {
 
   return (
     <div className="card stagger">
-      <h1>Bienvenue</h1>
+      <h1>{user.firstName ? `Bonjour ${user.firstName}` : "Bienvenue"}</h1>
+      {!user.firstName && <FirstNameForm onSaved={setUser} />}
       <p>
         Tu es inscrit n° {user.priorityRank} au{" "}
         {COUNTRY_NAMES.of(user.country) ?? user.country}.
@@ -88,5 +89,42 @@ export default function DashboardPage() {
 
 
     </div>
+  );
+}
+
+// Asked once to people who signed up before the first name existed.
+function FirstNameForm({ onSaved }: { onSaved: (u: UserView) => void }) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      className="row"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        try {
+          onSaved(await api.setFirstName(value));
+        } catch (err) {
+          setError((err as Error).message);
+          setBusy(false);
+        }
+      }}
+    >
+      <label>
+        Comment t’appelles-tu ?
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Ton prénom"
+          autoComplete="given-name"
+          maxLength={40}
+          required
+        />
+      </label>
+      <button disabled={busy || !value.trim()}>Enregistrer</button>
+      {error && <p className="error">{error}</p>}
+    </form>
   );
 }

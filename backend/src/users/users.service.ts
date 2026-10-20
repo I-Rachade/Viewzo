@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -85,6 +86,7 @@ export class UsersService {
     country: string;
     passwordHash: string;
     role: ProfileType;
+    firstName?: string;
   }) {
     const { contact, country, passwordHash, role } = input;
     const now = new Date();
@@ -94,6 +96,7 @@ export class UsersService {
           ? { email: contact.value, emailVerifiedAt: now }
           : { phone: contact.value, phoneVerifiedAt: now }),
         passwordHash,
+        firstName: cleanFirstName(input.firstName),
         profiles: { create: { type: role } },
       });
     } catch (e) {
@@ -163,12 +166,23 @@ export class UsersService {
     return this.getById(userId);
   }
 
+  async setFirstName(userId: string, firstName: string) {
+    const name = cleanFirstName(firstName);
+    if (!name) throw new BadRequestException('Indique ton prénom');
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { firstName: name },
+    });
+    return this.getById(userId);
+  }
+
   toView(user: UserWithProfiles) {
     const limit = Number(this.config.get('FOUNDER_BADGE_LIMIT', 1000));
     return {
       id: user.id,
       phone: user.phone,
       email: user.email,
+      firstName: user.firstName,
       hasPassword: user.passwordHash !== null,
       // Creators without a verified phone can only look around until they add one.
       phoneRequired: phoneRequired(user),
@@ -184,4 +198,10 @@ export class UsersService {
       profiles: user.profiles.map((p) => ({ type: p.type, level: p.level })),
     };
   }
+}
+
+/** Trimmed, single spaces, at most 40 characters; null when empty. */
+export function cleanFirstName(value: string | null | undefined) {
+  const name = value?.replace(/\s+/g, ' ').trim().slice(0, 40);
+  return name || null;
 }

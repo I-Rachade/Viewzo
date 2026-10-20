@@ -4,6 +4,7 @@ export interface IdentityDecision {
   providerStatus: string;
   outcome: 'PENDING' | 'APPROVED' | 'IN_REVIEW' | 'DECLINED' | 'ABANDONED';
   fullName?: string;
+  firstName?: string;
   dateOfBirth?: string;
   documentType?: string;
   documentCountry?: string;

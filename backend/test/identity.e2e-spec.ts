@@ -229,6 +229,7 @@ describe('Identity verification (e2e)', () => {
       providerStatus: 'Approved',
       outcome: 'APPROVED',
       fullName: 'Akouvi Ékué',
+      firstName: 'Akouvi',
       documentNumber: 'TG-123 456',
       warnings: [],
     };
@@ -238,6 +239,9 @@ describe('Identity verification (e2e)', () => {
       .expect(200);
     expect(approved.body).toMatchObject({ status: 'APPROVED' });
     expect(await levels(first)).toEqual([{ type: 'ADVERTISER', level: 2 }]);
+    // Greeted by the first name on the ID.
+    const me = await http().get('/me').set(auth(first)).expect(200);
+    expect(me.body).toMatchObject({ firstName: 'Akouvi' });
     const row = await prisma.identityCheck.findFirstOrThrow({
       where: { user: { phone: '+22895000020' } },
     });

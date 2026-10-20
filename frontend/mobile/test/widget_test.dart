@@ -218,6 +218,13 @@ void main() {
     expect(enabled(tester, 'Créer mon compte'), isFalse);
     await tester.enterText(
       find.descendant(
+        of: find.byKey(const Key('firstName')),
+        matching: find.byType(EditableText),
+      ),
+      ' Kofi ',
+    );
+    await tester.enterText(
+      find.descendant(
         of: find.byKey(const Key('password')),
         matching: find.byType(EditableText),
       ),
@@ -238,6 +245,7 @@ void main() {
     expect(completed, {
       'ticket': 'ticket-1',
       'password': 'secret123',
+      'firstName': 'Kofi',
       'role': 'CREATOR',
       'country': 'BJ',
     });

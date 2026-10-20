@@ -30,6 +30,8 @@ enum ProfileType {
 
 model User {
   id              String             @id @default(uuid())
+  // Used to greet the person; asked at sign-up or taken from the verified ID.
+  firstName       String?
   // At least one of phone and email is set and verified.
   phone           String?            @unique
   email           String?            @unique

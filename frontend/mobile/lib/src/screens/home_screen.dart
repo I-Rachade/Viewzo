@@ -588,7 +588,10 @@ class _HomeTabState extends State<_HomeTab> {
                   VzMark(size: 40, outline: VzMark.outlineFor(context)),
                   Expanded(
                     child: Text(
-                      hour >= 18 || hour < 5 ? 'Bonsoir' : 'Bonjour',
+                      [
+                        hour >= 18 || hour < 5 ? 'Bonsoir' : 'Bonjour',
+                        ?user.firstName,
+                      ].join(' '),
                       style: theme.textTheme.h3,
                     ),
                   ),
