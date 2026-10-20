@@ -39,7 +39,9 @@ void main() {
     });
     final session = Session(ApiClient(client: client, baseUrl: 'http://test'));
 
-    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.pumpWidget(
+      ViewzoApp(session: session, loggedIn: false, showSplash: false),
+    );
     await tester.enterText(find.byKey(const Key('phone')), '90123456');
     await tester.tap(find.text('Recevoir un code'));
     await tester.pumpAndSettle();
@@ -65,7 +67,9 @@ void main() {
     });
     final session = Session(ApiClient(client: client, baseUrl: 'http://test'));
 
-    await tester.pumpWidget(ViewzoApp(session: session, loggedIn: false));
+    await tester.pumpWidget(
+      ViewzoApp(session: session, loggedIn: false, showSplash: false),
+    );
     await tester.enterText(find.byKey(const Key('phone')), '90123456');
     await tester.tap(find.text('Recevoir un code'));
     await tester.pumpAndSettle();
