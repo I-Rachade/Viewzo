@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { Suspense } from "react";
 import "./globals.css";
@@ -30,6 +30,15 @@ const dmSans = localFont({
 export const metadata: Metadata = {
   title: "Viewzo",
   description: "Tes vues, payées. Partout dans le monde.",
+};
+
+// The browser bars take the page colour; the page reaches under the notch.
+export const viewport: Viewport = {
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#1b1a24" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -395,12 +395,13 @@ a.chip {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .status {
   font-size: 0.85rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .stats {
@@ -646,13 +647,27 @@ a.chip {
 }
 
 .password input {
+  min-height: 48px;
   padding-right: 90px;
 }
 
+/* Same height as the field, so the label sits in its middle. */
 .password button {
   position: absolute;
   right: 8px;
-  bottom: 12px;
+  bottom: 0;
+  height: 48px;
+}
+
+/* Low specificity, so any styled link (menu, tabs, chips) keeps its own look. */
+a:where(:not(.button)) {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a:where(:not(.button):hover) {
+  text-decoration: underline;
 }
 
 button.link {
@@ -1377,4 +1392,52 @@ a.notification {
 
 .campaign {
   min-width: 0;
+}
+
+/* Phones: the page itself is the surface, edge to edge, like the app. */
+@media (max-width: 600px) {
+  body {
+    background: var(--surface);
+  }
+
+  /* Signed-out pages; the app frame pads its own content. */
+  body > .container {
+    min-height: 100dvh;
+    padding: max(24px, env(safe-area-inset-top)) 16px
+      max(32px, env(safe-area-inset-bottom));
+  }
+
+  .card {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+  }
+
+  .nav {
+    grid-template-columns: 1fr;
+  }
+
+  /* The page reaches under the notch, so the top bar keeps clear of it. */
+  .topbar {
+    padding-top: max(8px, env(safe-area-inset-top));
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+  }
+
+  html:has(.hero),
+  body:has(.hero) {
+    background: var(--ink);
+  }
+
+  .container:has(.hero) {
+    padding: 0;
+  }
+
+  .hero {
+    min-height: 100dvh;
+    border-radius: 0;
+    justify-content: center;
+    padding: max(48px, env(safe-area-inset-top)) 24px
+      max(32px, env(safe-area-inset-bottom));
+  }
 }
