@@ -133,6 +133,14 @@ export class ProofsService {
       });
     });
     await this.refreshRisk(assignmentId);
+    // The same image on other posts makes those suspicious too.
+    const others = await this.prisma.postProof.findMany({
+      where: { sha256: saved.sha256, assignmentId: { not: assignmentId } },
+      select: { assignmentId: true },
+      distinct: ['assignmentId'],
+      take: 20,
+    });
+    for (const o of others) await this.refreshRisk(o.assignmentId);
   }
 
   /** The post link, sent with "J'ai publié". */

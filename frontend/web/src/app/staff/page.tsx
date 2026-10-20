@@ -1,87 +1,73 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { api, getToken, StaffOverview, staffApi, UserView } from "@/lib/api";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { AccountsSection } from "./_sections/accounts";
 import { CampaignsSection } from "./_sections/campaigns";
 import { TeamSection } from "./_sections/team";
-import { ViewsSection } from "./_sections/views";
+import { useStaffOnly } from "./_sections/use-staff";
 import { WithdrawalsSection } from "./_sections/withdrawals";
 import { LoadingCard } from "../loading-card";
+import { useSession } from "../_shell/session";
 
-type Tab = keyof StaffOverview | "team";
+type Tab = "accounts" | "campaigns" | "withdrawals" | "team";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "accounts", label: "Comptes" },
   { key: "campaigns", label: "Campagnes" },
   { key: "withdrawals", label: "Retraits" },
-  { key: "assignments", label: "Vues" },
   { key: "team", label: "Équipe" },
 ];
 
-// Back-office for the Viewzo team: verification, moderation, payments.
 export default function StaffPage() {
+  return (
+    <Suspense fallback={<LoadingCard />}>
+      <Staff />
+    </Suspense>
+  );
+}
+
+// Back-office for the Viewzo team: verification, moderation, payments.
+function Staff() {
   const router = useRouter();
-  const [user, setUser] = useState<UserView | null>(null);
-  const [overview, setOverview] = useState<StaffOverview | null>(null);
-  const [tab, setTab] = useState<Tab>("accounts");
+  const params = useSearchParams();
+  const allowed = useStaffOnly();
+  const { user, staff, refreshStaff } = useSession();
+  const asked = params.get("tab");
+  const tab: Tab = TABS.some((t) => t.key === asked) ? (asked as Tab) : "accounts";
 
-  const refresh = useCallback(() => {
-    staffApi.overview().then(setOverview, () => {});
-  }, []);
-
-  useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-      return;
-    }
-    api
-      .me()
-      .then((me) => {
-        if (!me.isStaff) {
-          router.replace("/dashboard");
-          return;
-        }
-        setUser(me);
-        refresh();
-      })
-      .catch(() => router.replace("/login"));
-  }, [router, refresh]);
-
-  if (!user) return <LoadingCard />;
+  if (!allowed || !user) return <LoadingCard />;
 
   return (
     <div className="card wide">
       <h1>Back-office</h1>
       <div className="chips">
+        <Link className="chip" href="/staff/publications">
+          Publications
+          {staff && (
+            <small>
+              {staff.assignments} à vérifier
+              {staff.alerts ? ` · ${staff.alerts} alerte${staff.alerts > 1 ? "s" : ""}` : ""}
+            </small>
+          )}
+        </Link>
         {TABS.map((t) => (
           <button
             key={t.key}
             className={`chip${tab === t.key ? " selected" : ""}`}
-            onClick={() => setTab(t.key)}
+            onClick={() => router.replace(`/staff?tab=${t.key}`)}
           >
             {t.label}
-            {t.key !== "team" && overview && (
-              <small>
-                {overview[t.key]}{" "}
-                {t.key === "assignments" ? "publications" : "en attente"}
-              </small>
-            )}
+            {t.key !== "team" && staff && <small>{staff[t.key]} en attente</small>}
           </button>
         ))}
       </div>
 
-      {tab === "accounts" && <AccountsSection onChange={refresh} />}
-      {tab === "campaigns" && <CampaignsSection onChange={refresh} />}
-      {tab === "withdrawals" && <WithdrawalsSection onChange={refresh} />}
-      {tab === "assignments" && <ViewsSection onChange={refresh} />}
+      {tab === "accounts" && <AccountsSection onChange={refreshStaff} />}
+      {tab === "campaigns" && <CampaignsSection onChange={refreshStaff} />}
+      {tab === "withdrawals" && <WithdrawalsSection onChange={refreshStaff} />}
       {tab === "team" && <TeamSection selfId={user.id} />}
-
-      <Link className="button secondary" href="/dashboard">
-        Tableau de bord
-      </Link>
     </div>
   );
 }

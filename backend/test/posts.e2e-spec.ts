@@ -261,9 +261,10 @@ describe('Posts, proofs and reports (e2e)', () => {
     };
     expect(body.items[0].id).toBe(a.id);
     expect(body.counts.TO_REVIEW).toBe(2);
+    // The first post with that image is flagged too.
     expect(
       (await http().get('/staff/overview').set(auth(staff)).expect(200)).body,
-    ).toMatchObject({ assignments: 2, alerts: 1 });
+    ).toMatchObject({ assignments: 2, alerts: 2 });
     await http().get('/staff/posts').set(auth(creator)).expect(403);
   });
 
