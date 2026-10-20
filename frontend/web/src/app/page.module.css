@@ -1,0 +1,102 @@
+/* The welcome screen of the UI kit: mark with floating earnings, promise,
+   and the button at the bottom. Shared hero styles live in globals.css. */
+/* Doubled to win over the phone rule for .hero in globals.css. */
+.welcome.welcome {
+  justify-content: space-between;
+  gap: 40px;
+}
+
+.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+}
+
+.stage {
+  position: relative;
+  width: 280px;
+  height: 168px;
+  display: grid;
+  place-items: center;
+}
+
+/* After spinning in, the ring keeps turning slowly. */
+.stage :global(.ring) {
+  animation:
+    vz-ring-in 900ms var(--spring) both,
+    spin 14s linear 900ms infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bubble {
+  position: absolute;
+  padding: 6px 12px;
+  border-radius: 99px;
+  font-size: 13px;
+  font-weight: 700;
+  animation:
+    vz-rise var(--wide) var(--ease-out) backwards,
+    bob 3.2s ease-in-out infinite;
+}
+
+.views {
+  left: 0;
+  top: 6px;
+  background: #2a2440;
+  color: #c9beff;
+  animation-delay: 1100ms, 1500ms;
+}
+
+.money {
+  right: 0;
+  bottom: 18px;
+  background: #3a1f26;
+  color: #ffb3b3;
+  animation-delay: 1300ms, 1700ms;
+}
+
+@keyframes bob {
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.words {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.bottom {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.bottom p {
+  font-size: 13px;
+}
+
+/* Module copies of the shared keyframes: names here are scoped to this file. */
+@keyframes vz-ring-in {
+  from {
+    opacity: 0;
+    transform: scale(0.55) rotate(-120deg);
+  }
+}
+
+@keyframes vz-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
