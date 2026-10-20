@@ -1047,3 +1047,209 @@ export const staffPostsApi = {
     }),
   creator: (id: string) => call<CreatorFile>(`/staff/creators/${id}`),
 };
+
+// ---- Modules switched on by the team ----------------------------------------
+
+export type ModuleKey = "LIVE_SALES";
+
+export interface PlatformModuleView {
+  key: ModuleKey;
+  name: string;
+  description: string;
+  enabled: boolean;
+  updatedAt: string | null;
+}
+
+const patch = (body: object) => ({
+  method: "PATCH",
+  body: JSON.stringify(body),
+});
+
+// The list of switched-on modules is public; only super admins switch them.
+export const modulesApi = {
+  enabled: () => call<ModuleKey[]>("/modules"),
+  all: () => call<PlatformModuleView[]>("/staff/modules"),
+  set: (key: ModuleKey, enabled: boolean) =>
+    call<{ key: ModuleKey; enabled: boolean }>(
+      `/staff/modules/${key}`,
+      patch({ enabled }),
+    ),
+};
+
+// ---- Live selling on TikTok -----------------------------------------------
+
+export type LiveSaleStatus = "SCHEDULED" | "RUNNING" | "ENDED" | "CANCELLED";
+export type LiveLeadStatus =
+  | "NEW"
+  | "CONTACTED"
+  | "PAID"
+  | "DELIVERED"
+  | "CANCELLED";
+export type LiveIntent =
+  | "achat"
+  | "question_prix"
+  | "question_produit"
+  | "question_livraison"
+  | "annulation"
+  | "autre";
+
+export const LIVE_STATUS_LABELS: Record<LiveSaleStatus, string> = {
+  SCHEDULED: "Planifié",
+  RUNNING: "En direct",
+  ENDED: "Terminé",
+  CANCELLED: "Annulé",
+};
+
+export const LIVE_STATUS_TONES: Record<LiveSaleStatus, string> = {
+  SCHEDULED: "pending",
+  RUNNING: "paid",
+  ENDED: "neutral",
+  CANCELLED: "refused",
+};
+
+export const LEAD_STATUS_LABELS: Record<LiveLeadStatus, string> = {
+  NEW: "Nouveau",
+  CONTACTED: "Contacté",
+  PAID: "Payé",
+  DELIVERED: "Livré",
+  CANCELLED: "Annulé",
+};
+
+export const INTENT_LABELS: Record<LiveIntent, string> = {
+  achat: "Achat",
+  question_prix: "Prix",
+  question_produit: "Question",
+  question_livraison: "Livraison",
+  annulation: "Annulation",
+  autre: "Autre",
+};
+
+export interface LiveProduct {
+  id: string;
+  name: string;
+  // FCFA.
+  price: number;
+  // null: no stock limit.
+  stock: number | null;
+  active: boolean;
+}
+
+export interface LiveSale {
+  id: string;
+  title: string;
+  tiktokUsername: string;
+  scheduledAt: string;
+  demo: boolean;
+  // Products of the day; empty means all active products.
+  productIds: string[];
+  status: LiveSaleStatus;
+  startedAt: string | null;
+  endedAt: string | null;
+  viewers: number | null;
+  sourceState: string | null;
+  sourceMessage: string | null;
+  cancelReason: string | null;
+  createdAt: string;
+}
+
+export interface LiveLeadItem {
+  productId: string | null;
+  name: string;
+  quantity: number;
+  variant: string | null;
+  unitPrice: number | null;
+}
+
+export interface LiveLead {
+  id: string;
+  // The buyer sends it on WhatsApp to give their number.
+  code: string;
+  tiktokUser: string;
+  nickname: string;
+  intent: LiveIntent;
+  items: LiveLeadItem[];
+  total: number | null;
+  reply: string | null;
+  status: LiveLeadStatus;
+  // The buyer wrote a number in a comment; it was masked, not kept.
+  phoneSeen: boolean;
+  firstAt: string;
+  lastAt: string;
+}
+
+export interface LiveComment {
+  id: string;
+  tiktokUser: string;
+  nickname: string;
+  text: string;
+  intent: LiveIntent | null;
+  by: "IA" | "mots-clés" | null;
+  at: string;
+}
+
+export interface LiveBoard {
+  live: LiveSale;
+  stats: {
+    comments: number;
+    interested: number;
+    buyers: number;
+    cancelled: number;
+    paid: number;
+    forecast: number;
+  };
+  leads: LiveLead[];
+  comments: LiveComment[];
+  products: (Omit<LiveProduct, "active"> & { left: number | null })[];
+  running: boolean;
+  ai: boolean;
+}
+
+export interface LiveInput {
+  title: string;
+  tiktokUsername: string;
+  scheduledAt: string;
+  demo?: boolean;
+  productIds?: string[];
+}
+
+export interface StaffLiveRow extends LiveSale {
+  seller: StaffUser & { country: string };
+  _count: { leads: number; comments: number };
+}
+
+export const liveApi = {
+  products: () => call<LiveProduct[]>("/me/live/products"),
+  addProduct: (input: Omit<LiveProduct, "id" | "active">) =>
+    call<LiveProduct>("/me/live/products", post(input)),
+  updateProduct: (id: string, input: Partial<Omit<LiveProduct, "id">>) =>
+    call<LiveProduct>(`/me/live/products/${id}`, patch(input)),
+  deleteProduct: (id: string) =>
+    call<void>(`/me/live/products/${id}`, { method: "DELETE" }),
+  sales: () =>
+    call<(LiveSale & { _count: { leads: number } })[]>("/me/live/sales"),
+  create: (input: LiveInput) => call<LiveSale>("/me/live/sales", post(input)),
+  update: (id: string, input: Partial<LiveInput>) =>
+    call<LiveSale>(`/me/live/sales/${id}`, patch(input)),
+  board: (id: string) => call<LiveBoard>(`/me/live/sales/${id}`),
+  start: (id: string) =>
+    call<LiveSale & { running: boolean }>(`/me/live/sales/${id}/start`, post({})),
+  stop: (id: string) => call<LiveSale>(`/me/live/sales/${id}/stop`, post({})),
+  cancel: (id: string) =>
+    call<LiveSale>(`/me/live/sales/${id}/cancel`, post({})),
+  addLead: (
+    id: string,
+    input: {
+      tiktokUser: string;
+      items?: { productId: string; quantity: number; variant?: string }[];
+    },
+  ) => call<LiveLead>(`/me/live/sales/${id}/leads`, post(input)),
+  setLead: (id: string, leadId: string, status: LiveLeadStatus) =>
+    call<LiveLead>(`/me/live/sales/${id}/leads/${leadId}`, patch({ status })),
+};
+
+export const staffLiveApi = {
+  list: (status?: LiveSaleStatus) =>
+    call<StaffLiveRow[]>(`/staff/live/sales${status ? `?status=${status}` : ""}`),
+  cancel: (id: string, reason: string) =>
+    call<LiveSale>(`/staff/live/sales/${id}/cancel`, post({ reason })),
+};

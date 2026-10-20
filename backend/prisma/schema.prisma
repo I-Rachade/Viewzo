@@ -63,6 +63,8 @@ model User {
   notifications   Notification[]
   connections     SocialConnection[]
   sessions        Session[]
+  liveProducts    LiveProduct[]
+  liveSales       LiveSale[]
 
   @@unique([country, priorityRank])
 }
@@ -647,4 +649,130 @@ model SocialConnection {
   user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, network])
+}
+
+// Optional parts of Viewzo a super admin switches on in the back-office.
+// A module without a row, or switched off, is hidden everywhere.
+model PlatformModule {
+  // See src/modules/modules.ts for the known keys.
+  key       String   @id
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --- Vente en live TikTok (module LIVE_SALES) --------------------------------
+
+// A product a seller offers during their TikTok lives.
+model LiveProduct {
+  id        String   @id @default(uuid())
+  sellerId  String
+  name      String
+  // FCFA (XOF).
+  price     Int
+  // Null: no stock limit.
+  stock     Int?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  seller    User     @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@index([sellerId, createdAt])
+}
+
+enum LiveSaleStatus {
+  SCHEDULED
+  RUNNING
+  ENDED
+  CANCELLED
+}
+
+// One TikTok live a seller sells in. Comments are read while it runs.
+model LiveSale {
+  id             String         @id @default(uuid())
+  sellerId       String
+  title          String
+  // TikTok username the comments are read from, without @.
+  tiktokUsername String
+  scheduledAt    DateTime
+  // Simulated comments instead of TikTok, to try the module.
+  demo           Boolean        @default(false)
+  // Products of the day; empty means every active product of the seller.
+  productIds     String[]       @default([])
+  status         LiveSaleStatus @default(SCHEDULED)
+  startedAt      DateTime?
+  endedAt        DateTime?
+  viewers        Int?
+  // Last message of the TikTok connection (connected, disconnected, error).
+  sourceState    String?
+  sourceMessage  String?
+  // Set by the team when it stops a live; the seller sees the reason.
+  cancelReason   String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  seller         User           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  leads          LiveLead[]
+  comments       LiveComment[]
+
+  @@index([sellerId, scheduledAt])
+  @@index([status, scheduledAt])
+}
+
+enum LiveLeadStatus {
+  NEW
+  CONTACTED
+  PAID
+  DELIVERED
+  CANCELLED
+}
+
+// One interested customer per live and TikTok user, with their cart and the
+// code they send on WhatsApp.
+model LiveLead {
+  id         String         @id @default(uuid())
+  liveId     String
+  // VZ + 4 characters, unique so a shared WhatsApp number finds the order.
+  code       String         @unique
+  tiktokUser String
+  nickname   String
+  // achat, question_prix, question_produit, question_livraison, annulation.
+  intent     String
+  // [{ productId, name, variant, quantity, unitPrice }]
+  items      Json           @default("[]")
+  // Sum of the priced lines, FCFA; null when no line has a price.
+  total      Int?
+  // Answer the seller can read out in the live.
+  reply      String?
+  status     LiveLeadStatus @default(NEW)
+  // A phone number was written in a comment (masked, never stored).
+  phoneSeen  Boolean        @default(false)
+  firstAt    DateTime       @default(now())
+  lastAt     DateTime       @default(now())
+  live       LiveSale       @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  comments   LiveComment[]
+
+  @@unique([liveId, tiktokUser])
+  @@index([liveId, lastAt])
+}
+
+// A comment read from the live, kept for the live screen and the summary.
+model LiveComment {
+  id         String    @id @default(uuid())
+  liveId     String
+  leadId     String?
+  // TikTok message id, so a comment read twice is stored once.
+  externalId String
+  tiktokUser String
+  nickname   String
+  // Phone numbers are masked before saving.
+  text       String
+  intent     String?
+  // "IA" or "mots-clés".
+  by         String?
+  at         DateTime
+  live       LiveSale  @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  lead       LiveLead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@unique([liveId, externalId])
+  @@index([liveId, at])
 }
