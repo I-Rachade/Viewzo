@@ -740,8 +740,8 @@ button.link {
   gap: 16px;
 }
 
-.sidebar-brand,
-.topbar-brand {
+a.sidebar-brand,
+a.topbar-brand {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -790,7 +790,8 @@ button.link {
   text-transform: uppercase;
 }
 
-.nav-item,
+/* Element-qualified so a general link colour rule can't restyle the menu. */
+a.nav-item,
 button.nav-item {
   min-height: 40px;
   display: flex;
@@ -810,7 +811,7 @@ button.nav-item {
   background: var(--bg);
 }
 
-.nav-item.active {
+a.nav-item.active {
   background: var(--accent-tint);
   color: var(--on-accent-tint);
   font-weight: 700;
@@ -846,7 +847,7 @@ button.nav-item.logout {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 24px;
+  padding: max(10px, env(safe-area-inset-top)) 24px 10px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
@@ -856,7 +857,7 @@ button.nav-item.logout {
   flex: 1;
 }
 
-.topbar-brand,
+a.topbar-brand,
 button.icon-button.menu-button {
   display: none;
 }
@@ -951,7 +952,7 @@ button.icon-button {
     padding: 8px 16px;
   }
 
-  .topbar-brand,
+  a.topbar-brand,
   button.icon-button.menu-button {
     display: flex;
   }
@@ -1295,13 +1296,15 @@ dl.kv dd {
   vertical-align: -1px;
 }
 
-.notification {
+.notification,
+a.notification {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
   color: var(--text);
+  font-weight: 400;
   text-decoration: none;
 }
 
