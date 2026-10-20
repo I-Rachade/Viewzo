@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 /// Viewzo brand colours (see the visual identity sheet).
 abstract final class VzColors {
@@ -231,6 +232,64 @@ ThemeData buildTheme(Brightness brightness) {
         TargetPlatform.macOS: VzPageTransitionsBuilder(),
         TargetPlatform.windows: VzPageTransitionsBuilder(),
       },
+    ),
+  );
+}
+
+/// The same brand colours and type for the shadcn_ui widgets.
+ShadThemeData buildShadTheme(Brightness brightness) {
+  final dark = brightness == Brightness.dark;
+  final foreground = dark ? const Color(0xFFF1F0F7) : VzColors.ink;
+  final surface = dark ? VzColors.nightSurface : Colors.white;
+  final line = dark ? VzColors.nightLine : VzColors.line;
+  final primary = dark ? VzColors.lilac : VzColors.violet;
+  final tint = dark ? VzColors.violetTintDark : VzColors.violetTint;
+  final onTint = dark ? const Color(0xFFC9BEFF) : VzColors.violet;
+
+  TextStyle display(TextStyle s) =>
+      s.copyWith(fontFamily: _display, letterSpacing: -0.3);
+
+  return ShadThemeData(
+    brightness: brightness,
+    colorScheme: ShadColorScheme(
+      background: dark ? VzColors.night : VzColors.mist,
+      foreground: foreground,
+      card: surface,
+      cardForeground: foreground,
+      popover: surface,
+      popoverForeground: foreground,
+      primary: primary,
+      primaryForeground: dark ? VzColors.ink : Colors.white,
+      secondary: tint,
+      secondaryForeground: onTint,
+      muted: dark ? VzColors.nightLine : const Color(0xFFEFEEF5),
+      mutedForeground: dark ? VzColors.mutedDark : VzColors.muted,
+      accent: tint,
+      accentForeground: onTint,
+      destructive: dark ? VzColors.coral : VzColors.red,
+      destructiveForeground: dark ? VzColors.ink : Colors.white,
+      border: line,
+      input: line,
+      ring: primary,
+      selection: primary.withValues(alpha: 0.3),
+    ),
+    radius: BorderRadius.circular(14),
+    textTheme: ShadTextTheme(
+      family: _body,
+      h1: display(ShadTextDefaultTheme.h1(family: _display)),
+      h2: display(ShadTextDefaultTheme.h2(family: _display)),
+      h3: display(ShadTextDefaultTheme.h3(family: _display)),
+      h4: display(ShadTextDefaultTheme.h4(family: _display)),
+    ),
+    buttonSizesTheme: const ShadButtonSizesTheme(
+      regular: ShadButtonSizeTheme(
+        height: 48,
+        padding: EdgeInsets.symmetric(horizontal: 20),
+      ),
+      lg: ShadButtonSizeTheme(
+        height: 52,
+        padding: EdgeInsets.symmetric(horizontal: 24),
+      ),
     ),
   );
 }

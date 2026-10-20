@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'src/api_client.dart';
 import 'src/screens/home_screen.dart';
@@ -30,13 +31,31 @@ class ViewzoApp extends StatelessWidget {
     final start = loggedIn
         ? HomeScreen(session: session)
         : LoginScreen(session: session);
-    return MaterialApp(
-      title: 'Viewzo',
-      theme: buildTheme(Brightness.light),
-      darkTheme: buildTheme(Brightness.dark),
+    return VzApp(
       home: showSplash
           ? SplashScreen(next: start, waitForStart: !loggedIn)
           : start,
     );
   }
+}
+
+/// The shadcn_ui theme around the Material app, both in Viewzo colours.
+class VzApp extends StatelessWidget {
+  const VzApp({super.key, required this.home});
+  final Widget home;
+
+  @override
+  Widget build(BuildContext context) => ShadApp.custom(
+    theme: buildShadTheme(Brightness.light),
+    darkTheme: buildShadTheme(Brightness.dark),
+    appBuilder: (context) => MaterialApp(
+      title: 'Viewzo',
+      debugShowCheckedModeBanner: false,
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.dark),
+      localizationsDelegates: const [GlobalShadLocalizations.delegate],
+      builder: (context, child) => ShadAppBuilder(child: child),
+      home: home,
+    ),
+  );
 }
