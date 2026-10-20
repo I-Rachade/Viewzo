@@ -10,6 +10,8 @@ import { PrismaService } from '../prisma/prisma.service';
 
 const ROW_SELECT = { code: true, enabled: true } as const;
 
+const upper = (code: string) => code.toUpperCase();
+
 // The countries Viewzo works in, managed by super admins.
 @Injectable()
 export class CountriesService {
@@ -17,6 +19,32 @@ export class CountriesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  /**
+   * Throws unless every code is enabled. Accounts already in a country that
+   * gets switched off keep working; only new sign-ups and new choices stop.
+   */
+  async assertAllowed(
+    codes: string | string[],
+    message = 'Viewzo n’est pas encore ouvert dans ce pays',
+  ) {
+    const wanted = [
+      ...new Set((Array.isArray(codes) ? codes : [codes]).map(upper)),
+    ];
+    if (!wanted.length) return;
+    const open = await this.prisma.allowedCountry.findMany({
+      where: { code: { in: wanted }, enabled: true },
+      select: { code: true },
+    });
+    const closed = wanted.filter((c) => !open.some((o) => o.code === c));
+    if (closed.length) {
+      throw new BadRequestException({
+        code: 'COUNTRY_NOT_ALLOWED',
+        message: `${message} : ${closed.join(', ')}`,
+        countries: closed,
+      });
+    }
+  }
 
   /** Codes offered by the country pickers. */
   async enabled() {

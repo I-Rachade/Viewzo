@@ -13,7 +13,12 @@ import { JwtService } from '@nestjs/jwt';
 import { ProfileType, User, UserProfile } from '@prisma/client';
 import { isSupportedCountry } from 'libphonenumber-js';
 import { PrismaService } from '../prisma/prisma.service';
-import { ALREADY_REGISTERED, UsersService } from '../users/users.service';
+import { CountriesService } from '../countries/countries.service';
+import {
+  ALREADY_REGISTERED,
+  SIGNUP_CLOSED,
+  UsersService,
+} from '../users/users.service';
 import { EmailOtpService } from './email-otp.service';
 import { Identifier, parseIdentifier } from './identifier';
 import { OTP_PROVIDER } from './otp-provider';
@@ -46,6 +51,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly sessions: SessionsService,
+    private readonly countries: CountriesService,
   ) {}
 
   // Code-only login kept for accounts from before passwords. An account with
@@ -88,6 +94,13 @@ export class AuthService {
     const id = this.parse(raw);
     if (await this.users.findByContact(id)) {
       throw new ConflictException(ALREADY_REGISTERED);
+    }
+    // Before any code is sent; e-mail sign-ups are checked at the last step.
+    if (id.kind === 'phone') {
+      await this.countries.assertAllowed(
+        this.parsePhone(id.value).country,
+        SIGNUP_CLOSED,
+      );
     }
     await this.sendCode(id);
     return { sentTo: id.value };

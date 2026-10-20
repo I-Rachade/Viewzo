@@ -18,6 +18,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuditService } from '../audit/audit.service';
 import { parsePhone } from '../auth/phone';
 import { countryScope, StaffActor } from '../auth/staff';
+import { CountriesService } from '../countries/countries.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberRightsDto } from './dto/add-member.dto';
 
@@ -41,6 +42,7 @@ export class StaffService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly countries: CountriesService,
   ) {}
 
   // What is waiting for the team in their countries, one counter per queue.
@@ -199,6 +201,7 @@ export class StaffService {
     if (rights.staffRole === StaffRole.COUNTRY_MANAGER && !countries.length) {
       throw new BadRequestException('Indique le ou les pays du responsable');
     }
+    await this.countries.assertAllowed(countries);
     return this.prisma.$transaction(async (tx) => {
       const before = await tx.user.findUniqueOrThrow({
         where: { id },
