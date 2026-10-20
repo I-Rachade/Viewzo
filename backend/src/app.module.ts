@@ -8,7 +8,9 @@ import { AuthModule } from './auth/auth.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { CountriesModule } from './countries/countries.module';
 import { CreatorsModule } from './creators/creators.module';
+import { LiveModule } from './live/live.module';
 import { MailModule } from './mail/mail.module';
+import { ModulesModule } from './modules/modules.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PostsModule } from './posts/posts.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -43,6 +45,8 @@ import { WalletModule } from './wallet/wallet.module';
     PostsModule,
     StaffModule,
     CountriesModule,
+    ModulesModule,
+    LiveModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: AppThrottlerGuard }],
