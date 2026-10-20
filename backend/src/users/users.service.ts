@@ -11,6 +11,7 @@ import {
   UserProfile,
   UserRole,
 } from '@prisma/client';
+import { phoneRequired } from '../auth/phone-verified.guard';
 import { CountriesService } from '../countries/countries.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -162,6 +163,8 @@ export class UsersService {
       phone: user.phone,
       email: user.email,
       hasPassword: user.passwordHash !== null,
+      // Creators without a verified phone can only look around until they add one.
+      phoneRequired: phoneRequired(user),
       country: user.country,
       priorityRank: user.priorityRank,
       isFounder: user.priorityRank <= limit,

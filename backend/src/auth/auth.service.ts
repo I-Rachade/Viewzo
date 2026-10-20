@@ -230,7 +230,7 @@ export class AuthService {
   }
 
   async requestContact(userId: string, raw: string) {
-    const id = this.parse(raw);
+    const id = await this.parseContact(userId, raw);
     const owner = await this.users.findByContact(id);
     if (owner) {
       throw new ConflictException(
@@ -244,9 +244,30 @@ export class AuthService {
   }
 
   async verifyContact(userId: string, raw: string, code: string) {
-    const id = this.parse(raw);
+    const id = await this.parseContact(userId, raw);
     await this.checkCode(id, code);
     return this.users.toView(await this.users.setContact(userId, id));
+  }
+
+  // A phone added later belongs to the account's country (its rank and its
+  // Mobile Money route), and that country has to be open. Checked before the
+  // SMS goes out: a code for a refused number costs for nothing.
+  private async parseContact(userId: string, raw: string) {
+    const user = await this.users.getById(userId);
+    // A local number is read in the account's country.
+    const id = parseIdentifier(raw, user.country);
+    if (id.kind === 'phone') {
+      const { country } = parsePhone(id.value, user.country);
+      if (country !== user.country) {
+        throw new BadRequestException({
+          code: 'PHONE_COUNTRY_MISMATCH',
+          message: 'Ce numéro doit être du même pays que ton compte',
+          country: user.country,
+        });
+      }
+      await this.countries.assertAllowed(country, SIGNUP_CLOSED);
+    }
+    return id;
   }
 
   private async session(

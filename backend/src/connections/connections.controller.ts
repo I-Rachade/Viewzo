@@ -15,13 +15,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PhoneVerifiedGuard } from '../auth/phone-verified.guard';
 import type { AuthUser } from '../auth/jwt.strategy';
 import { ConnectionsService } from './connections.service';
 
 const networkPipe = new ParseEnumPipe(SocialNetwork);
 
 @Controller('me/connections')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PhoneVerifiedGuard)
 export class ConnectionsController {
   constructor(private readonly connections: ConnectionsService) {}
 

@@ -19,6 +19,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import { clientIp } from '../auth/client-ip';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PhoneVerifiedGuard } from '../auth/phone-verified.guard';
 import type { AuthUser } from '../auth/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddScreenshotDto } from './dto/add-screenshot.dto';
@@ -47,6 +48,7 @@ export class PostsController {
   ) {}
 
   @Post('me/assignments/:id/proofs')
+  @UseGuards(PhoneVerifiedGuard)
   @UseInterceptors(
     // Without a destination, multer keeps the file in memory.
     FileInterceptor('file', {
@@ -70,6 +72,7 @@ export class PostsController {
   }
 
   @Get('me/results')
+  @UseGuards(PhoneVerifiedGuard)
   results(@Req() req: { user: AuthUser }) {
     return this.proofs.results(req.user.userId);
   }

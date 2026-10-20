@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PhoneVerifiedGuard } from '../auth/phone-verified.guard';
 import type { AuthUser } from '../auth/jwt.strategy';
 import { AccountsService } from './accounts.service';
 import { AddAccountDto } from './dto/add-account.dto';
@@ -19,7 +20,7 @@ import { SkillsDto } from './dto/skills.dto';
 import { SkillsService } from './skills.service';
 
 @Controller('me')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PhoneVerifiedGuard)
 export class CreatorController {
   constructor(
     private readonly accounts: AccountsService,

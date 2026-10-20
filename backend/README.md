@@ -79,6 +79,11 @@ Registrieren: E-Mail oder Nummer mit einem Code bestätigen, dann Passwort festl
 | `PATCH` | `/staff/countries/:code` | `{ enabled }` ein- oder ausschalten (nur Super-Admin, im Audit-Journal) |
 
 Nicht freigeschaltete Länder lehnt der Server mit `400 COUNTRY_NOT_ALLOWED` ab: bei der Registrierung (Telefon schon vor dem Code, E-Mail beim letzten Schritt), bei neuen Konten über den Code-Login, in Kampagnen, im Kompetenzformular und bei den Ländern eines Team-Mitglieds. Bestehende Konten eines abgeschalteten Landes bleiben nutzbar.
+
+Eine nachträglich hinzugefügte Telefonnummer muss aus dem Land des Kontos stammen (`400 PHONE_COUNTRY_MISMATCH`) und dieses Land muss freigeschaltet sein. Beides wird geprüft, bevor die SMS rausgeht; eine Nummer ohne Vorwahl wird im Land des Kontos gelesen.
+
+Ein Creator ohne bestätigte Telefonnummer (Registrierung per E-Mail, oder ein Annonceur, der später das Creator-Profil aktiviert) darf nur Kampagnen ansehen (`GET /me/tasks`). Alle anderen Creator-Aktionen antworten `403 PHONE_REQUIRED`: Aufgaben annehmen, Aufgaben und Beweise, Ergebnisse, Konten, Kompetenzen, Verbindungen und Auszahlungen. `/me` liefert dafür `phoneRequired`.
+
 | `GET` | `/health` | Healthcheck |
 
 Kampagnenregeln (Standardwerte aus dem Lastenheft in `src/campaigns/pricing.ts`, später pro Land im Back-Office): Package begrenzt die Plattformen (Basique 1, Pro 3, Premium 6, Élite alle), jede Plattform hat ein Mindestbudget, der Inhaltstyp multipliziert den Preis (× 1 bis × 1,6). Annonceur pro 1.000 Views: 1.000 FCFA, Creator: 450 FCFA, jeweils mal Koeffizient. Annonceure auf Niveau 1 nur Basique und höchstens 100.000 FCFA im Monat. Creator auf Niveau 1 bekommen nur Aufgaben mit gelieferten Elementen aus Basique-Kampagnen.
