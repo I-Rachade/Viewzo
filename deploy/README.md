@@ -84,9 +84,31 @@ sudo -u deploy nano /opt/viewzo/.env   # Inhalt von deploy/.env.example einfüge
 chmod 600 /opt/viewzo/.env
 ```
 
-Pflicht: `DOMAIN`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `OTP_SECRET` (je `openssl rand -hex 32`), `DIDIT_API_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
+Pflicht: `DOMAIN`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `OTP_SECRET`, `TOKEN_ENCRYPTION_KEY` (je `openssl rand -hex 32`, alle verschieden), `DIDIT_API_KEY`, `MAIL_PROVIDER` samt Cloudflare-Schlüsseln, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
 
-Testmodus ohne Zahlungsanbieter: `PAYMENT_MODE=local` lässt jede Zahlung sofort gelingen, ohne echtes Geld. Damit lassen sich Aufladen, Kampagnen bezahlen und Auszahlungen durchspielen, bevor die Schlüssel der Anbieter da sind. Danach `docker compose up -d` im Ordner `/opt/viewzo`. Vor dem Start mit echten Nutzern wieder leeren, sonst kann sich jeder kostenlos Guthaben aufladen.
+Die API startet in Produktion nicht, wenn eine dieser Bedingungen verletzt ist, und nennt im Log den Grund (`docker compose logs api`):
+
+- `JWT_SECRET`, `OTP_SECRET` und `TOKEN_ENCRYPTION_KEY` haben mindestens 32 Zeichen, `TOKEN_ENCRYPTION_KEY` ist nicht gleich `JWT_SECRET`.
+- `OTP_PROVIDER=didit` und `MAIL_PROVIDER` ist gesetzt (sonst landen Codes im Log).
+- `PAYMENT_MODE=local` nur zusammen mit `ALLOW_TEST_PAYMENTS=yes`.
+
+Wird `TOKEN_ENCRYPTION_KEY` später geändert, kommt der alte Wert in `TOKEN_ENCRYPTION_KEY_PREVIOUS`, damit verbundene Creator-Konten weiter funktionieren. Tokens aus der Zeit vor `TOKEN_ENCRYPTION_KEY` (mit `JWT_SECRET` verschlüsselt) bleiben automatisch lesbar.
+
+Testmodus ohne Zahlungsanbieter: `PAYMENT_MODE=local` und `ALLOW_TEST_PAYMENTS=yes` lassen jede Zahlung sofort gelingen, ohne echtes Geld. Damit lassen sich Aufladen, Kampagnen bezahlen und Auszahlungen durchspielen, bevor die Schlüssel der Anbieter da sind. Danach `docker compose up -d` im Ordner `/opt/viewzo`. Vor dem Start mit echten Nutzern beide wieder leeren, sonst kann sich jeder kostenlos Guthaben aufladen.
+
+### Back-Office-Rollen
+
+Jedes Teammitglied hat eine Rolle; bestehende Mitglieder wurden bei der Umstellung Super-Admin.
+
+| Rolle | Darf |
+|---|---|
+| Super-Admin | alles, Team verwalten, Journal lesen |
+| Responsable pays | Moderation in seinen Ländern |
+| Modérateur | Konten, Kampagnen und Posts prüfen (optional auf Länder begrenzt) |
+| Finance | Auszahlungen prüfen und abschließen |
+| Support | lesen |
+
+Niemand prüft seine eigenen Konten, Kampagnen oder Auszahlungen. Auszahlungen ab `PAYOUT_SECOND_APPROVAL_FROM` (Standard 100 000 FCFA) brauchen zwei verschiedene Finance-Mitglieder. Jede Entscheidung landet im unveränderlichen Journal (`GET /staff/audit`).
 
 ### Automatischer Abruf der Views
 
@@ -102,7 +124,7 @@ Ohne diese Schlüssel läuft alles über Captures. Jeder Schlüssel schaltet ein
 | Facebook | gleiche Meta-App mit *Facebook Login*, Rechte `pages_show_list`, `pages_read_engagement`, `read_insights`. Nur Seiten, keine Privatprofile | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` |
 | Threads | gleiche Meta-App mit *Threads API*, Rechte `threads_basic`, `threads_manage_insights` | `THREADS_APP_ID`, `THREADS_APP_SECRET` |
 
-Als Redirect- bzw. Callback-URL trägt man bei jeder Plattform ein: `https://api.<DOMAIN>/connections/<tiktok|instagram|facebook|threads>/callback`. Solange eine App nicht geprüft ist, können sich nur die in der App eingetragenen Testkonten verbinden. Die Tokens der Creator liegen verschlüsselt in der Datenbank (`TOKEN_ENCRYPTION_KEY`, sonst `JWT_SECRET`).
+Als Redirect- bzw. Callback-URL trägt man bei jeder Plattform ein: `https://api.<DOMAIN>/connections/<tiktok|instagram|facebook|threads>/callback`. Solange eine App nicht geprüft ist, können sich nur die in der App eingetragenen Testkonten verbinden. Die Tokens der Creator liegen verschlüsselt in der Datenbank (`TOKEN_ENCRYPTION_KEY`).
 
 Captures der Creator liegen im Docker-Volume `uploads` und gehören ins Backup, wenn man sie länger behalten will.
 

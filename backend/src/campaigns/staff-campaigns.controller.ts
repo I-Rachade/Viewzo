@@ -13,7 +13,8 @@ import {
 } from '@nestjs/common';
 import { CampaignStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import type { AuthUser } from '../auth/jwt.strategy';
+import { MODERATION, StaffRoles } from '../auth/staff';
+import type { StaffRequest } from '../auth/staff';
 import { StaffGuard } from '../auth/staff.guard';
 import { CampaignsService } from './campaigns.service';
 import { ReviewCampaignDto } from './dto/review-campaign.dto';
@@ -26,19 +27,21 @@ export class StaffCampaignsController {
 
   @Get()
   queue(
+    @Req() req: StaffRequest,
     @Query('status', new ParseEnumPipe(CampaignStatus, { optional: true }))
     status?: CampaignStatus,
   ) {
-    return this.campaigns.queue(status);
+    return this.campaigns.queue(req.staff, status);
   }
 
   @Post(':id/review')
+  @StaffRoles(...MODERATION)
   @HttpCode(200)
   review(
-    @Req() req: { user: AuthUser },
+    @Req() req: StaffRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReviewCampaignDto,
   ) {
-    return this.campaigns.review(req.user.userId, id, dto);
+    return this.campaigns.review(req.staff, id, dto);
   }
 }

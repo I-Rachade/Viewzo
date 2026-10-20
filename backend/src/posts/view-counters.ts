@@ -30,14 +30,41 @@ const TIMEOUT = 15_000;
 const get = (url: string, init: RequestInit = {}) =>
   fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT) });
 
+// Only these networks' own hosts are ever requested while expanding a link,
+// so a creator can't make the server call an internal address.
+const SHORT_LINK_HOSTS = ['vm.tiktok.com', 'vt.tiktok.com', 'fb.watch'];
+const EXPAND_HOSTS = ['tiktok.com', 'facebook.com', 'fb.watch'];
+const MAX_REDIRECTS = 5;
+
+const onHost = (host: string, domains: string[]) =>
+  domains.some((d) => host === d || host.endsWith(`.${d}`));
+
 /** Follows a short link (vm.tiktok.com, fb.watch…) to the full URL. */
-async function expand(url: string) {
+export async function expand(url: string) {
+  let current = parse(url);
+  if (!current || !SHORT_LINK_HOSTS.includes(current.hostname)) return url;
   try {
-    const res = await get(url, { redirect: 'follow', method: 'HEAD' });
-    return res.url || url;
+    for (let hop = 0; hop < MAX_REDIRECTS; hop++) {
+      const res = await get(current.href, {
+        redirect: 'manual',
+        method: 'HEAD',
+      });
+      const location = res.headers.get('location');
+      if (res.status < 300 || res.status >= 400 || !location) break;
+      const next = parse(new URL(location, current).href);
+      if (
+        !next ||
+        next.protocol !== 'https:' ||
+        !onHost(next.hostname, EXPAND_HOSTS)
+      ) {
+        break;
+      }
+      current = next;
+    }
   } catch {
-    return url;
+    // Keep the last address reached.
   }
+  return current.href;
 }
 
 function parse(url: string) {

@@ -163,7 +163,9 @@ export class UsersService {
       isFounder: user.priorityRank <= limit,
       locale: user.locale,
       // Shows the back-office entry to team members.
-      isStaff: user.role === UserRole.STAFF,
+      isStaff: user.role === UserRole.STAFF && user.staffRole !== null,
+      // What the back-office shows this member; null outside the team.
+      staffRole: user.role === UserRole.STAFF ? user.staffRole : null,
       createdAt: user.createdAt,
       profiles: user.profiles.map((p) => ({ type: p.type, level: p.level })),
     };

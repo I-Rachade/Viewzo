@@ -66,6 +66,12 @@ export interface PaymentGateway {
 
 export class GatewayError extends ServiceUnavailableException {}
 
+/** The provider has no keys yet: nothing was sent to it. */
+export class GatewayNotConfigured extends GatewayError {}
+
+// A provider that does not answer within this time is treated as unknown.
+const PROVIDER_TIMEOUT_MS = 20_000;
+
 /** JSON call to a provider; any network or HTTP error becomes a 503. */
 export async function callProvider<T>(
   logger: Logger,
@@ -75,7 +81,10 @@ export async function callProvider<T>(
 ): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, init);
+    res = await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+    });
   } catch (e) {
     logger.error(`${label} unreachable`, e);
     throw new GatewayError('Service de paiement indisponible');
@@ -88,7 +97,8 @@ export async function callProvider<T>(
     body = { raw: text };
   }
   if (!res.ok) {
-    logger.error(`${label} failed with ${res.status}: ${text.slice(0, 500)}`);
+    // Only the status: provider bodies can hold names and phone numbers.
+    logger.error(`${label} failed with ${res.status}`);
     throw new GatewayError('Le service de paiement a refusé la demande');
   }
   return body as T;
@@ -104,7 +114,9 @@ export function str(value: unknown): string | undefined {
 export function secret(config: ConfigService, key: string) {
   const value = config.get<string>(key);
   if (!value) {
-    throw new GatewayError('Ce moyen de paiement n’est pas encore disponible');
+    throw new GatewayNotConfigured(
+      'Ce moyen de paiement n’est pas encore disponible',
+    );
   }
   return value;
 }

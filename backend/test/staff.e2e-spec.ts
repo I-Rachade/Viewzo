@@ -55,7 +55,7 @@ describe('Back-office (e2e)', () => {
     user = await login('+22894000002');
     await prisma.user.update({
       where: { phone: '+22894000001' },
-      data: { role: 'STAFF' },
+      data: { role: 'STAFF', staffRole: 'SUPER_ADMIN' },
     });
   });
 
@@ -80,6 +80,7 @@ describe('Back-office (e2e)', () => {
       withdrawals: 0,
       assignments: 0,
       alerts: 0,
+      me: { staffRole: 'SUPER_ADMIN', countries: [] },
     });
 
     const creator = await prisma.user.findUniqueOrThrow({
@@ -142,6 +143,7 @@ describe('Back-office (e2e)', () => {
       withdrawals: 0,
       assignments: 1,
       alerts: 0,
+      me: { staffRole: 'SUPER_ADMIN', countries: [] },
     });
     const list = await http()
       .get('/staff/assignments')
@@ -161,15 +163,31 @@ describe('Back-office (e2e)', () => {
     await http()
       .post('/staff/members')
       .set(auth(staff))
-      .send({ phone: '+22894000099' })
+      .send({ phone: '+22894000099', staffRole: 'MODERATOR' })
       .expect(404);
     const added = await http()
       .post('/staff/members')
       .set(auth(staff))
-      .send({ phone: '94 00 00 02' })
+      .send({ phone: '94 00 00 02', staffRole: 'MODERATOR', countries: ['BJ'] })
       .expect(201);
-    expect(added.body).toMatchObject({ phone: '+22894000002' });
-    await http().get('/staff/overview').set(auth(user)).expect(200);
+    expect(added.body).toMatchObject({
+      phone: '+22894000002',
+      staffRole: 'MODERATOR',
+      staffCountries: ['BJ'],
+    });
+    expect(
+      (await http().get('/staff/overview').set(auth(user)).expect(200)).body,
+    ).toMatchObject({ me: { staffRole: 'MODERATOR', countries: ['BJ'] } });
+    // A moderator neither manages the team nor touches money or the journal.
+    await http().get('/staff/members').set(auth(user)).expect(403);
+    await http().get('/staff/withdrawals').set(auth(user)).expect(403);
+    await http().get('/staff/audit').set(auth(user)).expect(403);
+    // A country manager needs at least one country.
+    await http()
+      .patch(`/staff/members/${(added.body as { id: string }).id}`)
+      .set(auth(staff))
+      .send({ staffRole: 'COUNTRY_MANAGER', countries: [] })
+      .expect(400);
 
     const members = await http()
       .get('/staff/members')
@@ -187,6 +205,7 @@ describe('Back-office (e2e)', () => {
       .delete(`/staff/members/${(added.body as { id: string }).id}`)
       .set(auth(staff))
       .expect(204);
-    await http().get('/staff/overview').set(auth(user)).expect(403);
+    // Removal ends the member's sessions at once.
+    await http().get('/staff/overview').set(auth(user)).expect(401);
   });
 });

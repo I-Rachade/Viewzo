@@ -88,7 +88,7 @@ describe('Campaigns and tasks (e2e)', () => {
     staff = await login('+22892000003');
     await prisma.user.update({
       where: { phone: '+22892000003' },
-      data: { role: 'STAFF' },
+      data: { role: 'STAFF', staffRole: 'SUPER_ADMIN' },
     });
 
     // A level 1 creator with an eligible TikTok account and the skills form.

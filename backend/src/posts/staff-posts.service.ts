@@ -15,6 +15,9 @@ import {
   TransactionStatus,
   TransactionType,
 } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
+import { assertCountry, assertNotSelf, countryScope } from '../auth/staff';
+import type { StaffActor } from '../auth/staff';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { creatorEarning } from '../wallet/earnings';
@@ -33,12 +36,18 @@ export class StaffPostsService {
     private readonly proofs: ProofsService,
     private readonly wallet: WalletService,
     private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
   ) {}
 
-  async list(f: PostFiltersDto) {
+  async list(actor: StaffActor, f: PostFiltersDto) {
     const status = f.status ?? PostReviewStatus.TO_REVIEW;
     const q = f.q?.trim().replace(/^#/, '');
+    const scope = countryScope(actor);
+    const inScope: Prisma.TaskAssignmentWhereInput = scope
+      ? { creator: { country: { in: scope } } }
+      : {};
     const where: Prisma.TaskAssignmentWhereInput = {
+      AND: [inScope],
       status: AssignmentStatus.SUBMITTED,
       ...(status !== 'ALL' ? { reviewStatus: status } : {}),
       ...(f.network ? { task: { network: f.network } } : {}),
@@ -77,7 +86,7 @@ export class StaffPostsService {
     });
     const counts = await this.prisma.taskAssignment.groupBy({
       by: ['reviewStatus'],
-      where: { status: AssignmentStatus.SUBMITTED },
+      where: { status: AssignmentStatus.SUBMITTED, ...inScope },
       _count: true,
     });
     return {
@@ -105,7 +114,7 @@ export class StaffPostsService {
   }
 
   /** Everything known about one post, for the back-office file. */
-  async dossier(id: string) {
+  async dossier(actor: StaffActor, id: string) {
     const a = await this.prisma.taskAssignment.findUnique({
       where: { id },
       include: {
@@ -119,6 +128,7 @@ export class StaffPostsService {
       },
     });
     if (!a) throw new NotFoundException();
+    assertCountry(actor, a.creator.country);
     const { task, creator } = a;
     const campaign = task.campaign;
     const [risk, account, history, reviewers] = await Promise.all([
@@ -240,16 +250,22 @@ export class StaffPostsService {
     };
   }
 
-  async review(reviewerId: string, id: string, dto: ReviewPostDto) {
+  async review(actor: StaffActor, id: string, dto: ReviewPostDto) {
     const a = await this.prisma.taskAssignment.findUnique({
       where: { id },
-      include: { task: { include: { campaign: true } } },
+      include: {
+        task: { include: { campaign: true } },
+        creator: { select: { country: true } },
+      },
     });
     if (!a || a.status !== AssignmentStatus.SUBMITTED) {
       throw new NotFoundException();
     }
+    assertCountry(actor, a.creator.country);
+    assertNotSelf(actor, a.creatorId);
     const reason = dto.reason?.trim() || null;
     const code = `#${a.task.campaign.code}`;
+    const before = { reviewStatus: a.reviewStatus, validViews: a.validViews };
 
     switch (dto.decision) {
       case 'VALIDATE': {
@@ -259,32 +275,25 @@ export class StaffPostsService {
             `Déjà ${a.validViews} vues validées pour cette publication`,
           );
         }
-        if (a.reviewStatus === PostReviewStatus.REJECTED) {
-          // Re-opening a refused post: back in review, then validated.
-          await this.prisma.taskAssignment.update({
-            where: { id },
-            data: { reviewStatus: PostReviewStatus.TO_REVIEW },
-          });
-        }
         if (views > a.validViews) {
-          // Pays the creator, logs the views and notifies them.
-          await this.wallet.recordViews(id, views, reviewerId);
+          // Pays the creator, logs the views and notifies them; a refused
+          // post is re-opened inside the same transaction.
+          await this.wallet.recordViews(id, views, actor, true);
         } else {
-          await this.prisma.taskAssignment.update({
-            where: { id },
-            data: {
-              reviewStatus: PostReviewStatus.VALIDATED,
-              reviewReason: null,
-              reviewedAt: new Date(),
-            },
+          await this.prisma.$transaction(async (tx) => {
+            await tx.taskAssignment.update({
+              where: { id },
+              data: {
+                reviewStatus: PostReviewStatus.VALIDATED,
+                reviewReason: null,
+                reviewedAt: new Date(),
+              },
+            });
+            await this.log(tx, actor, id, PostReviewAction.VALIDATE, {
+              before,
+              views,
+            });
           });
-          await this.log(
-            id,
-            reviewerId,
-            PostReviewAction.VALIDATE,
-            views,
-            null,
-          );
           await this.notifications.notify(a.creatorId, {
             type: NotificationType.POST_VALIDATED,
             title: `Publication validée · ${code}`,
@@ -296,21 +305,20 @@ export class StaffPostsService {
       }
       case 'NEEDS_FIX':
         this.requireReason(reason);
-        await this.prisma.taskAssignment.update({
-          where: { id },
-          data: {
-            reviewStatus: PostReviewStatus.NEEDS_FIX,
-            reviewReason: reason,
-            reviewedAt: new Date(),
-          },
+        await this.prisma.$transaction(async (tx) => {
+          await tx.taskAssignment.update({
+            where: { id },
+            data: {
+              reviewStatus: PostReviewStatus.NEEDS_FIX,
+              reviewReason: reason,
+              reviewedAt: new Date(),
+            },
+          });
+          await this.log(tx, actor, id, PostReviewAction.NEEDS_FIX, {
+            before,
+            reason,
+          });
         });
-        await this.log(
-          id,
-          reviewerId,
-          PostReviewAction.NEEDS_FIX,
-          null,
-          reason,
-        );
         await this.notifications.notify(a.creatorId, {
           type: NotificationType.POST_NEEDS_FIX,
           title: `Publication à corriger · ${code}`,
@@ -330,13 +338,9 @@ export class StaffPostsService {
               reviewedAt: new Date(),
             },
           });
-          await tx.postReview.create({
-            data: {
-              assignmentId: id,
-              reviewerId,
-              action: PostReviewAction.REJECT,
-              reason,
-            },
+          await this.log(tx, actor, id, PostReviewAction.REJECT, {
+            before,
+            reason,
           });
         });
         await this.notifications.notify(a.creatorId, {
@@ -354,30 +358,26 @@ export class StaffPostsService {
           },
         });
         if (!account) throw new NotFoundException('Compte réseau introuvable');
-        await this.prisma.$transaction([
-          this.prisma.socialAccount.update({
+        await this.prisma.$transaction(async (tx) => {
+          await tx.socialAccount.update({
             where: { id: account.id },
             data: { status: AccountStatus.SUSPENDED, statusReason: reason },
-          }),
-          this.prisma.accountReview.create({
+          });
+          await tx.accountReview.create({
             data: {
               accountId: account.id,
               userId: a.creatorId,
               network: account.network,
-              reviewerId,
+              reviewerId: actor.userId,
               status: AccountStatus.SUSPENDED,
               reason,
             },
-          }),
-          this.prisma.postReview.create({
-            data: {
-              assignmentId: id,
-              reviewerId,
-              action: PostReviewAction.SUSPEND_ACCOUNT,
-              reason,
-            },
-          }),
-        ]);
+          });
+          await this.log(tx, actor, id, PostReviewAction.SUSPEND_ACCOUNT, {
+            before: { ...before, accountStatus: account.status },
+            reason,
+          });
+        });
         await this.notifications.notify(a.creatorId, {
           type: NotificationType.ACCOUNT_REVIEWED,
           title: `Compte ${account.handle} suspendu`,
@@ -387,11 +387,11 @@ export class StaffPostsService {
         break;
       }
     }
-    return this.dossier(id);
+    return this.dossier(actor, id);
   }
 
   /** One creator on one page: accounts, posts, decisions, money, signals. */
-  async creatorFile(userId: string) {
+  async creatorFile(actor: StaffActor, userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -404,6 +404,7 @@ export class StaffPostsService {
       },
     });
     if (!user) throw new NotFoundException();
+    assertCountry(actor, user.country);
     const [posts, accountReviews, earnings, payouts] = await Promise.all([
       this.prisma.taskAssignment.findMany({
         where: { creatorId: userId },
@@ -495,15 +496,35 @@ export class StaffPostsService {
     };
   }
 
+  // The post's own history and the audit journal, in the same transaction.
   private async log(
+    tx: Prisma.TransactionClient,
+    actor: StaffActor,
     assignmentId: string,
-    reviewerId: string,
     action: PostReviewAction,
-    views: number | null,
-    reason: string | null,
+    entry: { before: object; views?: number; reason?: string | null },
   ) {
-    await this.prisma.postReview.create({
-      data: { assignmentId, reviewerId, action, views, reason },
+    await tx.postReview.create({
+      data: {
+        assignmentId,
+        reviewerId: actor.userId,
+        action,
+        views: entry.views ?? null,
+        reason: entry.reason ?? null,
+      },
+    });
+    const after = await tx.taskAssignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+      select: { reviewStatus: true, validViews: true },
+    });
+    await this.audit.record(tx, {
+      actor,
+      action: `POST_${action}`,
+      entity: 'TaskAssignment',
+      entityId: assignmentId,
+      before: entry.before,
+      after,
+      reason: entry.reason,
     });
   }
 

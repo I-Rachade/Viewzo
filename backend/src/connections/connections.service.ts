@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SocialConnection, SocialNetwork } from '@prisma/client';
+import { AccountStatus, SocialConnection, SocialNetwork } from '@prisma/client';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -30,6 +30,20 @@ export interface UsableConnection {
  * Creators connect their TikTok, Instagram, Facebook or Threads account so
  * Viewzo reads their posts' views itself instead of asking for screenshots.
  */
+// Networks whose login gives a username to compare with the declared one.
+const HANDLE_CHECKED: SocialNetwork[] = [
+  SocialNetwork.TIKTOK,
+  SocialNetwork.INSTAGRAM,
+  SocialNetwork.THREADS,
+];
+
+/** "@Kossi_TG", "https://www.tiktok.com/@kossi_tg/" → "kossi_tg". */
+export function normalizeHandle(raw: string) {
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  const last = trimmed.split('/').pop() ?? trimmed;
+  return last.replace(/^@/, '').split('?')[0].toLowerCase();
+}
+
 @Injectable()
 export class ConnectionsService {
   private readonly logger = new Logger(ConnectionsService.name);
@@ -41,8 +55,16 @@ export class ConnectionsService {
     private readonly config: ConfigService,
   ) {
     this.secret = config.getOrThrow<string>('JWT_SECRET');
+    // Tokens sealed before TOKEN_ENCRYPTION_KEY was set used JWT_SECRET;
+    // they stay readable until the creator reconnects.
     this.crypto = new TokenCrypto(
       config.get<string>('TOKEN_ENCRYPTION_KEY') || this.secret,
+      [
+        ...(config.get<string>('TOKEN_ENCRYPTION_KEY_PREVIOUS') ?? '')
+          .split(',')
+          .map((k) => k.trim()),
+        this.secret,
+      ],
     );
   }
 
@@ -92,12 +114,60 @@ export class ConnectionsService {
       code,
       this.redirectUri(network),
     );
+    await this.assertSameAccount(userId, network, tokens);
     const data = this.seal(tokens);
     await this.prisma.socialConnection.upsert({
       where: { userId_network: { userId, network } },
       create: { userId, network, ...data },
       update: { ...data, lastError: null },
     });
+  }
+
+  /**
+   * The platform account must be the one the creator declared in "Mes
+   * comptes", and not linked to another Viewzo account: otherwise someone
+   * could send their login link to a big creator and count that creator's
+   * views as their own.
+   */
+  private async assertSameAccount(
+    userId: string,
+    network: SocialNetwork,
+    tokens: OAuthTokens,
+  ) {
+    const account = await this.prisma.socialAccount.findUnique({
+      where: { userId_network: { userId, network } },
+    });
+    if (!account || account.status === AccountStatus.SUSPENDED) {
+      throw new BadRequestException(
+        'Ajoute d’abord ce compte dans « Mes comptes »',
+      );
+    }
+    const declared = normalizeHandle(account.handle);
+    const connected = tokens.handle ? normalizeHandle(tokens.handle) : null;
+    if (
+      HANDLE_CHECKED.includes(network) &&
+      connected &&
+      declared &&
+      connected !== declared
+    ) {
+      throw new BadRequestException(
+        `Ce compte (@${connected}) n’est pas celui déclaré (@${declared})`,
+      );
+    }
+    if (tokens.externalId) {
+      const other = await this.prisma.socialConnection.findFirst({
+        where: {
+          network,
+          externalId: tokens.externalId,
+          userId: { not: userId },
+        },
+      });
+      if (other) {
+        throw new BadRequestException(
+          'Ce compte est déjà relié à un autre compte Viewzo',
+        );
+      }
+    }
   }
 
   async disconnect(userId: string, network: SocialNetwork) {

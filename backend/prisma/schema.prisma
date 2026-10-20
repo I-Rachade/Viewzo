@@ -13,6 +13,15 @@ enum UserRole {
   STAFF
 }
 
+// What a team member may do in the back-office (see "Rôles et permissions").
+enum StaffRole {
+  SUPER_ADMIN // all settings, team management
+  COUNTRY_MANAGER // everything in their countries, but never pays out alone
+  MODERATOR // accounts, campaigns, posts and views
+  FINANCE // withdrawals and payments, never the counted views
+  SUPPORT // reads files, no decision
+}
+
 enum ProfileType {
   CREATOR
   ADVERTISER
@@ -20,26 +29,30 @@ enum ProfileType {
 }
 
 model User {
-  id              String           @id @default(uuid())
+  id              String             @id @default(uuid())
   // At least one of phone and email is set and verified.
-  phone           String?          @unique
-  email           String?          @unique
+  phone           String?            @unique
+  email           String?            @unique
   phoneVerifiedAt DateTime?
   emailVerifiedAt DateTime?
   // scrypt hash; null for accounts created by the old code-only login.
   passwordHash    String?
   // Bumped on password change so older tokens stop working.
-  tokenVersion    Int              @default(0)
-  failedLogins    Int              @default(0)
+  tokenVersion    Int                @default(0)
+  failedLogins    Int                @default(0)
   lockedUntil     DateTime?
   // ISO 3166-1 alpha-2 country derived from the phone number.
   country         String
   // Signup position within the country, timestamped and never changed afterwards.
   priorityRank    Int
-  locale          String           @default("fr")
-  role            UserRole         @default(USER)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  locale          String             @default("fr")
+  role            UserRole           @default(USER)
+  // Set for team members (role STAFF).
+  staffRole       StaffRole?
+  // Countries a team member works on; empty means every country.
+  staffCountries  String[]           @default([])
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
   profiles        UserProfile[]
   accounts        SocialAccount[]
   skills          CreatorSkills?
@@ -49,8 +62,48 @@ model User {
   payments        Payment[]
   notifications   Notification[]
   connections     SocialConnection[]
+  sessions        Session[]
 
   @@unique([country, priorityRank])
+}
+
+// A signed-in device. The refresh token is stored hashed and replaced on
+// every use; a reused (stolen) token ends the whole family.
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  // sha256 of the current refresh token.
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastUsedAt DateTime  @default(now())
+  userAgent  String?
+  ip         String?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+}
+
+// Append-only journal of every financial, moderation and team action: who,
+// what, when, before, after. The database refuses updates and deletes.
+model AuditLog {
+  id        String   @id @default(uuid())
+  // Null for actions taken by the system (webhooks, jobs).
+  actorId   String?
+  actorRole String?
+  action    String
+  entity    String
+  entityId  String
+  before    Json?
+  after     Json?
+  reason    String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
 }
 
 model UserProfile {
@@ -474,30 +527,33 @@ enum PaymentStatus {
 
 // A Mobile Money or card operation with a payment provider.
 model Payment {
-  id              String        @id @default(uuid())
-  userId          String
-  kind            PaymentKind
+  id                String        @id @default(uuid())
+  userId            String
+  kind              PaymentKind
   // fedapay, cinetpay, flutterwave or local.
-  provider        String
+  provider          String
   // Our own reference, sent to the provider.
-  reference       String        @unique
-  providerRef     String?
-  amount          Int
-  currency        String        @default("XOF")
-  phone           String
-  beneficiaryName String?
-  operator        String?
+  reference         String        @unique
+  providerRef       String?
+  amount            Int
+  currency          String        @default("XOF")
+  phone             String
+  beneficiaryName   String?
+  operator          String?
   // Campaign funded by this payment, if any.
-  campaignId      String?
-  checkoutUrl     String?
-  status          PaymentStatus
-  failureReason   String?
-  reviewedById    String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  completedAt     DateTime?
-  user            User          @relation(fields: [userId], references: [id], onDelete: Restrict)
-  transaction     Transaction?
+  campaignId        String?
+  checkoutUrl       String?
+  status            PaymentStatus
+  failureReason     String?
+  reviewedById      String?
+  // Large withdrawals need a second finance approval by someone else.
+  firstApprovedById String?
+  firstApprovedAt   DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  completedAt       DateTime?
+  user              User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  transaction       Transaction?
 
   @@unique([provider, providerRef])
   @@index([kind, status, createdAt])
