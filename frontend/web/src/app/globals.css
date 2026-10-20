@@ -1424,17 +1424,13 @@ a.notification {
     background: color-mix(in srgb, var(--surface) 88%, transparent);
   }
 
-  html:has(.hero),
-  body:has(.hero) {
-    background: var(--ink);
-  }
-
-  .container:has(.hero) {
-    padding: 0;
-  }
-
+  /* The landing screen covers its page's padding instead of the page
+     reacting to it: pages left behind stay in the DOM, hidden, so a
+     :has(.hero) rule would also darken the next page. */
   .hero {
     min-height: 100dvh;
+    margin: calc(-1 * max(24px, env(safe-area-inset-top))) -16px
+      calc(-1 * max(32px, env(safe-area-inset-bottom)));
     border-radius: 0;
     justify-content: center;
     padding: max(48px, env(safe-area-inset-top)) 24px
