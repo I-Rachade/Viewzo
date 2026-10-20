@@ -17,25 +17,29 @@ Map<String, dynamic> account(
   String status, {
   String? reason,
   Map<String, dynamic>? verification,
+  int? followers,
+  int? declared,
 }) => {
   'id': id,
   'network': network,
-  'handle': '@ama',
+  'handle': 'ama',
   'status': status,
   'statusReason': reason,
   'retryAfter': null,
   'reviewDueAt': status == 'PENDING' ? '2026-10-21T10:00:00.000Z' : null,
+  'followers': followers,
+  'declaredFollowers': declared,
   'verification': verification,
 };
 
 void main() {
-  testWidgets('shows each account status and adds a network', (tester) async {
+  testWidgets('shows each account status and adds an account', (tester) async {
     // A phone-sized screen, tall enough to show every account.
     tester.view.physicalSize = const Size(1170, 3600);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
     final accounts = [
-      account('1', 'TIKTOK', 'ELIGIBLE'),
+      account('1', 'TIKTOK', 'ELIGIBLE', followers: 12000),
       account(
         '2',
         'INSTAGRAM',
@@ -53,6 +57,7 @@ void main() {
             '3',
             'WHATSAPP_STATUS',
             'PENDING',
+            declared: 450,
             verification: {
               'kind': 'WHATSAPP',
               'code': 'VZ-654321',
@@ -83,8 +88,10 @@ void main() {
     expect(find.text('À faire : Code absent de la bio'), findsOneWidget);
     expect(find.text('VZ-123456'), findsOneWidget);
     expect(find.text('Relancer la vérification'), findsOneWidget);
+    expect(find.text('@ama'), findsNWidgets(2));
+    expect(find.text('12\u202F000 abonnés'), findsOneWidget);
 
-    await tester.tap(find.text('Ajouter un réseau'));
+    await tester.tap(find.text('Ajouter un compte'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
@@ -107,10 +114,32 @@ void main() {
           .text,
       '+22890123456',
     );
-    await tester.tap(find.text('Ajouter'));
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('followers')),
+        matching: find.byType(EditableText),
+      ),
+      '450',
+    );
+    // Nothing is sent until the creator confirms the account is not anonymous.
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pumpAndSettle();
+    expect(added, isNull);
+    await tester.tap(find.byKey(const Key('not-anonymous')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enregistrer'));
     await tester.pumpAndSettle();
 
-    expect(added, {'network': 'WHATSAPP_STATUS', 'handle': '+22890123456'});
+    expect(added, {
+      'network': 'WHATSAPP_STATUS',
+      'handle': '+22890123456',
+      'followers': 450,
+      'notAnonymous': true,
+    });
+    expect(
+      find.text('Déclaré : 450 vues par statut, à confirmer par l’équipe'),
+      findsOneWidget,
+    );
     expect(find.text('En vérification'), findsOneWidget);
     expect(find.text('Envoyer sur WhatsApp'), findsOneWidget);
   });

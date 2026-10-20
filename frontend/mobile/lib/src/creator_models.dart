@@ -68,6 +68,9 @@ class SocialAccount {
     this.statusReason,
     this.retryAfter,
     this.reviewDueAt,
+    this.followers,
+    this.avgStatusViews,
+    this.declaredFollowers,
     this.verification,
   });
 
@@ -79,6 +82,9 @@ class SocialAccount {
     statusReason: json['statusReason'] as String?,
     retryAfter: _date(json['retryAfter']),
     reviewDueAt: _date(json['reviewDueAt']),
+    followers: json['followers'] as int?,
+    avgStatusViews: json['avgStatusViews'] as int?,
+    declaredFollowers: json['declaredFollowers'] as int?,
     verification: json['verification'] == null
         ? null
         : Verification.fromJson(json['verification'] as Map<String, dynamic>),
@@ -91,7 +97,20 @@ class SocialAccount {
   final String? statusReason;
   final DateTime? retryAfter;
   final DateTime? reviewDueAt;
+  final int? followers;
+  // WhatsApp Statut: average viewers per status.
+  final int? avgStatusViews;
+  // What the creator said when adding the account, until the team confirms.
+  final int? declaredFollowers;
   final Verification? verification;
+
+  /// The confirmed audience: followers, or viewers per status for WhatsApp.
+  int? get audience =>
+      network == SocialNetwork.whatsappStatus ? avgStatusViews : followers;
+
+  /// "@name", or the number for WhatsApp Statut.
+  String get displayHandle =>
+      network == SocialNetwork.whatsappStatus ? handle : '@$handle';
 
   bool get canResubmit =>
       status == AccountStatus.needsFix ||

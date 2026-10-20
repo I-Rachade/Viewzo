@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../api_client.dart';
+import '../features.dart';
 import '../session.dart';
 import '../task_models.dart';
 import '../ui/theme.dart';
@@ -641,7 +642,10 @@ class _HomeTabState extends State<_HomeTab> {
                   ),
                 ),
               ),
-              for (final task in (_tasks ?? const <CampaignTask>[]).take(3))
+              for (final task
+                  in (_tasks ?? const <CampaignTask>[])
+                      .where((t) => !t.locked)
+                      .take(3))
                 FadeSlideIn(
                   index: i++,
                   child: Padding(
@@ -1064,13 +1068,15 @@ class _ProfileTab extends StatelessWidget {
                   'Ce que tu sais faire',
                   onSkills,
                 ),
-                tile(
-                  2,
-                  LucideIcons.link,
-                  'Comptes connectés',
-                  'Tes vues relevées automatiquement',
-                  onConnections,
-                ),
+                // Hidden while creators add their accounts by hand.
+                if (oauthConnections)
+                  tile(
+                    2,
+                    LucideIcons.link,
+                    'Comptes connectés',
+                    'Tes vues relevées automatiquement',
+                    onConnections,
+                  ),
               ],
             ),
             const SizedBox(height: 24),

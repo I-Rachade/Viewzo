@@ -34,7 +34,7 @@ export class CreatorController {
 
   @Post('accounts')
   add(@Req() req: { user: AuthUser }, @Body() dto: AddAccountDto) {
-    return this.accounts.add(req.user.userId, dto.network, dto.handle);
+    return this.accounts.add(req.user.userId, dto);
   }
 
   @Delete('accounts/:id')

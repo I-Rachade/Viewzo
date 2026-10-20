@@ -131,6 +131,7 @@ describe('Back-office (e2e)', () => {
         userId: creator.id,
         network: 'TIKTOK',
         handle: '@ama',
+        handleKey: 'ama',
         verificationCode: 'VZ-800001',
       },
     });

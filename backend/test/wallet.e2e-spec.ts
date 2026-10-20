@@ -114,6 +114,7 @@ describe('Wallet and escrow (e2e)', () => {
         userId: c.id,
         network: 'TIKTOK',
         handle: '@ama',
+        handleKey: 'ama',
         verificationCode: 'VZ-900101',
         status: 'ELIGIBLE',
         followers: 5_000,

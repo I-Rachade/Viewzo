@@ -7,7 +7,8 @@ import '../api_client.dart';
 import '../creator_models.dart';
 import '../ui/widgets.dart';
 
-/// "Mes comptes": the creator's networks and where each one is in verification.
+/// "Mes comptes": the creator adds an account by hand, the team checks it,
+/// and each one shows where it is in verification.
 class AccountsScreen extends StatefulWidget {
   const AccountsScreen({super.key, required this.api, required this.phone});
   final ApiClient api;
@@ -46,7 +47,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
 
   Future<void> _add() async {
     final taken = {for (final a in _accounts ?? <SocialAccount>[]) a.network};
-    final added = await showShadSheet<(SocialNetwork, String)>(
+    final added = await showShadSheet<(SocialNetwork, String, int?)>(
       context: context,
       side: ShadSheetSide.bottom,
       builder: (_) => _AddAccountSheet(
@@ -59,7 +60,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
     );
     if (added == null) return;
     await _run(() async {
-      await widget.api.addAccount(added.$1, added.$2);
+      await widget.api.addAccount(added.$1, added.$2, followers: added.$3);
       await _load();
     });
   }
@@ -121,7 +122,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
               leading: const Icon(LucideIcons.plus, size: 18),
               child: const Flexible(
                 child: Text(
-                  'Ajouter un réseau',
+                  'Ajouter un compte',
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -152,8 +153,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),
                 child: Text(
-                  'Choisis les réseaux sur lesquels tu veux publier. '
-                  'Un seul suffit pour commencer.',
+                  'Ajoute les comptes sur lesquels tu publies : l’équipe '
+                  'Viewzo les vérifie sous 48 h. Un seul suffit pour commencer.',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.muted,
                 ),
@@ -206,7 +207,7 @@ class _AccountCard extends StatelessWidget {
                     spacing: 2,
                     children: [
                       Text(account.network.label, style: theme.textTheme.large),
-                      Text(account.handle, style: theme.textTheme.muted),
+                      Text(account.displayHandle, style: theme.textTheme.muted),
                     ],
                   ),
                 ),
@@ -291,6 +292,21 @@ class _AccountCard extends StatelessWidget {
 
   List<Widget> _statusDetails() {
     final reason = account.statusReason;
+    final unit = account.network == SocialNetwork.whatsappStatus
+        ? 'vues par statut'
+        : 'abonnés';
+    final audience = account.audience;
+    final declared = account.declaredFollowers;
+    return [
+      ..._statusLines(reason),
+      if (audience != null)
+        Text('${_count(audience)} $unit')
+      else if (declared != null)
+        Text('Déclaré : ${_count(declared)} $unit, à confirmer par l’équipe'),
+    ];
+  }
+
+  List<Widget> _statusLines(String? reason) {
     switch (account.status) {
       case AccountStatus.pending:
         return [
@@ -315,6 +331,12 @@ class _AccountCard extends StatelessWidget {
     }
   }
 }
+
+// 12 000, with the French thin space between thousands.
+String _count(int n) => n.toString().replaceAllMapped(
+  RegExp(r'\B(?=(\d{3})+(?!\d))'),
+  (_) => '\u202F',
+);
 
 String _day(DateTime date) =>
     '${date.day.toString().padLeft(2, '0')}/'
@@ -446,6 +468,9 @@ class _AddAccountSheet extends StatefulWidget {
 class _AddAccountSheetState extends State<_AddAccountSheet> {
   late SocialNetwork _network = widget.available.first;
   final _handle = TextEditingController();
+  final _followers = TextEditingController();
+  // Anonymous accounts are not allowed: the creator confirms before saving.
+  bool _notAnonymous = false;
 
   @override
   void initState() {
@@ -460,25 +485,32 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
   @override
   void dispose() {
     _handle.dispose();
+    _followers.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final isWhatsapp = _network == SocialNetwork.whatsappStatus;
+    final theme = ShadTheme.of(context);
     return ShadSheet(
-      title: const Text('Ajouter un réseau'),
+      title: const Text('Ajouter un compte'),
       actions: [
         ShadButton(
           size: ShadButtonSize.lg,
           width: double.infinity,
+          enabled: _notAnonymous,
           onPressed: () {
             final handle = _handle.text.trim();
-            if (handle.length < 2) return;
-            Navigator.pop(context, (_network, handle));
+            if (handle.length < 2 || !_notAnonymous) return;
+            Navigator.pop(context, (
+              _network,
+              handle,
+              int.tryParse(_followers.text.replaceAll(RegExp(r'\D'), '')),
+            ));
           },
           child: const Flexible(
-            child: Text('Ajouter', overflow: TextOverflow.ellipsis),
+            child: Text('Enregistrer', overflow: TextOverflow.ellipsis),
           ),
         ),
       ],
@@ -513,8 +545,49 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
                   ? TextInputType.phone
                   : TextInputType.url,
               label: Text(
-                isWhatsapp ? 'Numéro WhatsApp' : 'Pseudo ou lien du profil',
+                isWhatsapp
+                    ? 'Numéro WhatsApp'
+                    : 'Nom du compte ou lien du profil',
               ),
+              placeholder: Text(isWhatsapp ? '+228 90 00 00 00' : '@moncompte'),
+            ),
+            ShadInputFormField(
+              key: const Key('followers'),
+              controller: _followers,
+              keyboardType: TextInputType.number,
+              label: Text(
+                isWhatsapp
+                    ? 'Vues moyennes par statut (facultatif)'
+                    : 'Nombre d’abonnés (facultatif)',
+              ),
+              placeholder: const Text('L’équipe le vérifie'),
+            ),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _notAnonymous = !_notAnonymous),
+              child: Row(
+                spacing: 10,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ShadCheckbox(
+                    key: const Key('not-anonymous'),
+                    value: _notAnonymous,
+                    size: 20,
+                    onChanged: (v) => setState(() => _notAnonymous = v),
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Ce compte est à moi et n’est pas anonyme '
+                      '(mon nom ou ma photo y sont visibles).',
+                      style: theme.textTheme.small.copyWith(height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              'Un compte par réseau. Les comptes anonymes sont refusés.',
+              style: theme.textTheme.muted,
             ),
           ],
         ),

@@ -258,7 +258,16 @@ export class ConnectionsService {
     return p;
   }
 
+  /**
+   * Connecting by login is hidden for now: creators add their accounts by
+   * hand and the team checks them. OAUTH_CONNECTIONS_ENABLED=1 turns it back on.
+   */
+  get enabled() {
+    return this.config.get<string>('OAUTH_CONNECTIONS_ENABLED') === '1';
+  }
+
   private app(p: OAuthProvider): OAuthApp | null {
+    if (!this.enabled) return null;
     const clientId = this.config.get<string>(p.env[0]);
     const clientSecret = this.config.get<string>(p.env[1]);
     return clientId && clientSecret ? { clientId, clientSecret } : null;
