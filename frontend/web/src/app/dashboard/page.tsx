@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Logo } from "../logo";
 import {
   api,
   hasSession,
@@ -57,10 +56,7 @@ export default function DashboardPage() {
 
   return (
     <div className="card stagger">
-      <h1 className="brand">
-        <Logo size={36} />
-        Bienvenue
-      </h1>
+      <h1>Bienvenue</h1>
       <p>
         Tu es inscrit n° {user.priorityRank} au{" "}
         {COUNTRY_NAMES.of(user.country) ?? user.country}.

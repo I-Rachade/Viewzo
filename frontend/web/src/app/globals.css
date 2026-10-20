@@ -469,12 +469,6 @@ a.chip {
   flex: 1 1 140px;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 /* The dark balance card at the top of the wallet. */
 .balance {
   background: var(--ink);
