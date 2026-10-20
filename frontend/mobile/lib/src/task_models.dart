@@ -17,6 +17,32 @@ enum ContentType {
       values.firstWhere((t) => t.code == code);
 }
 
+/// A file the advertiser sent, opened through a signed link.
+class BriefFile {
+  BriefFile({
+    required this.name,
+    required this.kind,
+    required this.purpose,
+    required this.url,
+  });
+
+  factory BriefFile.fromJson(Map<String, dynamic> json) => BriefFile(
+    name: json['name'] as String,
+    kind: json['kind'] as String,
+    purpose: json['purpose'] as String,
+    url: json['url'] as String,
+  );
+
+  final String name;
+
+  /// IMAGE, VIDEO, AUDIO or PDF.
+  final String kind;
+
+  /// ASSET for the content, BRIEF for a voice or video brief.
+  final String purpose;
+  final String url;
+}
+
 /// The brief a creator sees; never the advertiser's budget.
 class TaskBrief {
   TaskBrief({
@@ -24,6 +50,12 @@ class TaskBrief {
     required this.hashtag,
     required this.endsAt,
     required this.assetUrls,
+    this.files = const [],
+    this.keyMessage,
+    this.callToAction,
+    this.caption,
+    this.sound,
+    this.productDetails,
     required this.faceRequired,
     required this.language,
     this.minDurationSec,
@@ -39,6 +71,15 @@ class TaskBrief {
     hashtag: json['hashtag'] as String,
     endsAt: DateTime.parse(json['endsAt'] as String).toLocal(),
     assetUrls: _strings(json['assetUrls']),
+    files: [
+      for (final f in json['files'] as List<dynamic>? ?? const [])
+        BriefFile.fromJson(f as Map<String, dynamic>),
+    ],
+    keyMessage: json['keyMessage'] as String?,
+    callToAction: json['callToAction'] as String?,
+    caption: json['caption'] as String?,
+    sound: json['sound'] as String?,
+    productDetails: json['productDetails'] as String?,
     faceRequired: json['faceRequired'] as bool? ?? false,
     language: json['language'] as String,
     minDurationSec: json['minDurationSec'] as int?,
@@ -53,6 +94,16 @@ class TaskBrief {
   final String hashtag;
   final DateTime endsAt;
   final List<String> assetUrls;
+  final List<BriefFile> files;
+  final String? keyMessage;
+  final String? callToAction;
+
+  /// Text to put under the post.
+  final String? caption;
+
+  /// Sound or music to use.
+  final String? sound;
+  final String? productDetails;
   final bool faceRequired;
   final String language;
   final int? minDurationSec;

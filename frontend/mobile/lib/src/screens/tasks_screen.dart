@@ -735,6 +735,35 @@ class _TaskCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (brief.keyMessage != null)
+              Text(
+                'Message : ${brief.keyMessage}',
+                style: body.copyWith(fontWeight: FontWeight.w600),
+              ),
+            if (brief.callToAction != null)
+              Text('Appel à l’action : ${brief.callToAction}', style: body),
+            if (brief.sound != null) Text('Son : ${brief.sound}', style: body),
+            if (brief.productDetails != null)
+              Text('Produit : ${brief.productDetails}', style: body),
+            if (brief.caption != null)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('Légende : ${brief.caption}', style: body),
+                  ),
+                  Semantics(
+                    label: 'Copier la légende',
+                    child: ShadIconButton.ghost(
+                      icon: const Icon(LucideIcons.copy, size: 18),
+                      width: 36,
+                      height: 36,
+                      onPressed: () => Clipboard.setData(
+                        ClipboardData(text: brief.caption!),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             Text(
               [
                 'Langue : ${brief.language}',
@@ -754,10 +783,19 @@ class _TaskCard extends StatelessWidget {
                 'Interdit : ${brief.forbiddenElements.join(', ')}',
                 style: body,
               ),
-            if (brief.assetUrls.isNotEmpty || brief.examples.isNotEmpty)
+            if (brief.files.isNotEmpty ||
+                brief.assetUrls.isNotEmpty ||
+                brief.examples.isNotEmpty)
               Wrap(
                 spacing: 16,
                 children: [
+                  for (final f in brief.files)
+                    _LinkButton(
+                      label: f.purpose == 'BRIEF'
+                          ? (f.kind == 'AUDIO' ? 'Brief vocal' : 'Brief vidéo')
+                          : f.name,
+                      url: f.url,
+                    ),
                   for (final (i, url) in brief.assetUrls.indexed)
                     _LinkButton(label: 'Élément ${i + 1}', url: url),
                   for (final (i, url) in brief.examples.indexed)

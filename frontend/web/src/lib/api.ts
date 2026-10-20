@@ -238,11 +238,47 @@ export type ContentType =
   | "MOTION_DESIGN"
   | "FREE_BRIEF";
 export type NoAssetsChoice = "CREATOR_VIDEOS" | "STUDIO";
+export type ContentCase = "READY" | "PARTIAL" | "NONE";
 export type CampaignStatus =
+  | "DRAFT"
+  | "PENDING_PAYMENT"
   | "PENDING_REVIEW"
   | "ACTIVE"
+  | "PAUSED"
   | "REJECTED"
   | "COMPLETED";
+
+export const CONTENT_CASE_LABELS: Record<
+  ContentCase,
+  { title: string; hint: string }
+> = {
+  READY: {
+    title: "Contenu prêt",
+    hint: "Tes visuels ou vidéos sont faits : les créateurs les publient.",
+  },
+  PARTIAL: {
+    title: "Matière partielle",
+    hint: "Logo, photos, rushes : les créateurs assemblent la vidéo.",
+  },
+  NONE: {
+    title: "Rien pour l’instant",
+    hint: "Les créateurs ou le Studio Viewzo créent tout à partir du brief.",
+  },
+};
+
+export type CampaignFileKind = "IMAGE" | "VIDEO" | "AUDIO" | "PDF";
+export type CampaignFilePurpose = "ASSET" | "BRIEF";
+
+// Opened through a signed link that expires after a few hours.
+export interface CampaignFile {
+  id: string;
+  purpose: CampaignFilePurpose;
+  kind: CampaignFileKind;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  url: string;
+}
 
 export const NETWORK_LABELS: Record<SocialNetwork, string> = {
   TIKTOK: "TikTok",
@@ -282,8 +318,11 @@ export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
 };
 
 export const STATUS_LABELS: Record<CampaignStatus, string> = {
+  DRAFT: "Brouillon",
+  PENDING_PAYMENT: "À payer",
   PENDING_REVIEW: "En vérification",
   ACTIVE: "Active",
+  PAUSED: "En pause",
   REJECTED: "Refusée",
   COMPLETED: "Terminée",
 };
@@ -315,9 +354,18 @@ export interface CampaignInput {
   package: CampaignPackage;
   budget: number;
   platforms: { network: SocialNetwork; contentType: ContentType }[];
-  hasAssets: boolean;
+  // Saved without being sent.
+  draft?: boolean;
+  contentCase: ContentCase;
+  fileIds?: string[];
+  briefFileIds?: string[];
   assetUrls?: string[];
   noAssetsChoice?: NoAssetsChoice;
+  keyMessage: string;
+  callToAction?: string;
+  caption?: string;
+  sound?: string;
+  productDetails?: string;
   shipsProduct?: boolean;
   productPickup?: string;
   faceRequired?: boolean;
@@ -330,12 +378,36 @@ export interface CampaignInput {
   examples?: string[];
 }
 
-export interface CampaignView {
+// What creators read before posting.
+export interface CampaignBrief {
+  contentCase: ContentCase;
+  noAssetsChoice: NoAssetsChoice | null;
+  keyMessage: string | null;
+  callToAction: string | null;
+  caption: string | null;
+  sound: string | null;
+  productDetails: string | null;
+  assetUrls: string[];
+  files: CampaignFile[];
+  faceRequired: boolean;
+  language: string;
+  minDurationSec: number | null;
+  maxDurationSec: number | null;
+  tone: string | null;
+  mandatoryElements: string[];
+  forbiddenElements: string[];
+  examples: string[];
+}
+
+export interface CampaignView extends CampaignBrief {
   id: string;
   code: string;
   title: string;
   objective: CampaignObjective;
   countries: string[];
+  cities: string[];
+  shipsProduct: boolean;
+  productPickup: string | null;
   startsAt: string;
   endsAt: string;
   package: CampaignPackage;
@@ -370,7 +442,28 @@ export const campaignsApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  // Only while the campaign is a draft or waits for its payment.
+  update: (id: string, input: CampaignInput) =>
+    call<CampaignView>(`/campaigns/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  remove: (id: string) =>
+    call<void>(`/campaigns/${id}`, { method: "DELETE" }),
+  send: (id: string) =>
+    call<CampaignView>(`/campaigns/${id}/send`, { method: "POST" }),
+  pause: (id: string) =>
+    call<CampaignView>(`/campaigns/${id}/pause`, { method: "POST" }),
+  resume: (id: string) =>
+    call<CampaignView>(`/campaigns/${id}/resume`, { method: "POST" }),
+  get: (id: string) => call<CampaignView>(`/me/campaigns/${id}`),
   list: () => call<CampaignView[]>("/me/campaigns"),
+  uploadFile: (file: File, purpose: CampaignFilePurpose = "ASSET") => {
+    const form = new FormData();
+    form.append("purpose", purpose);
+    form.append("file", file);
+    return upload<CampaignFile>("/me/campaign-files", form);
+  },
 };
 
 export function formatFcfa(amount: number) {
@@ -656,7 +749,6 @@ export interface StaffAccount {
 }
 
 export interface StaffCampaign extends CampaignView {
-  assetUrls: string[];
   advertiser: StaffUser;
 }
 

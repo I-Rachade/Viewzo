@@ -1684,3 +1684,10 @@ a.notification {
   color: var(--accent);
   font-weight: 700;
 }
+
+ul.files {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
