@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
@@ -28,6 +29,7 @@ class _TasksScreenState extends State<TasksScreen> {
   CreatorResults? _results;
   SocialNetwork? _network;
   String? _error;
+  int _tab = 0;
 
   @override
   void initState() {
@@ -77,7 +79,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
   /// Null when the creator closes the dialog without sending.
   Future<bool?> _submit(Assignment assignment, VoidCallback sending) async {
-    final url = await showDialog<String>(
+    final url = await showShadDialog<String>(
       context: context,
       builder: (_) => _SubmitDialog(initial: assignment.postUrl),
     );
@@ -105,7 +107,7 @@ class _TasksScreenState extends State<TasksScreen> {
         );
     final file = await pick();
     if (file == null || !mounted) return;
-    final views = await showDialog<int>(
+    final views = await showShadDialog<int>(
       context: context,
       builder: (_) => const _ViewsDialog(),
     );
@@ -134,35 +136,32 @@ class _TasksScreenState extends State<TasksScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Tâches'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Disponibles'),
-              Tab(text: 'Mes tâches'),
-            ],
+    return Scaffold(
+      appBar: AppBar(title: const Text('Tâches')),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            child: _TabSwitch(
+              value: _tab,
+              onChanged: (tab) => setState(() => _tab = tab),
+            ),
           ),
-        ),
-        body: Column(
-          children: [
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
-            Expanded(
-              child: TabBarView(
-                children: [_availableList(), _assignmentList()],
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: ShadAlert.destructive(
+                icon: const Icon(LucideIcons.circleAlert),
+                title: Text(_error!),
               ),
             ),
-          ],
-        ),
+          Expanded(
+            child: IndexedStack(
+              index: _tab,
+              children: [_availableList(), _assignmentList()],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -180,29 +179,35 @@ class _TasksScreenState extends State<TasksScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           if (tasks.isEmpty)
-            const Text(
-              'Aucune tâche pour toi en ce moment. Vérifie que tes comptes '
-              'sont éligibles et que tes compétences sont à jour.',
+            _Empty(
+              icon: LucideIcons.megaphone,
+              text:
+                  'Aucune tâche pour toi en ce moment. Vérifie que tes comptes '
+                  'sont éligibles et que tes compétences sont à jour.',
             ),
           if (networks.length > 1)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _Filter(
-                    label: 'Tous',
-                    selected: _network == null,
-                    onTap: () => setState(() => _network = null),
-                  ),
-                  for (final n in networks)
+              // One row that scrolls sideways, into the list's margins.
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                clipBehavior: Clip.none,
+                child: Row(
+                  spacing: 8,
+                  children: [
                     _Filter(
-                      label: n.label,
-                      selected: _network == n,
-                      onTap: () => setState(() => _network = n),
+                      label: 'Tous',
+                      selected: _network == null,
+                      onTap: () => setState(() => _network = null),
                     ),
-                ],
+                    for (final n in networks)
+                      _Filter(
+                        label: n.label,
+                        selected: _network == n,
+                        onTap: () => setState(() => _network = n),
+                      ),
+                  ],
+                ),
               ),
             ),
           for (final (i, task) in shown.indexed)
@@ -239,7 +244,10 @@ class _TasksScreenState extends State<TasksScreen> {
           if (results != null && assignments.isNotEmpty)
             FadeSlideIn(child: _ResultsCard(results: results)),
           if (assignments.isEmpty)
-            const Text('Tu n’as pas encore accepté de tâche.'),
+            const _Empty(
+              icon: LucideIcons.clipboardList,
+              text: 'Tu n’as pas encore accepté de tâche.',
+            ),
           for (final (i, a) in assignments.indexed)
             FadeSlideIn(
               index: i + 1,
@@ -273,17 +281,22 @@ class _TasksScreenState extends State<TasksScreen> {
   Widget? _actions(Assignment a) {
     if (a.reviewStatus == ReviewStatus.rejected) return null;
     final statut = a.task.network == SocialNetwork.whatsappStatus;
-    final screenshot = FilledButton.tonalIcon(
-      icon: const Icon(Icons.add_photo_alternate_outlined),
-      label: Text(statut ? 'Envoyer une capture' : 'Ajouter une capture'),
+    final screenshot = ShadButton.secondary(
+      leading: const Icon(LucideIcons.imagePlus, size: 18),
       onPressed: () => _sendScreenshot(a),
+      child: Flexible(
+        child: Text(
+          statut ? 'Envoyer une capture' : 'Ajouter une capture',
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
     );
     if (statut) return screenshot;
     if (!a.submitted) {
       return _MorphButton(
         label: 'J’ai publié',
-        color: Theme.of(context).colorScheme.primary,
-        foreground: Theme.of(context).colorScheme.onPrimary,
+        color: ShadTheme.of(context).colorScheme.primary,
+        foreground: ShadTheme.of(context).colorScheme.primaryForeground,
         onPress: (loading) => _submit(a, loading),
       );
     }
@@ -293,7 +306,7 @@ class _TasksScreenState extends State<TasksScreen> {
       alignment: WrapAlignment.end,
       children: [
         if (a.reviewStatus != ReviewStatus.validated)
-          OutlinedButton(
+          ShadButton.outline(
             onPressed: () => _submit(a, () {}),
             child: const Text('Modifier le lien'),
           ),
@@ -313,8 +326,98 @@ String _views(int n) {
   return out.toString();
 }
 
+/// "s" for a French plural: 0 and 1 stay singular.
+String _s(int n) => n > 1 ? 's' : '';
+
 String _time(DateTime d) =>
     '${_date(d)} à ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+/// "Disponibles | Mes tâches": a segmented control in the iOS manner.
+class _TabSwitch extends StatelessWidget {
+  const _TabSwitch({required this.value, required this.onChanged});
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  static const _labels = ['Disponibles', 'Mes tâches'];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: colors.muted,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          for (final (i, label) in _labels.indexed)
+            Expanded(
+              child: Semantics(
+                button: true,
+                selected: i == value,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onChanged(i),
+                  child: AnimatedContainer(
+                    duration: VzMotion.of(context, VzMotion.standard),
+                    curve: VzMotion.easeOut,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: i == value ? colors.card : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                      boxShadow: i == value
+                          ? const [
+                              BoxShadow(
+                                color: Color(0x14000000),
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Text(
+                      label,
+                      style: theme.textTheme.small.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: i == value
+                            ? colors.foreground
+                            : colors.mutedForeground,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A calm message for an empty list.
+class _Empty extends StatelessWidget {
+  const _Empty({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+      child: Column(
+        spacing: 12,
+        children: [
+          Icon(icon, size: 28, color: theme.colorScheme.mutedForeground),
+          Text(text, textAlign: TextAlign.center, style: theme.textTheme.muted),
+        ],
+      ),
+    );
+  }
+}
 
 /// Totals of what the team validated and paid, on top of "Mes tâches".
 class _ResultsCard extends StatelessWidget {
@@ -323,26 +426,34 @@ class _ResultsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
+    final theme = ShadTheme.of(context);
     Widget stat(String label, String value) => Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: 2,
         children: [
-          Text(label, style: text.bodySmall),
-          Text(value, style: text.titleMedium),
+          Text(label, style: theme.textTheme.muted.copyWith(fontSize: 13)),
+          Text(
+            value,
+            style: theme.textTheme.large.copyWith(
+              fontFamily: 'Sora',
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
         ],
       ),
     );
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: ShadCard(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          spacing: 10,
+          spacing: 14,
           children: [
-            Text('Mes résultats', style: text.titleMedium),
+            Text('Mes résultats', style: theme.textTheme.h4),
             Row(
+              spacing: 12,
               children: [
                 stat('Vues validées', _views(results.validViews)),
                 stat(
@@ -352,6 +463,7 @@ class _ResultsCard extends StatelessWidget {
               ],
             ),
             Row(
+              spacing: 12,
               children: [
                 stat('Gagné au total', '${_views(results.earned)} FCFA'),
                 stat(
@@ -362,11 +474,12 @@ class _ResultsCard extends StatelessWidget {
                 ),
               ],
             ),
+            const ShadSeparator.horizontal(margin: EdgeInsets.zero),
             Text(
               '${results.toReview} en vérification · ${results.needsFix} à '
-              'corriger · ${results.validated} validées · '
-              '${results.rejected} refusées',
-              style: text.bodySmall,
+              'corriger · ${results.validated} validée${_s(results.validated)} · '
+              '${results.rejected} refusée${_s(results.rejected)}',
+              style: theme.textTheme.muted.copyWith(fontSize: 13, height: 1.35),
             ),
           ],
         ),
@@ -384,48 +497,79 @@ class _AssignmentDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final a = assignment;
-    final text = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      spacing: 6,
-      children: [
-        if (a.reviewReason != null)
-          Text(a.reviewReason!, style: TextStyle(color: scheme.error)),
-        if (a.submitted || a.screenshots > 0)
-          Text(
-            [
-              '${_views(a.validViews)} vues validées',
-              '${_views(a.earned)} FCFA gagnés',
-              if (a.declaredViews != null && a.declaredViews != a.validViews)
-                '${_views(a.declaredViews!)} déclarées',
-            ].join(' · '),
-          ),
-        for (final (i, step) in a.proofSteps.indexed)
-          Row(
-            spacing: 10,
-            children: [
-              CircleAvatar(
-                radius: 12,
-                backgroundColor: step.doneAt != null
-                    ? VzColors.paid
-                    : scheme.primaryContainer,
-                child: step.doneAt != null
-                    ? const Icon(Icons.check, size: 14, color: Colors.white)
-                    : Text('${i + 1}', style: text.labelSmall),
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: 8,
+        children: [
+          if (a.reviewReason != null)
+            Text(
+              a.reviewReason!,
+              style: theme.textTheme.small.copyWith(
+                color: colors.destructive,
+                height: 1.35,
               ),
-              Expanded(
-                child: Text(
-                  '${step.label} · ${switch ((step.doneAt, step.dueAt)) {
-                    (final done?, _) => 'envoyée le ${_time(done)}',
-                    (null, final due?) => 'à envoyer vers le ${_time(due)}',
-                    _ => 'dès que ton statut est publié',
-                  }}',
+            ),
+          if (a.submitted || a.screenshots > 0)
+            Text(
+              [
+                // The figures stay on the line of their words.
+                '${_views(a.validViews)}\u00A0vue${_s(a.validViews)}\u00A0'
+                    'validée${_s(a.validViews)}',
+                '${_views(a.earned)}\u00A0FCFA\u00A0gagnés',
+                if (a.declaredViews != null && a.declaredViews != a.validViews)
+                  '${_views(a.declaredViews!)} déclarée${_s(a.declaredViews!)}',
+              ].join(' · '),
+              style: theme.textTheme.small.copyWith(height: 1.35),
+            ),
+          for (final (i, step) in a.proofSteps.indexed)
+            Row(
+              spacing: 10,
+              children: [
+                Container(
+                  width: 24,
+                  height: 24,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: step.doneAt != null
+                        ? VzColors.paid
+                        : colors.secondary,
+                  ),
+                  child: step.doneAt != null
+                      ? const Icon(
+                          LucideIcons.check,
+                          size: 14,
+                          color: Colors.white,
+                        )
+                      : Text(
+                          '${i + 1}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: colors.secondaryForeground,
+                          ),
+                        ),
                 ),
-              ),
-            ],
-          ),
-      ],
+                Expanded(
+                  child: Text(
+                    '${step.label} · ${switch ((step.doneAt, step.dueAt)) {
+                      (final done?, _) => 'envoyée le ${_time(done)}',
+                      (null, final due?) => 'à envoyer vers le ${_time(due)}',
+                      _ => 'dès que ton statut est publié',
+                    }}',
+                    style: theme.textTheme.small.copyWith(
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
     );
   }
 }
@@ -458,22 +602,27 @@ class _ViewsDialogState extends State<_ViewsDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ShadDialog(
     title: const Text('Vues sur la capture'),
-    content: TextField(
-      controller: _controller,
-      keyboardType: TextInputType.number,
-      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-      autofocus: true,
-      decoration: InputDecoration(hintText: 'Ex. : 350', errorText: _error),
-    ),
     actions: [
-      TextButton(
+      ShadButton.outline(
         onPressed: () => Navigator.pop(context),
         child: const Text('Annuler'),
       ),
-      FilledButton(onPressed: _send, child: const Text('Envoyer')),
+      ShadButton(onPressed: _send, child: const Text('Envoyer')),
     ],
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: ShadInputFormField(
+        controller: _controller,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        autofocus: true,
+        placeholder: const Text('Ex. : 350'),
+        trailing: const Text('vues'),
+        forceErrorText: _error,
+      ),
+    ),
   );
 }
 
@@ -495,25 +644,39 @@ class _TaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brief = task.brief;
-    final text = Theme.of(context).textTheme;
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
+    final body = theme.textTheme.small.copyWith(
+      fontWeight: FontWeight.w400,
+      height: 1.4,
+    );
     final duration = switch ((brief.minDurationSec, brief.maxDurationSec)) {
       (null, null) => null,
       (final min?, null) => 'au moins $min s',
       (null, final max?) => 'au plus $max s',
       (final min?, final max?) => '$min à $max s',
     };
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: ShadCard(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          spacing: 6,
+          spacing: 8,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 8,
               children: [
-                Expanded(child: Text(brief.title, style: text.titleMedium)),
+                Expanded(
+                  child: Text(
+                    brief.title,
+                    style: theme.textTheme.large.copyWith(
+                      fontFamily: 'Sora',
+                      height: 1.3,
+                    ),
+                  ),
+                ),
                 if (status case (final label, final tone))
                   Pill(label, tone: tone),
               ],
@@ -524,29 +687,46 @@ class _TaskCard extends StatelessWidget {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Pill(task.network.label, tone: PillTone.paid),
-                Text(task.contentType.label, style: text.bodyMedium),
+                Text(task.contentType.label, style: theme.textTheme.muted),
               ],
             ),
             Text(
-              '${task.ratePer1000} FCFA pour 1 000 vues · '
-              'jusqu’au ${_date(brief.endsAt)}',
-              style: text.bodyMedium?.copyWith(
+              // Breaks only after the dot, never inside "jusqu’au <date>".
+              '${task.ratePer1000} FCFA pour 1 000 vues\u00A0· '
+              'jusqu’au\u00A0${_date(brief.endsAt)}',
+              style: theme.textTheme.p.copyWith(
                 fontWeight: FontWeight.w700,
-                color: Theme.of(context).brightness == Brightness.dark
+                color: theme.brightness == Brightness.dark
                     ? const Color(0xFF7BE0B0)
                     : VzColors.paidText,
               ),
             ),
-            Row(
-              children: [
-                Text('Hashtag obligatoire : ${brief.hashtag}'),
-                IconButton(
-                  icon: const Icon(Icons.copy, size: 18),
-                  tooltip: 'Copier',
-                  onPressed: () =>
-                      Clipboard.setData(ClipboardData(text: brief.hashtag)),
-                ),
-              ],
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+              decoration: BoxDecoration(
+                color: colors.muted,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Hashtag obligatoire : ${brief.hashtag}',
+                      style: body.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Semantics(
+                    label: 'Copier',
+                    child: ShadIconButton.ghost(
+                      icon: const Icon(LucideIcons.copy, size: 18),
+                      width: 36,
+                      height: 36,
+                      onPressed: () =>
+                          Clipboard.setData(ClipboardData(text: brief.hashtag)),
+                    ),
+                  ),
+                ],
+              ),
             ),
             Text(
               [
@@ -555,18 +735,34 @@ class _TaskCard extends StatelessWidget {
                 ?duration,
                 if (brief.tone != null) 'ton ${brief.tone}',
               ].join(' · '),
+              style: body,
             ),
             if (brief.mandatoryElements.isNotEmpty)
-              Text('À inclure : ${brief.mandatoryElements.join(', ')}'),
+              Text(
+                'À inclure : ${brief.mandatoryElements.join(', ')}',
+                style: body,
+              ),
             if (brief.forbiddenElements.isNotEmpty)
-              Text('Interdit : ${brief.forbiddenElements.join(', ')}'),
-            for (final (i, url) in brief.assetUrls.indexed)
-              _LinkButton(label: 'Élément ${i + 1}', url: url),
-            for (final (i, url) in brief.examples.indexed)
-              _LinkButton(label: 'Exemple ${i + 1}', url: url),
+              Text(
+                'Interdit : ${brief.forbiddenElements.join(', ')}',
+                style: body,
+              ),
+            if (brief.assetUrls.isNotEmpty || brief.examples.isNotEmpty)
+              Wrap(
+                spacing: 16,
+                children: [
+                  for (final (i, url) in brief.assetUrls.indexed)
+                    _LinkButton(label: 'Élément ${i + 1}', url: url),
+                  for (final (i, url) in brief.examples.indexed)
+                    _LinkButton(label: 'Exemple ${i + 1}', url: url),
+                ],
+              ),
             ?details,
             if (action != null)
-              Align(alignment: Alignment.centerRight, child: action),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Align(alignment: Alignment.centerRight, child: action),
+              ),
           ],
         ),
       ),
@@ -580,11 +776,13 @@ class _LinkButton extends StatelessWidget {
   final String url;
 
   @override
-  Widget build(BuildContext context) => TextButton.icon(
-    icon: const Icon(Icons.open_in_new, size: 18),
-    label: Text(label),
+  Widget build(BuildContext context) => ShadButton.link(
+    size: ShadButtonSize.sm,
+    padding: EdgeInsets.zero,
+    leading: const Icon(LucideIcons.externalLink, size: 16),
     onPressed: () =>
         launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+    child: Text(label),
   );
 }
 
@@ -617,21 +815,26 @@ class _SubmitDialogState extends State<_SubmitDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ShadDialog(
     title: const Text('Lien de ta publication'),
-    content: TextField(
-      controller: _controller,
-      keyboardType: TextInputType.url,
-      autofocus: true,
-      decoration: InputDecoration(hintText: 'https://…', errorText: _error),
-    ),
     actions: [
-      TextButton(
+      ShadButton.outline(
         onPressed: () => Navigator.pop(context),
         child: const Text('Annuler'),
       ),
-      FilledButton(onPressed: _send, child: const Text('Envoyer')),
+      ShadButton(onPressed: _send, child: const Text('Envoyer')),
     ],
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: ShadInputFormField(
+        controller: _controller,
+        keyboardType: TextInputType.url,
+        autofocus: true,
+        placeholder: const Text('https://…'),
+        leading: const Icon(LucideIcons.link, size: 16),
+        forceErrorText: _error,
+      ),
+    ),
   );
 }
 
@@ -647,26 +850,31 @@ class _Filter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Pressable(
-      child: AnimatedContainer(
-        duration: VzMotion.of(context, VzMotion.standard),
-        curve: VzMotion.easeOut,
-        decoration: BoxDecoration(
-          color: selected ? scheme.primary : scheme.surface,
-          borderRadius: BorderRadius.circular(99),
-          border: Border.all(color: selected ? scheme.primary : scheme.outline),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(99),
-          onTap: onTap,
-          child: Padding(
+    final colors = ShadTheme.of(context).colorScheme;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Pressable(
+          child: AnimatedContainer(
+            duration: VzMotion.of(context, VzMotion.standard),
+            curve: VzMotion.easeOut,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: selected ? colors.primary : colors.card,
+              borderRadius: BorderRadius.circular(99),
+              border: Border.all(
+                color: selected ? colors.primary : colors.border,
+              ),
+            ),
             child: Text(
               label,
               style: TextStyle(
                 fontWeight: FontWeight.w700,
-                color: selected ? scheme.onPrimary : scheme.onSurface,
+                fontSize: 14,
+                color: selected ? colors.primaryForeground : colors.foreground,
               ),
             ),
           ),
@@ -712,17 +920,27 @@ class _MorphButtonState extends State<_MorphButton> {
   Widget build(BuildContext context) {
     final wide = VzMotion.of(context, VzMotion.wide);
     final child = switch (_step) {
-      _Step.idle => Text(widget.label, key: const ValueKey('idle')),
+      _Step.idle => Text(
+        widget.label,
+        key: const ValueKey('idle'),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       _Step.loading => const SizedBox.square(
         key: ValueKey('loading'),
         dimension: 22,
         child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
       ),
       _Step.done => const Icon(
-        Icons.check_rounded,
+        LucideIcons.check,
         key: ValueKey('done'),
         color: Colors.white,
       ),
+    };
+    final background = switch (_step) {
+      _Step.idle => widget.color,
+      _Step.loading => ShadTheme.of(context).colorScheme.primary,
+      _Step.done => VzColors.paid,
     };
     return Pressable(
       child: AnimatedContainer(
@@ -730,29 +948,35 @@ class _MorphButtonState extends State<_MorphButton> {
         curve: VzMotion.easeOut,
         width: _step == _Step.loading ? 56 : 140,
         height: 48,
-        child: FilledButton(
-          style: FilledButton.styleFrom(
-            padding: EdgeInsets.zero,
-            backgroundColor: switch (_step) {
-              _Step.idle => widget.color,
-              _Step.loading => Theme.of(context).colorScheme.primary,
-              _Step.done => VzColors.paid,
-            },
-            foregroundColor: widget.foreground,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(
-                _step == _Step.loading ? 28 : 14,
-              ),
+        child: ShadButton(
+          width: double.infinity,
+          height: 48,
+          padding: EdgeInsets.zero,
+          backgroundColor: background,
+          hoverBackgroundColor: background,
+          pressedBackgroundColor: background,
+          foregroundColor: widget.foreground,
+          hoverForegroundColor: widget.foreground,
+          pressedForegroundColor: widget.foreground,
+          decoration: ShadDecoration(
+            border: ShadBorder(
+              radius: BorderRadius.circular(_step == _Step.loading ? 28 : 14),
             ),
           ),
           onPressed: _step == _Step.idle ? _press : () {},
-          child: AnimatedSwitcher(
-            duration: VzMotion.of(context, VzMotion.standard),
-            transitionBuilder: (child, animation) => ScaleTransition(
-              scale: CurvedAnimation(parent: animation, curve: VzMotion.spring),
-              child: FadeTransition(opacity: animation, child: child),
+          // Flexible: the label ellipsizes while the button widens again.
+          child: Flexible(
+            child: AnimatedSwitcher(
+              duration: VzMotion.of(context, VzMotion.standard),
+              transitionBuilder: (child, animation) => ScaleTransition(
+                scale: CurvedAnimation(
+                  parent: animation,
+                  curve: VzMotion.spring,
+                ),
+                child: FadeTransition(opacity: animation, child: child),
+              ),
+              child: child,
             ),
-            child: child,
           ),
         ),
       ),

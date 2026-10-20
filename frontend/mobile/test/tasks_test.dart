@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:viewzo/main.dart';
 import 'package:viewzo/src/api_client.dart';
 import 'package:viewzo/src/screens/tasks_screen.dart';
 
@@ -65,7 +66,7 @@ void main() {
     });
 
     await tester.pumpWidget(
-      MaterialApp(
+      VzApp(
         home: TasksScreen(api: ApiClient(client: client)),
       ),
     );
@@ -96,13 +97,13 @@ void main() {
 
     await tester.tap(find.text('J’ai publié'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'pas un lien');
+    await tester.enterText(find.byType(EditableText), 'pas un lien');
     await tester.tap(find.text('Envoyer'));
     await tester.pumpAndSettle();
     expect(find.textContaining('commençant par https://'), findsOneWidget);
 
     await tester.enterText(
-      find.byType(TextField),
+      find.byType(EditableText),
       'https://www.tiktok.com/@ama/video/1',
     );
     await tester.tap(find.text('Envoyer'));
@@ -134,7 +135,7 @@ void main() {
     });
 
     await tester.pumpWidget(
-      MaterialApp(
+      VzApp(
         home: TasksScreen(api: ApiClient(client: client)),
       ),
     );
@@ -230,7 +231,7 @@ void main() {
     });
 
     await tester.pumpWidget(
-      MaterialApp(
+      VzApp(
         home: TasksScreen(
           api: api,
           pickImage: () async => XFile.fromData(
@@ -255,7 +256,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Envoyer une capture'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '340');
+    await tester.enterText(find.byType(EditableText), '340');
     await tester.tap(find.text('Envoyer'));
     await tester.pumpAndSettle();
 

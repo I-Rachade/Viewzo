@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../api_client.dart';
 import '../session.dart';
+import '../ui/widgets.dart';
 import 'auth_widgets.dart';
 import 'forgot_password_screen.dart';
 import 'register_screen.dart';
@@ -55,41 +57,84 @@ class _LoginScreenState extends State<LoginScreen>
     return Scaffold(
       appBar: AppBar(title: const Text('Connexion')),
       body: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
         children: [
-          IdentifierInput(
-            kind: _kind,
-            controller: _identifier,
-            onKindChanged: (kind) => setState(() {
-              _kind = kind;
-              _identifier.clear();
-            }),
+          // The brand on top: the mark and a short welcome.
+          FadeSlideIn(
+            child: Column(
+              spacing: 16,
+              children: [
+                VzMark(size: 56, outline: VzMark.outlineFor(context)),
+                Text(
+                  'Content de te revoir',
+                  textAlign: TextAlign.center,
+                  style: ShadTheme.of(context).textTheme.h3
+                      .copyWith(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          FadeSlideIn(
+            child: IdentifierInput(
+              kind: _kind,
+              controller: _identifier,
+              onKindChanged: (kind) => setState(() {
+                _kind = kind;
+                _identifier.clear();
+              }),
+            ),
           ),
           const SizedBox(height: 16),
-          PasswordField(
-            key: const Key('password'),
-            controller: _password,
-            label: 'Mot de passe',
+          FadeSlideIn(
+            index: 1,
+            child: PasswordField(
+              key: const Key('password'),
+              controller: _password,
+              label: 'Mot de passe',
+            ),
           ),
-          const SizedBox(height: 24),
-          FilledButton(
-            onPressed: busy ? null : _login,
-            child: const Text('Se connecter'),
+          const SizedBox(height: 28),
+          FadeSlideIn(
+            index: 2,
+            child: Pressable(
+              child: ShadButton(
+                size: ShadButtonSize.lg,
+                width: double.infinity,
+                enabled: !busy,
+                onPressed: busy ? null : _login,
+                child: const Flexible(
+                  child: Text('Se connecter', overflow: TextOverflow.ellipsis),
+                ),
+              ),
+            ),
           ),
           errorText(),
-          const SizedBox(height: 8),
-          TextButton(
+          const SizedBox(height: 12),
+          ShadButton.ghost(
+            width: double.infinity,
             onPressed: () => _open(
               ForgotPasswordScreen(
                 session: widget.session,
                 initialIdentifier: _identifier.text.trim(),
               ),
             ),
-            child: const Text('Mot de passe oublié ?'),
+            child: const Flexible(
+              child: Text(
+                'Mot de passe oublié ?',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ),
-          TextButton(
+          ShadButton.link(
+            width: double.infinity,
             onPressed: () => _open(RegisterScreen(session: widget.session)),
-            child: const Text('Pas encore de compte ? Créer un compte'),
+            child: const Flexible(
+              child: Text(
+                'Pas encore de compte ? Créer un compte',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ),
         ],
       ),

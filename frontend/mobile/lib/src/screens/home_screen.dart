@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../api_client.dart';
 import '../session.dart';
@@ -111,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _addContact(IdentifierKind kind) async {
-    final user = await showDialog<UserView>(
+    final user = await showShadDialog<UserView>(
       context: context,
       builder: (_) => _AddContactDialog(api: widget.session.api, kind: kind),
     );
@@ -144,19 +145,31 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     final user = _user;
     if (user == null && _offline) {
+      final theme = ShadTheme.of(context);
       return Scaffold(
         body: Center(
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(32),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Impossible de joindre Viewzo. Vérifie ta connexion.',
-                  textAlign: TextAlign.center,
+                Icon(
+                  LucideIcons.wifiOff,
+                  size: 32,
+                  color: theme.colorScheme.mutedForeground,
                 ),
                 const SizedBox(height: 16),
-                FilledButton(onPressed: _load, child: const Text('Réessayer')),
+                Text(
+                  'Impossible de joindre Viewzo. Vérifie ta connexion.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.p,
+                ),
+                const SizedBox(height: 20),
+                ShadButton(
+                  onPressed: _load,
+                  leading: const Icon(LucideIcons.refreshCw, size: 18),
+                  child: const Text('Réessayer'),
+                ),
               ],
             ),
           ),
@@ -217,32 +230,34 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
+/// The bottom bar in the iOS manner: a hairline on top, line icons, and the
+/// brand colour on the chosen tab, over a soft highlight that slides.
 class _TabBar extends StatelessWidget {
   const _TabBar({required this.index, required this.onSelect});
   final int index;
   final ValueChanged<int> onSelect;
 
   static const _tabs = [
-    (Icons.home_rounded, 'Accueil'),
-    (Icons.campaign_rounded, 'Campagnes'),
-    (Icons.account_balance_wallet_rounded, 'Portefeuille'),
-    (Icons.person_rounded, 'Profil'),
+    (LucideIcons.house, 'Accueil'),
+    (LucideIcons.megaphone, 'Campagnes'),
+    (LucideIcons.wallet, 'Portefeuille'),
+    (LucideIcons.userRound, 'Profil'),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final colors = ShadTheme.of(context).colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: scheme.surface,
-        border: Border(top: BorderSide(color: scheme.outline)),
+        color: colors.card,
+        border: Border(top: BorderSide(color: colors.border, width: 0.5)),
       ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
           child: SizedBox(
-            height: 56,
+            height: 54,
             child: Stack(
               children: [
                 // The highlight slides under the chosen tab with a spring.
@@ -253,10 +268,13 @@ class _TabBar extends StatelessWidget {
                   child: FractionallySizedBox(
                     widthFactor: 1 / 4,
                     heightFactor: 1,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: scheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(16),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: colors.secondary,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                     ),
                   ),
@@ -268,33 +286,38 @@ class _TabBar extends StatelessWidget {
                         child: Semantics(
                           selected: i == index,
                           button: true,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
                             onTap: () => onSelect(i),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              spacing: 2,
-                              children: [
-                                Icon(
-                                  icon,
-                                  size: 22,
-                                  color: i == index
-                                      ? scheme.primary
-                                      : scheme.onSurfaceVariant,
-                                ),
-                                Text(
-                                  label,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: i == index
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
+                            child: Pressable(
+                              scale: 0.92,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                spacing: 3,
+                                children: [
+                                  Icon(
+                                    icon,
+                                    size: 22,
                                     color: i == index
-                                        ? scheme.primary
-                                        : scheme.onSurfaceVariant,
+                                        ? colors.primary
+                                        : colors.mutedForeground,
                                   ),
-                                ),
-                              ],
+                                  Text(
+                                    label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: i == index
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                      color: i == index
+                                          ? colors.primary
+                                          : colors.mutedForeground,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -308,6 +331,147 @@ class _TabBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// One row of a grouped list: an icon tile, a title, an optional subtitle
+/// and whatever sits on the right. Dims slightly while pressed.
+class _Row extends StatefulWidget {
+  const _Row({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+    this.iconColor,
+    this.iconBackground,
+  });
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final Color? iconColor;
+  final Color? iconBackground;
+
+  @override
+  State<_Row> createState() => _RowState();
+}
+
+class _RowState extends State<_Row> {
+  bool _down = false;
+
+  void _set(bool down) {
+    if (_down != down) setState(() => _down = down);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
+    final row = AnimatedOpacity(
+      opacity: _down ? 0.55 : 1,
+      duration: VzMotion.of(context, VzMotion.fast),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: LayoutBuilder(
+          builder: (context, constraints) => Row(
+            spacing: 14,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: widget.iconBackground ?? colors.secondary,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(
+                  widget.icon,
+                  size: 19,
+                  color: widget.iconColor ?? colors.primary,
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 2,
+                  children: [
+                    Text(
+                      widget.title,
+                      style: theme.textTheme.p.copyWith(
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                    if (widget.subtitle != null)
+                      Text(
+                        widget.subtitle!,
+                        style: theme.textTheme.muted.copyWith(
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              // The trailing action never takes more than about half the row.
+              if (widget.trailing case final trailing?)
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: constraints.maxWidth * 0.5,
+                  ),
+                  child: trailing,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (widget.onTap == null) return row;
+    return Semantics(
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => _set(true),
+        onTapUp: (_) => _set(false),
+        onTapCancel: () => _set(false),
+        onTap: widget.onTap,
+        child: row,
+      ),
+    );
+  }
+}
+
+/// A chevron, for rows that open another screen.
+class _Chevron extends StatelessWidget {
+  const _Chevron();
+
+  @override
+  Widget build(BuildContext context) => Icon(
+    LucideIcons.chevronRight,
+    size: 18,
+    color: ShadTheme.of(context).colorScheme.mutedForeground,
+  );
+}
+
+/// Rows grouped in one card, with hairlines between them.
+class _Group extends StatelessWidget {
+  const _Group({required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => ShadCard(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: Column(
+      children: [
+        for (final (i, child) in children.indexed) ...[
+          if (i > 0)
+            const ShadSeparator.horizontal(margin: EdgeInsets.only(left: 52)),
+          child,
+        ],
+      ],
+    ),
+  );
 }
 
 class _HomeTab extends StatefulWidget {
@@ -370,8 +534,7 @@ class _HomeTabState extends State<_HomeTab> {
   @override
   Widget build(BuildContext context) {
     final user = widget.user;
-    final text = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
+    final theme = ShadTheme.of(context);
     final hour = DateTime.now().hour;
     final creator = user.profiles.any((p) => p.type == ProfileType.creator);
     final wallet = _wallet;
@@ -381,34 +544,28 @@ class _HomeTabState extends State<_HomeTab> {
       child: RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
           children: [
             FadeSlideIn(
               index: i++,
               child: Row(
                 spacing: 12,
                 children: [
-                  const VzMark(size: 40),
+                  VzMark(size: 40, outline: VzMark.outlineFor(context)),
                   Expanded(
                     child: Text(
                       hour >= 18 || hour < 5 ? 'Bonsoir' : 'Bonjour',
-                      style: text.headlineSmall,
+                      style: theme.textTheme.h3,
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Notifications',
+                  _Bell(
+                    unread: widget.unread,
                     onPressed: widget.onNotifications,
-                    icon: Badge(
-                      isLabelVisible: widget.unread > 0,
-                      label: Text('${widget.unread}'),
-                      backgroundColor: VzColors.coral,
-                      child: const Icon(Icons.notifications_none_rounded),
-                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
             if (wallet != null) ...[
               FadeSlideIn(
                 index: i++,
@@ -418,20 +575,20 @@ class _HomeTabState extends State<_HomeTab> {
             ],
             FadeSlideIn(
               index: i++,
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    spacing: 8,
-                    children: [
-                      Text(
-                        'Tu es inscrit n° ${user.priorityRank} (${user.country})',
-                        style: text.titleMedium,
+              child: ShadCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 10,
+                  children: [
+                    Text(
+                      'Tu es inscrit n° ${user.priorityRank} (${user.country})',
+                      style: theme.textTheme.p.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
-                      if (user.isFounder) const Pill('Badge Fondateur'),
-                    ],
-                  ),
+                    ),
+                    if (user.isFounder) const Pill('Badge Fondateur'),
+                  ],
                 ),
               ),
             ),
@@ -441,31 +598,15 @@ class _HomeTabState extends State<_HomeTab> {
                 index: i++,
                 child: Pressable(
                   scale: 0.98,
-                  child: Card(
-                    clipBehavior: Clip.antiAlias,
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 6,
-                      ),
-                      leading: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: VzColors.coral,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          Icons.campaign_rounded,
-                          color: VzColors.ink,
-                        ),
-                      ),
-                      title: const Text(
-                        'Campagnes pour toi',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: const Text('Publie et sois payé à la vue'),
-                      trailing: const Icon(Icons.chevron_right),
+                  child: ShadCard(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _Row(
+                      icon: LucideIcons.megaphone,
+                      iconColor: VzColors.ink,
+                      iconBackground: VzColors.coral,
+                      title: 'Campagnes pour toi',
+                      subtitle: 'Publie et sois payé à la vue',
+                      trailing: const _Chevron(),
                       onTap: widget.onCampaigns,
                     ),
                   ),
@@ -480,43 +621,116 @@ class _HomeTabState extends State<_HomeTab> {
                   ),
                 ),
             ],
-            const SizedBox(height: 24),
-            Text('Mes profils', style: text.titleMedium),
-            const SizedBox(height: 8),
-            for (final type in ProfileType.values)
-              FadeSlideIn(index: i++, child: _profileTile(user, type)),
+            const SizedBox(height: 28),
+            Text('Mes profils', style: theme.textTheme.h4),
+            const SizedBox(height: 12),
+            FadeSlideIn(
+              index: i++,
+              child: _Group(
+                children: [
+                  for (final type in ProfileType.values)
+                    _profileRow(user, type),
+                ],
+              ),
+            ),
             if (widget.error != null)
-              Text(widget.error!, style: TextStyle(color: scheme.error)),
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: ShadAlert.destructive(
+                  icon: const Icon(LucideIcons.circleAlert),
+                  title: Text(widget.error!),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _profileTile(UserView user, ProfileType type) {
+  Widget _profileRow(UserView user, ProfileType type) {
     final profile = user.profiles.where((p) => p.type == type).firstOrNull;
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        child: profile != null
-            ? ListTile(
-                leading: Icon(
-                  Icons.check_circle_rounded,
-                  color: scheme.tertiary,
-                ),
-                title: Text(type.label),
-                subtitle: Text('Niveau ${profile.level}'),
-              )
-            : ListTile(
-                leading: const Icon(Icons.add_circle_outline_rounded),
-                title: Text(type.label),
-                trailing: TextButton(
-                  onPressed: () => widget.onActivate(type),
-                  child: const Text('Activer'),
+    final colors = ShadTheme.of(context).colorScheme;
+    final dark = ShadTheme.of(context).brightness == Brightness.dark;
+    if (profile != null) {
+      return _Row(
+        icon: LucideIcons.circleCheck,
+        iconColor: dark ? const Color(0xFF7BE0B0) : VzColors.paidText,
+        iconBackground: const Color(0x221FA971),
+        title: type.label,
+        subtitle: 'Niveau ${profile.level}',
+      );
+    }
+    return _Row(
+      icon: LucideIcons.circlePlus,
+      iconColor: colors.mutedForeground,
+      iconBackground: colors.muted,
+      title: type.label,
+      trailing: ShadButton.secondary(
+        size: ShadButtonSize.sm,
+        onPressed: () => widget.onActivate(type),
+        child: const Flexible(
+          child: Text('Activer', overflow: TextOverflow.ellipsis),
+        ),
+      ),
+    );
+  }
+}
+
+/// The bell, with the number of unread notifications on a coral dot.
+class _Bell extends StatelessWidget {
+  const _Bell({required this.unread, required this.onPressed});
+  final int unread;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    return Semantics(
+      label: 'Notifications',
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ShadIconButton.outline(
+            onPressed: onPressed,
+            width: 44,
+            height: 44,
+            decoration: ShadDecoration(
+              border: ShadBorder.all(
+                color: colors.border,
+                radius: BorderRadius.circular(99),
+              ),
+            ),
+            backgroundColor: colors.card,
+            icon: const Icon(LucideIcons.bell, size: 20),
+          ),
+          if (unread > 0)
+            Positioned(
+              top: -2,
+              right: -2,
+              child: IgnorePointer(
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 18),
+                  height: 18,
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: VzColors.coral,
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(color: colors.background, width: 2),
+                  ),
+                  child: Text(
+                    '$unread',
+                    style: const TextStyle(
+                      color: VzColors.ink,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                    ),
+                  ),
                 ),
               ),
+            ),
+        ],
       ),
     );
   }
@@ -530,40 +744,54 @@ class _TaskPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final theme = ShadTheme.of(context);
+    final dark = theme.brightness == Brightness.dark;
     return Pressable(
       scale: 0.98,
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    spacing: 6,
-                    children: [
-                      Text(
-                        task.brief.title,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: ShadCard(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            spacing: 12,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 6,
+                  children: [
+                    Text(
+                      task.brief.title,
+                      style: theme.textTheme.p.copyWith(
+                        fontWeight: FontWeight.w700,
+                        height: 1.3,
                       ),
-                      Pill(task.network.label, tone: PillTone.paid),
-                    ],
-                  ),
+                    ),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Pill(task.network.label, tone: PillTone.paid),
+                        Text(
+                          '${task.ratePer1000} F / 1 000 vues',
+                          style: TextStyle(
+                            fontFamily: 'Sora',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: dark
+                                ? const Color(0xFF7BE0B0)
+                                : VzColors.paidText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                Text(
-                  '${task.ratePer1000} F / 1 000 vues',
-                  style: TextStyle(
-                    fontFamily: 'Sora',
-                    fontWeight: FontWeight.w700,
-                    color: dark ? const Color(0xFF7BE0B0) : VzColors.paidText,
-                  ),
-                ),
-              ],
-            ),
+              ),
+              const _Chevron(),
+            ],
           ),
         ),
       ),
@@ -578,12 +806,19 @@ class _WalletCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
+    final text = ShadTheme.of(context).textTheme;
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: VzColors.violet,
         borderRadius: BorderRadius.circular(24),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x335B3DF5),
+            blurRadius: 32,
+            offset: Offset(0, 12),
+          ),
+        ],
       ),
       child: Stack(
         children: [
@@ -608,24 +843,35 @@ class _WalletCard extends StatelessWidget {
                 AnimatedCount(
                   value: wallet.available,
                   format: formatFcfa,
-                  style: text.headlineMedium?.copyWith(color: Colors.white),
+                  style: text.h2.copyWith(color: Colors.white),
                 ),
                 if (wallet.held > 0)
                   Text(
                     'En attente : ${formatFcfa(wallet.held)}',
                     style: const TextStyle(color: Color(0xFFE4DEFF)),
                   ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 Pressable(
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: VzColors.violet,
-                      shape: const StadiumBorder(),
-                      minimumSize: const Size(0, 44),
+                  child: ShadButton(
+                    width: double.infinity,
+                    height: 46,
+                    backgroundColor: Colors.white,
+                    hoverBackgroundColor: const Color(0xFFF2EFFF),
+                    pressedBackgroundColor: const Color(0xFFE9E4FF),
+                    foregroundColor: VzColors.violet,
+                    hoverForegroundColor: VzColors.violet,
+                    pressedForegroundColor: VzColors.violet,
+                    decoration: ShadDecoration(
+                      border: ShadBorder(radius: BorderRadius.circular(99)),
                     ),
                     onPressed: onWallet,
-                    child: const Text('Retirer vers Mobile Money'),
+                    leading: const Icon(LucideIcons.arrowUpRight, size: 18),
+                    child: const Flexible(
+                      child: Text(
+                        'Retirer vers Mobile Money',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -648,18 +894,26 @@ class _BecomeCreator extends StatelessWidget {
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          spacing: 16,
+          spacing: 20,
           children: [
-            const VzMark(size: 72),
+            VzMark(size: 72, outline: VzMark.outlineFor(context)),
             Text(
               'Active ton profil créateur pour recevoir des campagnes payées '
               'à la vue.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: ShadTheme.of(context).textTheme.lead,
             ),
-            FilledButton(
+            ShadButton(
+              size: ShadButtonSize.lg,
+              width: double.infinity,
               onPressed: onActivate,
-              child: const Text('Devenir créateur'),
+              leading: const Icon(LucideIcons.sparkles, size: 18),
+              child: const Flexible(
+                child: Text(
+                  'Devenir créateur',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ),
           ],
         ),
@@ -686,28 +940,28 @@ class _ProfileTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
     final creator = user.profiles.any((p) => p.type == ProfileType.creator);
     Widget tile(
       int i,
       IconData icon,
       String title,
       String sub,
-      VoidCallback on,
-    ) => FadeSlideIn(
+      VoidCallback on, {
+      bool destructive = false,
+    }) => FadeSlideIn(
       index: i,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Card(
-          clipBehavior: Clip.antiAlias,
-          child: ListTile(
-            leading: Icon(icon),
-            title: Text(title),
-            subtitle: Text(sub),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: on,
-          ),
-        ),
+      child: _Row(
+        icon: icon,
+        iconColor: destructive ? colors.destructive : null,
+        iconBackground: destructive
+            ? colors.destructive.withValues(alpha: 0.12)
+            : null,
+        title: title,
+        subtitle: sub,
+        trailing: const _Chevron(),
+        onTap: on,
       ),
     );
 
@@ -716,75 +970,89 @@ class _ProfileTab extends StatelessWidget {
       String? value,
       String addLabel,
       IdentifierKind kind,
-    ) => ListTile(
-      leading: Icon(icon),
-      title: Text(value ?? 'Non renseigné'),
+    ) => _Row(
+      icon: icon,
+      iconColor: value == null ? colors.mutedForeground : null,
+      iconBackground: value == null ? colors.muted : null,
+      title: value ?? 'Non renseigné',
       trailing: value == null
-          ? TextButton(
+          ? ShadButton.link(
+              size: ShadButtonSize.sm,
+              padding: EdgeInsets.zero,
               onPressed: () => onAddContact(kind),
-              child: Text(addLabel),
+              child: Flexible(
+                child: Text(addLabel, overflow: TextOverflow.ellipsis),
+              ),
             )
           : null,
     );
 
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         children: [
-          Text('Profil', style: text.headlineSmall),
-          const SizedBox(height: 20),
-          Text('E-mail et téléphone', style: text.titleMedium),
-          const SizedBox(height: 8),
+          Text('Profil', style: theme.textTheme.h3),
+          const SizedBox(height: 24),
+          Text('E-mail et téléphone', style: theme.textTheme.h4),
+          const SizedBox(height: 12),
           FadeSlideIn(
-            child: Card(
-              child: Column(
-                children: [
-                  contact(
-                    Icons.mail_outline,
-                    user.email,
-                    'Ajouter un e-mail',
-                    IdentifierKind.email,
-                  ),
-                  contact(
-                    Icons.phone_outlined,
-                    user.phone,
-                    'Ajouter un numéro',
-                    IdentifierKind.phone,
-                  ),
-                ],
-              ),
+            child: _Group(
+              children: [
+                contact(
+                  LucideIcons.mail,
+                  user.email,
+                  'Ajouter un e-mail',
+                  IdentifierKind.email,
+                ),
+                contact(
+                  LucideIcons.phone,
+                  user.phone,
+                  'Ajouter un numéro',
+                  IdentifierKind.phone,
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           if (creator) ...[
-            tile(
-              0,
-              Icons.verified_user_outlined,
-              'Mes comptes',
-              'Réseaux et vérification',
-              onAccounts,
+            _Group(
+              children: [
+                tile(
+                  0,
+                  LucideIcons.shieldCheck,
+                  'Mes comptes',
+                  'Réseaux et vérification',
+                  onAccounts,
+                ),
+                tile(
+                  1,
+                  LucideIcons.sparkles,
+                  'Mes compétences',
+                  'Ce que tu sais faire',
+                  onSkills,
+                ),
+                tile(
+                  2,
+                  LucideIcons.link,
+                  'Comptes connectés',
+                  'Tes vues relevées automatiquement',
+                  onConnections,
+                ),
+              ],
             ),
-            tile(
-              1,
-              Icons.auto_awesome_outlined,
-              'Mes compétences',
-              'Ce que tu sais faire',
-              onSkills,
-            ),
-            tile(
-              2,
-              Icons.link_rounded,
-              'Comptes connectés',
-              'Tes vues relevées automatiquement',
-              onConnections,
-            ),
+            const SizedBox(height: 24),
           ],
-          tile(
-            3,
-            Icons.logout_rounded,
-            'Se déconnecter',
-            'Sur ce téléphone',
-            onLogout,
+          _Group(
+            children: [
+              tile(
+                3,
+                LucideIcons.logOut,
+                'Se déconnecter',
+                'Sur ce téléphone',
+                onLogout,
+                destructive: true,
+              ),
+            ],
           ),
         ],
       ),
@@ -831,45 +1099,50 @@ class _AddContactDialogState extends State<_AddContactDialog>
   @override
   Widget build(BuildContext context) {
     final entering = sentTo != null;
-    return AlertDialog(
+    final theme = ShadTheme.of(context);
+    return ShadDialog(
       title: Text(_email ? 'Ajouter un e-mail' : 'Ajouter un numéro'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!entering)
-            TextField(
-              key: const Key('contact'),
-              controller: _identifier,
-              keyboardType: _email
-                  ? TextInputType.emailAddress
-                  : TextInputType.phone,
-              decoration: InputDecoration(
-                labelText: _email ? 'Adresse e-mail' : 'Numéro de téléphone',
-                hintText: _email ? 'nom@exemple.com' : '+228 90 12 34 56',
-              ),
-            )
-          else ...[
-            Text('Code envoyé à $sentTo'),
-            const SizedBox(height: 8),
-            Text(codeHint, style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 8),
-            CodeField(controller: _code),
-            resendButton(_request),
-          ],
-          errorText(),
-        ],
-      ),
       actions: [
-        TextButton(
+        ShadButton.outline(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Annuler'),
         ),
-        FilledButton(
+        ShadButton(
+          enabled: !busy,
           onPressed: busy ? null : (entering ? _verify : _request),
           child: Text(entering ? 'Valider' : 'Recevoir un code'),
         ),
       ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!entering)
+              ShadInputFormField(
+                key: const Key('contact'),
+                controller: _identifier,
+                keyboardType: _email
+                    ? TextInputType.emailAddress
+                    : TextInputType.phone,
+                label: Text(_email ? 'Adresse e-mail' : 'Numéro de téléphone'),
+                placeholder: Text(
+                  _email ? 'nom@exemple.com' : '+228 90 12 34 56',
+                ),
+              )
+            else ...[
+              Text('Code envoyé à $sentTo', style: theme.textTheme.p),
+              const SizedBox(height: 8),
+              Text(codeHint, style: theme.textTheme.muted),
+              const SizedBox(height: 12),
+              CodeField(controller: _code),
+              resendButton(_request),
+            ],
+            errorText(),
+          ],
+        ),
+      ),
     );
   }
 }

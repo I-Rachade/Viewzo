@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:viewzo/main.dart';
 import 'package:viewzo/src/api_client.dart';
 import 'package:viewzo/src/screens/wallet_screen.dart';
 
@@ -24,6 +26,10 @@ Map<String, dynamic> summary({required int available, bool open = true}) => {
 
 void main() {
   testWidgets('shows balances and requests a withdrawal', (tester) async {
+    // A phone-sized screen, tall enough to show the history.
+    tester.view.physicalSize = const Size(1170, 3600);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
     var available = 10000;
     Object? requested;
     final client = MockClient((request) async {
@@ -59,26 +65,29 @@ void main() {
     });
 
     await tester.pumpWidget(
-      MaterialApp(
+      VzApp(
         home: WalletScreen(api: ApiClient(client: client)),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('10 000 FCFA'), findsOneWidget);
-    expect(find.text('En attente : 2 500 FCFA'), findsOneWidget);
+    expect(
+      find.text('En attente  2 500 FCFA', findRichText: true),
+      findsOneWidget,
+    );
     expect(find.text('Gain'), findsOneWidget);
     expect(find.textContaining('disponible le 01/01/2099'), findsOneWidget);
 
     await tester.tap(find.text('Retirer'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).at(0), '20000');
-    await tester.enterText(find.byType(TextField).at(1), 'Ama Mensah');
+    await tester.enterText(find.byType(EditableText).at(0), '20000');
+    await tester.enterText(find.byType(EditableText).at(1), 'Ama Mensah');
     await tester.tap(find.text('Demander le retrait'));
     await tester.pumpAndSettle();
     expect(find.text('Entre 1 000 FCFA et 10 000 FCFA'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField).at(0), '4000');
+    await tester.enterText(find.byType(EditableText).at(0), '4000');
     await tester.tap(find.text('Demander le retrait'));
     await tester.pumpAndSettle();
 
@@ -94,15 +103,15 @@ void main() {
       return json(<Object>[]);
     });
     await tester.pumpWidget(
-      MaterialApp(
+      VzApp(
         home: WalletScreen(api: ApiClient(client: client)),
       ),
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('s’ouvrent au niveau 2'), findsOneWidget);
-    final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Retirer'),
+    final button = tester.widget<ShadButton>(
+      find.widgetWithText(ShadButton, 'Retirer'),
     );
-    expect(button.onPressed, isNull);
+    expect(button.enabled, isFalse);
   });
 }

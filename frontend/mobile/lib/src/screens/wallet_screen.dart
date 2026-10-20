@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
@@ -15,10 +16,13 @@ class WalletScreen extends StatefulWidget {
   State<WalletScreen> createState() => _WalletScreenState();
 }
 
+enum _Filter { all, incoming, outgoing }
+
 class _WalletScreenState extends State<WalletScreen> {
   WalletSummary? _summary;
   List<WalletTransaction> _history = [];
   String? _error;
+  _Filter _filter = _Filter.all;
 
   @override
   void initState() {
@@ -47,7 +51,7 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   Future<void> _deposit() async {
-    final amount = await showDialog<int>(
+    final amount = await showShadDialog<int>(
       context: context,
       builder: (_) => const _AmountDialog(
         title: 'Recharger par Mobile Money',
@@ -67,9 +71,9 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   Future<void> _withdraw(WalletSummary summary) async {
-    final request = await showModalBottomSheet<_WithdrawRequest>(
+    final request = await showShadSheet<_WithdrawRequest>(
       context: context,
-      isScrollControlled: true,
+      side: ShadSheetSide.bottom,
       builder: (_) => _WithdrawSheet(summary: summary),
     );
     if (request == null) return;
@@ -86,11 +90,24 @@ class _WalletScreenState extends State<WalletScreen> {
     });
   }
 
+  List<WalletTransaction> get _shown => switch (_filter) {
+    _Filter.all => _history,
+    _Filter.incoming => [
+      for (final t in _history)
+        if (t.amount > 0) t,
+    ],
+    _Filter.outgoing => [
+      for (final t in _history)
+        if (t.amount < 0) t,
+    ],
+  };
+
   @override
   Widget build(BuildContext context) {
     final summary = _summary;
-    final text = Theme.of(context).textTheme;
+    final theme = ShadTheme.of(context);
     final week = _lastSevenDays(_history);
+    final shown = _shown;
     return Scaffold(
       appBar: AppBar(title: const Text('Mon portefeuille')),
       body: summary == null
@@ -102,7 +119,7 @@ class _WalletScreenState extends State<WalletScreen> {
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                 children: [
                   FadeSlideIn(
                     child: _BalanceCard(
@@ -116,44 +133,149 @@ class _WalletScreenState extends State<WalletScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    'Les gains du mois deviennent disponibles le 1er du mois suivant.',
-                    style: text.bodySmall,
-                  ),
                   if (!summary.withdrawalsOpen)
                     const Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: Text(
-                        'Les retraits s’ouvrent au niveau 2, après la '
-                        'vérification de ton identité.',
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: ShadAlert(
+                        icon: Icon(LucideIcons.lock),
+                        title: Text('Retraits fermés pour l’instant'),
+                        description: Text(
+                          'Les retraits s’ouvrent au niveau 2, après la '
+                          'vérification de ton identité.',
+                        ),
                       ),
                     ),
                   if (_error != null)
                     Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        _error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: ShadAlert.destructive(
+                        icon: const Icon(LucideIcons.circleAlert),
+                        title: Text(_error!),
                       ),
                     ),
                   if (week.any((v) => v > 0)) ...[
-                    const SizedBox(height: 16),
                     FadeSlideIn(index: 1, child: _WeekChart(days: week)),
+                    const SizedBox(height: 12),
                   ],
-                  const SizedBox(height: 24),
-                  Text('Historique', style: text.titleMedium),
-                  if (_history.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: Text('Aucune opération pour l’instant.'),
+                  const ShadAlert(
+                    icon: Icon(LucideIcons.calendarClock),
+                    description: Text(
+                      'Les gains du mois deviennent disponibles le 1er du mois suivant.',
                     ),
-                  for (final (i, t) in _history.indexed)
-                    FadeSlideIn(index: i + 2, child: _TransactionTile(t)),
+                  ),
+                  const SizedBox(height: 28),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('Historique', style: theme.textTheme.h4),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _FilterBar(
+                    value: _filter,
+                    onChanged: (f) => setState(() => _filter = f),
+                  ),
+                  const SizedBox(height: 12),
+                  if (shown.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        'Aucune opération pour l’instant.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.muted,
+                      ),
+                    )
+                  else
+                    FadeSlideIn(
+                      index: 2,
+                      child: ShadCard(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          children: [
+                            for (final (i, t) in shown.indexed) ...[
+                              if (i > 0)
+                                const ShadSeparator.horizontal(
+                                  margin: EdgeInsets.only(left: 56),
+                                ),
+                              _TransactionTile(t),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// All, money in, money out: a segmented control in the iOS manner.
+class _FilterBar extends StatelessWidget {
+  const _FilterBar({required this.value, required this.onChanged});
+  final _Filter value;
+  final ValueChanged<_Filter> onChanged;
+
+  static const _labels = {
+    _Filter.all: 'Tout',
+    _Filter.incoming: 'Entrées',
+    _Filter.outgoing: 'Sorties',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: colors.muted,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          for (final f in _Filter.values)
+            Expanded(
+              child: Semantics(
+                button: true,
+                selected: f == value,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onChanged(f),
+                  child: AnimatedContainer(
+                    duration: VzMotion.of(context, VzMotion.standard),
+                    curve: VzMotion.easeOut,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: f == value ? colors.card : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                      boxShadow: f == value
+                          ? const [
+                              BoxShadow(
+                                color: Color(0x14000000),
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Text(
+                      _labels[f]!,
+                      style: theme.textTheme.small.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: f == value
+                            ? colors.foreground
+                            : colors.mutedForeground,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -184,70 +306,104 @@ class _BalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
+    final text = ShadTheme.of(context).textTheme;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
       decoration: BoxDecoration(
-        color: VzColors.ink,
         borderRadius: BorderRadius.circular(24),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [VzColors.ink, Color(0xFF262040)],
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x335B3DF5),
+            blurRadius: 32,
+            offset: Offset(0, 12),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        spacing: 10,
         children: [
-          Text(
-            'Disponible',
-            style: text.labelLarge?.copyWith(color: VzColors.mutedDark),
+          Row(
+            children: [
+              const Icon(
+                LucideIcons.wallet,
+                size: 18,
+                color: VzColors.mutedDark,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Disponible',
+                style: text.small.copyWith(color: VzColors.mutedDark),
+              ),
+            ],
           ),
+          const SizedBox(height: 8),
           AnimatedCount(
             value: summary.available,
             format: formatFcfa,
-            style: text.headlineMedium?.copyWith(color: Colors.white),
+            style: text.h1.copyWith(color: Colors.white, fontSize: 34),
           ),
+          const SizedBox(height: 14),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              Pill(
-                'En attente : ${formatFcfa(summary.held)}',
-                tone: PillTone.pending,
+              _DarkBadge(
+                'En attente',
+                formatFcfa(summary.held),
+                color: const Color(0xFFFFD27A),
               ),
               if (summary.escrow > 0)
-                Pill('Séquestre : ${formatFcfa(summary.escrow)}'),
+                _DarkBadge(
+                  'Séquestre',
+                  formatFcfa(summary.escrow),
+                  color: const Color(0xFFC9BEFF),
+                ),
               if (summary.pendingWithdrawals > 0)
-                Pill(
-                  'Retraits en cours : '
-                  '${formatFcfa(summary.pendingWithdrawals)}',
+                _DarkBadge(
+                  'Retraits en cours',
+                  formatFcfa(summary.pendingWithdrawals),
+                  color: const Color(0xFFC9BEFF),
                 ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 20),
           Row(
             spacing: 12,
             children: [
               Expanded(
-                child: Pressable(
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: VzColors.coral,
-                      foregroundColor: VzColors.ink,
-                      disabledBackgroundColor: VzColors.nightLine,
-                      disabledForegroundColor: VzColors.mutedDark,
-                    ),
-                    onPressed: onWithdraw,
-                    child: const Text('Retirer'),
+                child: ShadButton(
+                  width: double.infinity,
+                  enabled: onWithdraw != null,
+                  onPressed: onWithdraw,
+                  backgroundColor: VzColors.coral,
+                  hoverBackgroundColor: const Color(0xFFFF8080),
+                  pressedBackgroundColor: const Color(0xFFF25A5A),
+                  foregroundColor: VzColors.ink,
+                  leading: const Icon(LucideIcons.arrowUpRight, size: 18),
+                  child: const Flexible(
+                    child: Text('Retirer', overflow: TextOverflow.ellipsis),
                   ),
                 ),
               ),
               Expanded(
-                child: Pressable(
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: VzColors.nightLine),
-                    ),
-                    onPressed: onDeposit,
-                    child: const Text('Recharger'),
+                // A translucent button with the theme's radius, like Retirer.
+                child: ShadButton(
+                  width: double.infinity,
+                  onPressed: onDeposit,
+                  backgroundColor: const Color(0x1FFFFFFF),
+                  hoverBackgroundColor: const Color(0x2EFFFFFF),
+                  pressedBackgroundColor: const Color(0x2EFFFFFF),
+                  foregroundColor: Colors.white,
+                  hoverForegroundColor: Colors.white,
+                  pressedForegroundColor: Colors.white,
+                  leading: const Icon(LucideIcons.plus, size: 18),
+                  child: const Flexible(
+                    child: Text('Recharger', overflow: TextOverflow.ellipsis),
                   ),
                 ),
               ),
@@ -259,87 +415,114 @@ class _BalanceCard extends StatelessWidget {
   }
 }
 
+/// A label and an amount on the dark balance card.
+class _DarkBadge extends StatelessWidget {
+  const _DarkBadge(this.label, this.amount, {required this.color});
+  final String label;
+  final String amount;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: const Color(0x14FFFFFF),
+      borderRadius: BorderRadius.circular(99),
+    ),
+    child: Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: '$label  ',
+            style: const TextStyle(color: VzColors.mutedDark),
+          ),
+          TextSpan(
+            text: amount,
+            style: TextStyle(color: color, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+      style: const TextStyle(fontSize: 12.5),
+    ),
+  );
+}
+
 class _WeekChart extends StatelessWidget {
   const _WeekChart({required this.days});
   final List<int> days;
 
-  static const _letters = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+  // Two letters, so Mardi and Mercredi can't be confused.
+  static const _letters = ['Di', 'Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa'];
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
     final max = days.reduce((a, b) => a > b ? a : b);
     final total = days.fold(0, (a, b) => a + b);
     final today = DateTime.now().weekday % 7;
     final duration = VzMotion.of(context, VzMotion.bounce);
-    return Card(
+    final dark = theme.brightness == Brightness.dark;
+    return ShadCard(
+      title: Text(
+        'Gains des 7 derniers jours',
+        style: theme.textTheme.p.copyWith(
+          fontWeight: FontWeight.w700,
+          color: colors.mutedForeground,
+        ),
+      ),
+      description: Text(
+        '+${formatFcfa(total)}',
+        style: theme.textTheme.h3.copyWith(
+          color: dark ? const Color(0xFF7BE0B0) : VzColors.paidText,
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          spacing: 12,
-          children: [
-            Row(
+        padding: const EdgeInsets.only(top: 16),
+        child: Semantics(
+          label: 'Gains par jour sur les 7 derniers jours',
+          child: SizedBox(
+            height: 120,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              spacing: 10,
               children: [
-                Expanded(
-                  child: Text(
-                    'Gains des 7 derniers jours',
-                    style: text.titleSmall,
+                for (final (i, v) in days.indexed)
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      spacing: 8,
+                      children: [
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: max == 0 ? 0 : v / max),
+                          duration: duration + VzMotion.stagger * i,
+                          curve: VzMotion.spring,
+                          builder: (context, f, _) => Container(
+                            height: 4 + 80 * f.clamp(0, 1.2),
+                            decoration: BoxDecoration(
+                              color: i == 6
+                                  ? VzColors.coral
+                                  : colors.primary.withValues(
+                                      alpha: i == 6 ? 1 : 0.85,
+                                    ),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                        ),
+                        Text(
+                          _letters[(today - 6 + i) % 7],
+                          style: theme.textTheme.muted.copyWith(
+                            fontSize: 12,
+                            fontWeight: i == 6 ? FontWeight.w700 : null,
+                            color: i == 6 ? colors.foreground : null,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                Text(
-                  '+${formatFcfa(total)}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: VzColors.paidText,
-                  ),
-                ),
               ],
             ),
-            Semantics(
-              label: 'Gains par jour sur les 7 derniers jours',
-              child: SizedBox(
-                height: 130,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  spacing: 8,
-                  children: [
-                    for (final (i, v) in days.indexed)
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          spacing: 6,
-                          children: [
-                            TweenAnimationBuilder<double>(
-                              tween: Tween(
-                                begin: 0,
-                                end: max == 0 ? 0 : v / max,
-                              ),
-                              duration: duration + VzMotion.stagger * i,
-                              curve: VzMotion.spring,
-                              builder: (context, f, _) => Container(
-                                height: 4 + 80 * f.clamp(0, 1.2),
-                                decoration: BoxDecoration(
-                                  color: i == 6
-                                      ? VzColors.coral
-                                      : scheme.primary,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                            ),
-                            Text(
-                              _letters[(today - 6 + i) % 7],
-                              style: text.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -357,39 +540,85 @@ class _TransactionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final details = [
       _date(t.createdAt),
-      if (t.status == 'PENDING') 'en attente',
       if (t.status == 'CANCELLED') 'annulé',
       if (t.type == 'EARNING' && t.availableAt.isAfter(DateTime.now()))
         'disponible le ${_date(t.availableAt)}',
-      ?t.note,
     ];
     final positive = t.amount > 0;
-    final scheme = Theme.of(context).colorScheme;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Container(
-        width: 40,
-        height: 40,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: positive ? const Color(0x221FA971) : scheme.primaryContainer,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          positive ? Icons.south_west_rounded : Icons.north_east_rounded,
-          size: 20,
-          color: positive ? VzColors.paidText : scheme.primary,
-        ),
-      ),
-      title: Text(t.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-      subtitle: Text(details.join(' · ')),
-      trailing: Text(
-        '${positive ? '+' : ''}${formatFcfa(t.amount)}',
-        style: TextStyle(
-          fontFamily: 'Sora',
-          fontWeight: FontWeight.w700,
-          color: positive ? VzColors.paidText : null,
-        ),
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
+    final dark = theme.brightness == Brightness.dark;
+    final green = dark ? const Color(0xFF7BE0B0) : VzColors.paidText;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: 14,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: positive ? const Color(0x221FA971) : colors.secondary,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              positive ? LucideIcons.arrowDownLeft : LucideIcons.arrowUpRight,
+              size: 20,
+              color: positive ? green : colors.primary,
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 2,
+              children: [
+                Row(
+                  spacing: 8,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        t.label,
+                        style: theme.textTheme.p.copyWith(
+                          fontWeight: FontWeight.w700,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                    if (t.status == 'PENDING')
+                      const Pill('en attente', tone: PillTone.pending),
+                  ],
+                ),
+                if (t.note != null)
+                  Text(
+                    t.note!,
+                    style: theme.textTheme.small.copyWith(
+                      fontWeight: FontWeight.w500,
+                      height: 1.35,
+                    ),
+                  ),
+                Text(
+                  details.join(' · '),
+                  style: theme.textTheme.muted.copyWith(
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            '${positive ? '+' : ''}${formatFcfa(t.amount)}',
+            style: TextStyle(
+              fontFamily: 'Sora',
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+              color: positive ? green : colors.foreground,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -408,6 +637,8 @@ class _AmountDialogState extends State<_AmountDialog> {
   final _controller = TextEditingController();
   String? _error;
 
+  static const _quick = [1000, 2000, 5000, 10000];
+
   @override
   void dispose() {
     _controller.dispose();
@@ -415,7 +646,7 @@ class _AmountDialogState extends State<_AmountDialog> {
   }
 
   void _send() {
-    final amount = int.tryParse(_controller.text.trim());
+    final amount = int.tryParse(_controller.text.trim().replaceAll(' ', ''));
     if (amount == null || amount < widget.minimum) {
       setState(() => _error = 'Minimum ${formatFcfa(widget.minimum)}');
       return;
@@ -424,21 +655,47 @@ class _AmountDialogState extends State<_AmountDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ShadDialog(
     title: Text(widget.title),
-    content: TextField(
-      controller: _controller,
-      keyboardType: TextInputType.number,
-      autofocus: true,
-      decoration: InputDecoration(suffixText: 'FCFA', errorText: _error),
-    ),
+    description: const Text('Tu confirmes le paiement sur ton téléphone.'),
     actions: [
-      TextButton(
+      ShadButton.outline(
         onPressed: () => Navigator.pop(context),
         child: const Text('Annuler'),
       ),
-      FilledButton(onPressed: _send, child: const Text('Continuer')),
+      ShadButton(onPressed: _send, child: const Text('Continuer')),
     ],
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: 12,
+        children: [
+          ShadInputFormField(
+            controller: _controller,
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            placeholder: const Text('Montant'),
+            trailing: const Text('FCFA'),
+            forceErrorText: _error,
+          ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final q in _quick)
+                ShadBadge.outline(
+                  onPressed: () => setState(() {
+                    _controller.text = '$q';
+                    _error = null;
+                  }),
+                  child: Text(formatFcfa(q)),
+                ),
+            ],
+          ),
+        ],
+      ),
+    ),
   );
 }
 
@@ -472,7 +729,7 @@ class _WithdrawSheetState extends State<_WithdrawSheet> {
 
   void _send() {
     final s = widget.summary;
-    final amount = int.tryParse(_amount.text.trim());
+    final amount = int.tryParse(_amount.text.trim().replaceAll(' ', ''));
     if (amount == null || amount < s.minWithdrawal || amount > s.available) {
       setState(
         () => _error =
@@ -497,63 +754,69 @@ class _WithdrawSheetState extends State<_WithdrawSheet> {
   @override
   Widget build(BuildContext context) {
     final s = widget.summary;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        0,
-        20,
-        24 + MediaQuery.of(context).viewInsets.bottom,
+    final theme = ShadTheme.of(context);
+    return ShadSheet(
+      title: const Text('Retirer mes gains'),
+      description: Text(
+        'Disponible : ${formatFcfa(s.available)}. Envoyé sur ton numéro '
+        'Viewzo après validation.',
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        spacing: 12,
-        children: [
-          Text(
-            'Retirer mes gains',
-            style: Theme.of(context).textTheme.titleLarge,
+      actions: [
+        ShadButton(
+          size: ShadButtonSize.lg,
+          width: double.infinity,
+          onPressed: _send,
+          leading: const Icon(LucideIcons.arrowUpRight, size: 18),
+          child: const Flexible(
+            child: Text('Demander le retrait', overflow: TextOverflow.ellipsis),
           ),
-          TextField(
-            controller: _amount,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: 'Montant',
-              suffixText: 'FCFA',
-              helperText: 'Disponible : ${formatFcfa(s.available)}',
+        ),
+      ],
+      child: Padding(
+        padding: EdgeInsets.only(
+          top: 8,
+          bottom: 8 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: 14,
+          children: [
+            ShadInputFormField(
+              controller: _amount,
+              keyboardType: TextInputType.number,
+              label: const Text('Montant'),
+              placeholder: Text(formatFcfa(s.minWithdrawal)),
+              trailing: const Text('FCFA'),
             ),
-          ),
-          TextField(
-            controller: _name,
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(
-              labelText: 'Nom du compte Mobile Money',
-              helperText: 'Comme sur ta pièce d’identité',
+            ShadInputFormField(
+              controller: _name,
+              textCapitalization: TextCapitalization.words,
+              label: const Text('Nom du compte Mobile Money'),
+              placeholder: const Text('Comme sur ta pièce d’identité'),
             ),
-          ),
-          if (s.operators.isNotEmpty)
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (final o in s.operators)
-                  _OperatorChoice(
-                    label: o,
-                    selected: _operator == o,
-                    onTap: () => setState(() => _operator = o),
-                  ),
-              ],
-            ),
-          const Text('Envoyé sur ton numéro Viewzo après validation.'),
-          if (_error != null)
-            Text(
-              _error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          FilledButton(
-            onPressed: _send,
-            child: const Text('Demander le retrait'),
-          ),
-        ],
+            if (s.operators.isNotEmpty) ...[
+              Text('Opérateur', style: theme.textTheme.small),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final o in s.operators)
+                    _OperatorChoice(
+                      label: o,
+                      selected: _operator == o,
+                      onTap: () => setState(() => _operator = o),
+                    ),
+                ],
+              ),
+            ],
+            if (_error != null)
+              ShadAlert.destructive(
+                icon: const Icon(LucideIcons.circleAlert),
+                title: Text(_error!),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -571,31 +834,23 @@ class _OperatorChoice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Pressable(
-      child: Material(
-        color: selected ? scheme.primaryContainer : scheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(
-            color: selected ? scheme.primary : scheme.outline,
-            width: selected ? 2 : 1,
-          ),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: VzMotion.of(context, VzMotion.standard),
-            constraints: const BoxConstraints(minWidth: 120, minHeight: 52),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-            ),
-          ),
-        ),
+    final colors = ShadTheme.of(context).colorScheme;
+    return ShadButton.raw(
+      variant: selected
+          ? ShadButtonVariant.secondary
+          : ShadButtonVariant.outline,
+      onPressed: onTap,
+      leading: Icon(
+        selected ? LucideIcons.circleCheck : LucideIcons.smartphone,
+        size: 18,
+        color: selected ? colors.primary : colors.mutedForeground,
       ),
+      decoration: selected
+          ? ShadDecoration(
+              border: ShadBorder.all(color: colors.primary, width: 1.5),
+            )
+          : null,
+      child: Text(label),
     );
   }
 }

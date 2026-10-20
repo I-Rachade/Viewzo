@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
@@ -199,21 +200,30 @@ class _SplashScreenState extends State<SplashScreen>
                     child: Column(
                       children: [
                         Pressable(
-                          child: SizedBox(
+                          child: ShadButton(
                             width: double.infinity,
                             height: 56,
-                            child: FilledButton(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: VzColors.coral,
-                                foregroundColor: VzColors.ink,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
+                            onPressed: _leave,
+                            backgroundColor: VzColors.coral,
+                            hoverBackgroundColor: const Color(0xFFFF8080),
+                            pressedBackgroundColor: const Color(0xFFF25A5A),
+                            foregroundColor: VzColors.ink,
+                            hoverForegroundColor: VzColors.ink,
+                            pressedForegroundColor: VzColors.ink,
+                            decoration: ShadDecoration(
+                              border: ShadBorder.all(
+                                radius: BorderRadius.circular(16),
+                                width: 0,
                               ),
-                              onPressed: _leave,
-                              child: const Text(
+                            ),
+                            child: const Flexible(
+                              child: Text(
                                 'Commencer à gagner',
-                                style: TextStyle(fontSize: 16),
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
