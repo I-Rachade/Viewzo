@@ -317,15 +317,15 @@ export class CampaignsService {
     });
   }
 
-  // Tasks the creator can take now: an eligible account on the network, the
-  // right country, skills and level, and never their own campaigns.
+  // Tasks for the right country, skills and level, never the creator's own
+  // campaigns. The creator can take them with an eligible account on the
+  // network; the others come last, locked, to show which account to add.
   async availableTasks(creatorId: string) {
     const ctx = await this.creatorContext(creatorId);
     if (!ctx) return [];
     const now = new Date();
     const tasks = await this.prisma.campaignTask.findMany({
       where: {
-        network: { in: ctx.networks },
         assignments: { none: { creatorId } },
         campaign: {
           status: CampaignStatus.ACTIVE,
@@ -340,9 +340,14 @@ export class CampaignsService {
       orderBy: { creatorRatePer1000: 'desc' },
       take: 200,
     });
-    return tasks
-      .filter((t) => this.canTake(ctx, t.campaign, t))
-      .map((t) => this.toTaskView(t, t.campaign));
+    const open = tasks.filter((t) => this.canTake(ctx, t.campaign, t));
+    const unlocked = (t: CampaignTask) => ctx.networks.includes(t.network);
+    return [
+      ...open.filter(unlocked).map((t) => this.toTaskView(t, t.campaign)),
+      ...open
+        .filter((t) => !unlocked(t))
+        .map((t) => ({ ...this.toTaskView(t, t.campaign), locked: true })),
+    ];
   }
 
   async accept(creatorId: string, taskId: string) {
@@ -675,6 +680,8 @@ export class CampaignsService {
   private toTaskView(t: CampaignTask, c: Campaign) {
     return {
       id: t.id,
+      // True when the creator has no eligible account on the network yet.
+      locked: false,
       network: t.network,
       contentType: t.contentType,
       creatorRatePer1000: t.creatorRatePer1000,

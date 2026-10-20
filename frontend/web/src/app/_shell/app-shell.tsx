@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { Logo } from "../logo";
+import { OAUTH_CONNECTIONS } from "./features";
 import { Icon, IconName } from "./icons";
 import { Mode, useSession } from "./session";
 
@@ -23,6 +24,13 @@ interface Item {
   match?: string[];
 }
 
+const CONNECTIONS: Item = {
+  href: "/connexions",
+  label: "Comptes connectés",
+  short: "Connexions",
+  icon: "link",
+};
+
 function itemsFor(mode: Mode): Item[] {
   return mode === "ADVERTISER"
     ? [
@@ -40,7 +48,8 @@ function itemsFor(mode: Mode): Item[] {
     : [
         { href: "/dashboard", label: "Tableau de bord", short: "Accueil", icon: "home" },
         { href: "/resultats", label: "Mes publications", short: "Résultats", icon: "chart" },
-        { href: "/connexions", label: "Comptes connectés", short: "Comptes", icon: "link" },
+        { href: "/comptes", label: "Mes comptes", short: "Comptes", icon: "at" },
+        ...(OAUTH_CONNECTIONS ? [CONNECTIONS] : []),
         { href: "/wallet", label: "Portefeuille", short: "Wallet", icon: "wallet" },
       ];
 }

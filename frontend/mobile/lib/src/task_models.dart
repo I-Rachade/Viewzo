@@ -70,6 +70,7 @@ class CampaignTask {
     required this.contentType,
     required this.ratePer1000,
     required this.brief,
+    this.locked = false,
   });
 
   factory CampaignTask.fromJson(Map<String, dynamic> json) => CampaignTask(
@@ -78,6 +79,7 @@ class CampaignTask {
     contentType: ContentType.fromCode(json['contentType'] as String),
     ratePer1000: json['creatorRatePer1000'] as int,
     brief: TaskBrief.fromJson(json['campaign'] as Map<String, dynamic>),
+    locked: json['locked'] as bool? ?? false,
   );
 
   final String id;
@@ -86,6 +88,8 @@ class CampaignTask {
   // FCFA the creator earns per 1,000 views.
   final int ratePer1000;
   final TaskBrief brief;
+  // No eligible account on the network yet: shown, but it can't be accepted.
+  final bool locked;
 }
 
 /// The team's decision on a published post.

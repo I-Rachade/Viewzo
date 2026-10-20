@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { Connection, connectionsApi, NETWORK_LABELS, SocialNetwork } from "@/lib/api";
 import { LoadingCard } from "../loading-card";
 import { Toast } from "../toast";
+import { OAUTH_CONNECTIONS } from "../_shell/features";
 import { useRequireUser } from "../_shell/session";
 
 const RETURN_MESSAGES: Record<string, string> = {
@@ -23,6 +24,11 @@ const REFUSAL_MESSAGES: Record<string, string> = {
 };
 
 export default function ConnectionsPage() {
+  const router = useRouter();
+  useEffect(() => {
+    if (!OAUTH_CONNECTIONS) router.replace("/comptes");
+  }, [router]);
+  if (!OAUTH_CONNECTIONS) return <LoadingCard />;
   return (
     <Suspense fallback={<LoadingCard />}>
       <Connections />

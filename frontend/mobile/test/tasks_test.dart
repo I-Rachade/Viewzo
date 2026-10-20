@@ -35,6 +35,38 @@ http.Response json(Object body, [int status = 200]) =>
     http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
 void main() {
+  testWidgets('shows tasks without an eligible account as locked', (
+    tester,
+  ) async {
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      if (path == '/me/tasks') {
+        return json([
+          {...task('t1'), 'network': 'INSTAGRAM', 'locked': true},
+        ]);
+      }
+      if (path == '/me/assignments') return json([]);
+      return http.Response('', 404);
+    });
+
+    await tester.pumpWidget(
+      VzApp(
+        home: TasksScreen(api: ApiClient(client: client)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bloquée'), findsOneWidget);
+    expect(
+      find.text(
+        'Ajoute un compte Instagram vérifié dans Mes comptes '
+        'pour accepter cette tâche.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Accepter'), findsNothing);
+  });
+
   testWidgets('accepts a task and submits the post link', (tester) async {
     final available = [task('t1')];
     final assignments = <Map<String, dynamic>>[];

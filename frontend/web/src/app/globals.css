@@ -469,6 +469,14 @@ a.chip {
   flex: 1 1 140px;
 }
 
+/* Actions on one account in "Mes comptes": compact, on the right. */
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* The dark balance card at the top of the wallet. */
 .balance {
   background: var(--ink);

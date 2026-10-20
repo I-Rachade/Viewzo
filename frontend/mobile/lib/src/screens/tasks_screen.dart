@@ -214,18 +214,25 @@ class _TasksScreenState extends State<TasksScreen> {
             FadeSlideIn(
               key: ValueKey(task.id),
               index: i,
-              child: _TaskCard(
-                task: task,
-                action: _MorphButton(
-                  label: 'Accepter',
-                  color: VzColors.coral,
-                  onPress: (loading) async {
-                    loading();
-                    await _accept(task);
-                    return _error == null;
-                  },
-                ),
-              ),
+              child: task.locked
+                  ? _TaskCard(
+                      task: task,
+                      status: ('Bloquée', PillTone.neutral),
+                      details: _LockedHint(task.network),
+                      action: null,
+                    )
+                  : _TaskCard(
+                      task: task,
+                      action: _MorphButton(
+                        label: 'Accepter',
+                        color: VzColors.coral,
+                        onPress: (loading) async {
+                          loading();
+                          await _accept(task);
+                          return _error == null;
+                        },
+                      ),
+                    ),
             ),
         ],
       ),
@@ -766,6 +773,38 @@ class _TaskCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Why a task can't be taken yet: no eligible account on its network.
+class _LockedHint extends StatelessWidget {
+  const _LockedHint(this.network);
+  final SocialNetwork network;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    return Row(
+      spacing: 8,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          LucideIcons.lock,
+          size: 16,
+          color: theme.colorScheme.mutedForeground,
+        ),
+        Expanded(
+          child: Text(
+            'Ajoute un compte ${network.label} vérifié dans Mes comptes '
+            'pour accepter cette tâche.',
+            style: theme.textTheme.small.copyWith(
+              fontWeight: FontWeight.w500,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
