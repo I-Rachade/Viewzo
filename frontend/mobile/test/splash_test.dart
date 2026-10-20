@@ -19,6 +19,6 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(find.text('Tes vues, payées. Partout dans le monde.'), findsNothing);
-    expect(find.byKey(const Key('phone')), findsOneWidget);
+    expect(find.byKey(const Key('identifier')), findsOneWidget);
   });
 }

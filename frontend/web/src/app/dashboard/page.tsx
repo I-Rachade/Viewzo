@@ -12,6 +12,7 @@ import {
   setToken,
   UserView,
 } from "@/lib/api";
+import { ContactSection } from "./contact-section";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["fr"], { type: "region" });
 
@@ -91,6 +92,8 @@ export default function DashboardPage() {
         ),
       )}
       {error && <p className="error">{error}</p>}
+
+      <ContactSection user={user} onUpdated={setUser} />
 
       <nav className="nav">
         <Link className="button" href="/wallet">

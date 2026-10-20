@@ -20,23 +20,33 @@ enum ProfileType {
 }
 
 model User {
-  id           String           @id @default(uuid())
-  phone        String           @unique
+  id              String           @id @default(uuid())
+  // At least one of phone and email is set and verified.
+  phone           String?          @unique
+  email           String?          @unique
+  phoneVerifiedAt DateTime?
+  emailVerifiedAt DateTime?
+  // scrypt hash; null for accounts created by the old code-only login.
+  passwordHash    String?
+  // Bumped on password change so older tokens stop working.
+  tokenVersion    Int              @default(0)
+  failedLogins    Int              @default(0)
+  lockedUntil     DateTime?
   // ISO 3166-1 alpha-2 country derived from the phone number.
-  country      String
+  country         String
   // Signup position within the country, timestamped and never changed afterwards.
-  priorityRank Int
-  locale       String           @default("fr")
-  role         UserRole         @default(USER)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  profiles     UserProfile[]
-  accounts     SocialAccount[]
-  skills       CreatorSkills?
-  campaigns    Campaign[]
-  assignments  TaskAssignment[]
-  transactions Transaction[]
-  payments     Payment[]
+  priorityRank    Int
+  locale          String           @default("fr")
+  role            UserRole         @default(USER)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  profiles        UserProfile[]
+  accounts        SocialAccount[]
+  skills          CreatorSkills?
+  campaigns       Campaign[]
+  assignments     TaskAssignment[]
+  transactions    Transaction[]
+  payments        Payment[]
 
   @@unique([country, priorityRank])
 }
@@ -60,14 +70,15 @@ model CountryCounter {
 
 model OtpChallenge {
   id         String    @id @default(uuid())
-  phone      String
+  // E.164 phone number or lower-case email address.
+  target     String
   codeHash   String
   attempts   Int       @default(0)
   expiresAt  DateTime
   consumedAt DateTime?
   createdAt  DateTime  @default(now())
 
-  @@index([phone, createdAt])
+  @@index([target, createdAt])
 }
 
 enum SocialNetwork {

@@ -720,10 +720,16 @@ export class WalletService {
     return Math.max(1, ...user.profiles.map((p) => p.level));
   }
 
-  private phone(user: { phone: string; country: string }, input?: string) {
-    return input
-      ? parsePhone(input, user.country)
-      : { e164: user.phone, country: user.country };
+  private phone(
+    user: { phone: string | null; country: string },
+    input?: string,
+  ) {
+    if (input) return parsePhone(input, user.country);
+    // Accounts created with an email have no number until they add one.
+    if (!user.phone) {
+      throw new BadRequestException('Indique ton numéro Mobile Money');
+    }
+    return { e164: user.phone, country: user.country };
   }
 
   private reference(kind: 'P' | 'R') {

@@ -6,6 +6,7 @@ import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import '../wallet_models.dart';
 import 'accounts_screen.dart';
+import 'auth_widgets.dart';
 import 'login_screen.dart';
 import 'skills_screen.dart';
 import 'tasks_screen.dart';
@@ -63,6 +64,14 @@ class _HomeScreenState extends State<HomeScreen>
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     }
+  }
+
+  Future<void> _addContact(IdentifierKind kind) async {
+    final user = await showDialog<UserView>(
+      context: context,
+      builder: (_) => _AddContactDialog(api: widget.session.api, kind: kind),
+    );
+    if (user != null) setState(() => _user = user);
   }
 
   void _open(Widget screen) {
@@ -126,9 +135,10 @@ class _HomeScreenState extends State<HomeScreen>
               () => _ProfileTab(
                 user: user,
                 onAccounts: () =>
-                    _open(AccountsScreen(api: api, phone: user.phone)),
+                    _open(AccountsScreen(api: api, phone: user.phone ?? '')),
                 onSkills: () =>
                     _open(SkillsScreen(api: api, country: user.country)),
+                onAddContact: _addContact,
                 onLogout: _logout,
               ),
             ),
@@ -508,11 +518,13 @@ class _ProfileTab extends StatelessWidget {
     required this.user,
     required this.onAccounts,
     required this.onSkills,
+    required this.onAddContact,
     required this.onLogout,
   });
   final UserView user;
   final VoidCallback onAccounts;
   final VoidCallback onSkills;
+  final ValueChanged<IdentifierKind> onAddContact;
   final VoidCallback onLogout;
 
   @override
@@ -542,13 +554,50 @@ class _ProfileTab extends StatelessWidget {
       ),
     );
 
+    Widget contact(
+      IconData icon,
+      String? value,
+      String addLabel,
+      IdentifierKind kind,
+    ) => ListTile(
+      leading: Icon(icon),
+      title: Text(value ?? 'Non renseigné'),
+      trailing: value == null
+          ? TextButton(
+              onPressed: () => onAddContact(kind),
+              child: Text(addLabel),
+            )
+          : null,
+    );
+
     return SafeArea(
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         children: [
           Text('Profil', style: text.headlineSmall),
-          const SizedBox(height: 4),
-          Text(user.phone, style: text.bodyMedium),
+          const SizedBox(height: 20),
+          Text('E-mail et téléphone', style: text.titleMedium),
+          const SizedBox(height: 8),
+          FadeSlideIn(
+            child: Card(
+              child: Column(
+                children: [
+                  contact(
+                    Icons.mail_outline,
+                    user.email,
+                    'Ajouter un e-mail',
+                    IdentifierKind.email,
+                  ),
+                  contact(
+                    Icons.phone_outlined,
+                    user.phone,
+                    'Ajouter un numéro',
+                    IdentifierKind.phone,
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 20),
           if (creator) ...[
             tile(
@@ -575,6 +624,88 @@ class _ProfileTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Asks for the missing e-mail or number, sends it a code and confirms it.
+/// Pops with the refreshed user once verified.
+class _AddContactDialog extends StatefulWidget {
+  const _AddContactDialog({required this.api, required this.kind});
+  final ApiClient api;
+  final IdentifierKind kind;
+
+  @override
+  State<_AddContactDialog> createState() => _AddContactDialogState();
+}
+
+class _AddContactDialogState extends State<_AddContactDialog>
+    with CodeFormState<_AddContactDialog> {
+  final _identifier = TextEditingController();
+  final _code = TextEditingController();
+
+  bool get _email => widget.kind == IdentifierKind.email;
+
+  Future<void> _request() => run(() async {
+    final identifier = _identifier.text.trim();
+    final to = await widget.api.contactRequest(identifier);
+    codeSent(to, identifier);
+  });
+
+  Future<void> _verify() => run(() async {
+    final user = await widget.api.contactVerify(sentInput!, _code.text.trim());
+    if (mounted) Navigator.of(context).pop(user);
+  });
+
+  @override
+  void dispose() {
+    _identifier.dispose();
+    _code.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entering = sentTo != null;
+    return AlertDialog(
+      title: Text(_email ? 'Ajouter un e-mail' : 'Ajouter un numéro'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!entering)
+            TextField(
+              key: const Key('contact'),
+              controller: _identifier,
+              keyboardType: _email
+                  ? TextInputType.emailAddress
+                  : TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: _email ? 'Adresse e-mail' : 'Numéro de téléphone',
+                hintText: _email ? 'nom@exemple.com' : '+228 90 12 34 56',
+              ),
+            )
+          else ...[
+            Text('Code envoyé à $sentTo'),
+            const SizedBox(height: 8),
+            Text(codeHint, style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
+            CodeField(controller: _code),
+            resendButton(_request),
+          ],
+          errorText(),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
+        FilledButton(
+          onPressed: busy ? null : (entering ? _verify : _request),
+          child: Text(entering ? 'Valider' : 'Recevoir un code'),
+        ),
+      ],
     );
   }
 }

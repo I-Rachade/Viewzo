@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import {
   ACCOUNT_STATUS_LABELS,
   AccountStatus,
+  contactOf,
   NETWORK_LABELS,
   StaffAccount,
   staffApi,
@@ -113,8 +114,8 @@ function AccountCard({
         <span className="status">{ACCOUNT_STATUS_LABELS[a.status]}</span>
       </header>
       <p>
-        {a.verificationCode} · {a.user.phone} ({a.user.country}) · envoyé le{" "}
-        {DATE.format(new Date(a.submittedAt))}
+        {a.verificationCode} · {contactOf(a.user)} ({a.user.country}) · envoyé
+        le {DATE.format(new Date(a.submittedAt))}
       </p>
       {a.statusReason && <p className="hint">{a.statusReason}</p>}
       <div className="row">
