@@ -23,7 +23,7 @@ interface Item {
   match?: string[];
 }
 
-function itemsFor(mode: Mode): Item[] {
+function itemsFor(mode: Mode, live: boolean): Item[] {
   return mode === "ADVERTISER"
     ? [
         { href: "/dashboard", label: "Tableau de bord", short: "Accueil", icon: "home" },
@@ -36,6 +36,18 @@ function itemsFor(mode: Mode): Item[] {
         },
         { href: "/campaigns/new", label: "Créer une campagne", short: "Créer", icon: "plus" },
         { href: "/wallet", label: "Portefeuille", short: "Wallet", icon: "wallet" },
+        // Only while the team has switched the module on.
+        ...(live
+          ? [
+              {
+                href: "/live",
+                label: "Ventes en live",
+                short: "Live",
+                icon: "live",
+                match: ["/live/"],
+              } satisfies Item,
+            ]
+          : []),
       ]
     : [
         { href: "/dashboard", label: "Tableau de bord", short: "Accueil", icon: "home" },
@@ -52,7 +64,7 @@ function itemsFor(mode: Mode): Item[] {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, mode, setMode, unread, staff, logout } = useSession();
+  const { user, mode, setMode, unread, staff, modules, logout } = useSession();
   const [open, setOpen] = useState(false);
   // Creators signed up by e-mail add a phone before anything else.
   const blocked = !!user?.phoneRequired && mode === "CREATOR";
@@ -70,7 +82,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (blocked) return null;
 
   const types = new Set(user.profiles.map((p) => p.type));
-  const main = itemsFor(mode);
+  const liveOn = modules.includes("LIVE_SALES");
+  const main = itemsFor(mode, liveOn);
   const notifications: Item = {
     href: "/notifications",
     label: "Notifications",
@@ -112,7 +125,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           icon: "card",
           count: staff?.withdrawals,
         },
+        ...(liveOn
+          ? [{ href: "/staff?tab=lives", label: "Lives TikTok", icon: "live" } satisfies Item]
+          : []),
         { href: "/staff?tab=team", label: "Équipe", icon: "users" },
+        ...(staff?.me.staffRole === "SUPER_ADMIN"
+          ? [{ href: "/staff?tab=modules", label: "Modules", icon: "toggle" } satisfies Item]
+          : []),
       ]
     : [];
 

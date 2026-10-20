@@ -27,7 +27,11 @@ export class ModuleEnabledGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
     if (key && !(await this.modules.isEnabled(key))) {
-      throw new NotFoundException();
+      // The code lets the web and the app tell it from a missing record.
+      throw new NotFoundException({
+        code: 'MODULE_OFF',
+        message: 'Fonctionnalité indisponible',
+      });
     }
     return true;
   }

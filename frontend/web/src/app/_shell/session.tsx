@@ -14,6 +14,8 @@ import {
 import {
   api,
   logout as endSession,
+  ModuleKey,
+  modulesApi,
   notificationsApi,
   sessionVersion,
   StaffOverview,
@@ -45,6 +47,9 @@ interface Session {
   // Back-office counters for the menu, staff only.
   staff: StaffOverview | null;
   refreshStaff: () => void;
+  // Modules the team switched on; menus of the others stay hidden.
+  modules: ModuleKey[];
+  refreshModules: () => void;
   logout: () => void;
   // After an API call that returns the updated account.
   updateUser: (user: UserView) => void;
@@ -74,6 +79,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserView | null | undefined>(undefined);
   const [unread, setUnread] = useState(0);
   const [staff, setStaff] = useState<StaffOverview | null>(null);
+  const [modules, setModules] = useState<ModuleKey[]>([]);
   const chosenMode = useSyncExternalStore(
     subscribeMode,
     readMode,
@@ -86,6 +92,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
   const refreshStaff = useCallback(() => {
     staffApi.overview().then(setStaff, () => {});
+  }, []);
+  const refreshModules = useCallback(() => {
+    modulesApi.enabled().then(setModules, () => {});
   }, []);
 
   useEffect(() => {
@@ -110,18 +119,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (loaded.current !== current) return;
       setUser(me);
       refreshUnread();
+      refreshModules();
       if (me.isStaff) refreshStaff();
     })();
-  }, [pathname, refreshUnread, refreshStaff]);
+  }, [pathname, refreshUnread, refreshStaff, refreshModules]);
 
   useEffect(() => {
     if (!user) return;
     const timer = setInterval(() => {
       refreshUnread();
+      refreshModules();
       if (user.isStaff) refreshStaff();
     }, 60_000);
     return () => clearInterval(timer);
-  }, [user, refreshUnread, refreshStaff]);
+  }, [user, refreshUnread, refreshStaff, refreshModules]);
 
   const types = new Set(user?.profiles.map((p) => p.type));
   const mode: Mode =
@@ -156,6 +167,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         refreshUnread,
         staff,
         refreshStaff,
+        modules,
+        refreshModules,
         logout,
         updateUser: setUser,
       }}

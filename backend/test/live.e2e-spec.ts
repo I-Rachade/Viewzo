@@ -113,7 +113,11 @@ describe('Vente en live TikTok (e2e)', () => {
   });
 
   it('hides the module until a super admin switches it on', async () => {
-    await http().get('/me/live/products').set(auth(seller)).expect(404);
+    const off = await http()
+      .get('/me/live/products')
+      .set(auth(seller))
+      .expect(404);
+    expect((off.body as { code: string }).code).toBe('MODULE_OFF');
     await http().get('/staff/live/sales').set(auth(admin)).expect(404);
     let res = await http().get('/modules').expect(200);
     expect(res.body).not.toContain('LIVE_SALES');
