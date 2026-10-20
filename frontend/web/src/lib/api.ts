@@ -389,7 +389,9 @@ export interface StaffOverview {
   accounts: number;
   campaigns: number;
   withdrawals: number;
+  // Posts waiting for review, and those the fraud rules flag.
   assignments: number;
+  alerts: number;
 }
 
 export interface StaffAccount {
@@ -415,19 +417,6 @@ export interface StaffWithdrawal extends PaymentView {
   phone: string | null;
   operator: string | null;
   user: StaffUser & { profiles: { type: ProfileType; level: number }[] };
-}
-
-export interface StaffAssignment {
-  id: string;
-  postUrl: string | null;
-  submittedAt: string | null;
-  validViews: number;
-  earned: number;
-  network: SocialNetwork;
-  contentType: ContentType;
-  taskBudget: number;
-  campaign: { id: string; code: string; title: string };
-  creator: StaffUser;
 }
 
 export interface StaffMember {
@@ -467,15 +456,358 @@ export const staffApi = {
     id: string,
     input: { decision: "APPROVE" | "REJECT"; reason?: string },
   ) => call<PaymentView>(`/staff/withdrawals/${id}/review`, post(input)),
-  assignments: () => call<StaffAssignment[]>("/staff/assignments"),
-  recordViews: (id: string, totalViews: number) =>
-    call<{ validViews: number; earned: number; unpaidViews: number }>(
-      `/staff/assignments/${id}/views`,
-      post({ totalViews }),
-    ),
   members: () => call<StaffMember[]>("/staff/members"),
   addMember: (phone: string) =>
     call<StaffMember>("/staff/members", post({ phone })),
   removeMember: (id: string) =>
     call<void>(`/staff/members/${id}`, { method: "DELETE" }),
+};
+
+// ---- Posts, proofs and reviews -------------------------------------------
+
+export type PostReviewStatus = "TO_REVIEW" | "VALIDATED" | "NEEDS_FIX" | "REJECTED";
+
+export const REVIEW_STATUS_LABELS: Record<PostReviewStatus, string> = {
+  TO_REVIEW: "À vérifier",
+  VALIDATED: "Validé",
+  NEEDS_FIX: "À corriger",
+  REJECTED: "Refusé",
+};
+
+export const REVIEW_STATUS_TONES: Record<PostReviewStatus, string> = {
+  TO_REVIEW: "pending",
+  VALIDATED: "paid",
+  NEEDS_FIX: "pending",
+  REJECTED: "refused",
+};
+
+export interface ProofView {
+  id: string;
+  kind: "SCREENSHOT" | "LINK";
+  url: string | null;
+  fileUrl: string | null;
+  capturedAt: string | null;
+  declaredViews: number | null;
+  uploadedAt: string;
+}
+
+export interface CreatorAssignment {
+  id: string;
+  status: "ACCEPTED" | "SUBMITTED";
+  postUrl: string | null;
+  acceptedAt: string;
+  submittedAt: string | null;
+  reviewStatus: PostReviewStatus;
+  reviewReason: string | null;
+  validViews: number;
+  earned: number;
+  declaredViews: number | null;
+  proofs: ProofView[];
+  proofPlan: {
+    steps: { label: string; dueAt: string | null; doneAt: string | null }[];
+    nextDueAt: string | null;
+  } | null;
+  task: {
+    id: string;
+    network: SocialNetwork;
+    contentType: ContentType;
+    creatorRatePer1000: number;
+    campaign: { title: string; hashtag: string; endsAt: string };
+  };
+}
+
+export interface CreatorResults {
+  validViews: number;
+  earned: number;
+  earnedThisMonth: number;
+  toReview: number;
+  needsFix: number;
+  validated: number;
+  rejected: number;
+  validationRate: number | null;
+}
+
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  const token = getToken();
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = Array.isArray(body.message)
+      ? body.message[0]
+      : body.message;
+    throw new ApiError(message ?? "Une erreur est survenue", body.code);
+  }
+  return body as T;
+}
+
+export const creatorApi = {
+  assignments: () => call<CreatorAssignment[]>("/me/assignments"),
+  results: () => call<CreatorResults>("/me/results"),
+  submitLink: (id: string, postUrl: string) =>
+    call<CreatorAssignment>(`/me/assignments/${id}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ postUrl }),
+    }),
+  addScreenshot: (id: string, file: File, declaredViews: number) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("declaredViews", String(declaredViews));
+    // The file's date on the device stands for when the capture was taken.
+    if (file.lastModified) {
+      form.append("capturedAt", new Date(file.lastModified).toISOString());
+    }
+    return upload<{ ok: true }>(`/me/assignments/${id}/proofs`, form);
+  },
+};
+
+// ---- Platform connections ------------------------------------------------
+
+export interface Connection {
+  network: SocialNetwork;
+  available: boolean;
+  connected: boolean;
+  handle: string | null;
+  lastError: string | null;
+  connectedAt: string | null;
+}
+
+export const connectionsApi = {
+  list: () => call<Connection[]>("/me/connections"),
+  start: (network: SocialNetwork) =>
+    call<{ url: string }>(`/me/connections/${network}/start`),
+  disconnect: (network: SocialNetwork) =>
+    call<void>(`/me/connections/${network}`, { method: "DELETE" }),
+};
+
+// ---- Notifications -------------------------------------------------------
+
+export interface NotificationView {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  link: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export const notificationsApi = {
+  list: () =>
+    call<{ unread: number; items: NotificationView[] }>("/me/notifications"),
+  unread: () => call<{ unread: number }>("/me/notifications/unread"),
+  read: (ids?: string[]) =>
+    call<{ unread: number }>("/me/notifications/read", {
+      method: "POST",
+      body: JSON.stringify(ids ? { ids } : {}),
+    }),
+};
+
+// ---- Advertiser report ---------------------------------------------------
+
+export interface CampaignReport {
+  id: string;
+  code: string;
+  title: string;
+  status: CampaignStatus;
+  startsAt: string;
+  endsAt: string;
+  budget: number;
+  spent: number;
+  verifiedViews: number;
+  unbilledViews: number;
+  costPer1000: number | null;
+  posts: { total: number; validated: number; toReview: number; rejected: number };
+  byNetwork: { network: SocialNetwork; views: number; posts: number }[];
+  byCountry: { country: string; views: number; posts: number }[];
+  daily: { date: string; views: number }[];
+  gallery: {
+    id: string;
+    network: SocialNetwork;
+    country: string;
+    handle: string | null;
+    postUrl: string | null;
+    views: number;
+    imageUrl: string | null;
+    submittedAt: string | null;
+  }[];
+}
+
+export const reportApi = {
+  campaign: (id: string) => call<CampaignReport>(`/me/campaigns/${id}/report`),
+};
+
+// ---- Back-office: posts and creators --------------------------------------
+
+export interface StaffPostRow {
+  id: string;
+  network: SocialNetwork;
+  contentType: ContentType;
+  campaign: { id: string; code: string; title: string };
+  creator: { id: string; phone: string | null; email: string | null; country: string };
+  postUrl: string | null;
+  submittedAt: string | null;
+  latestViews: number | null;
+  validViews: number;
+  proofs: number;
+  riskScore: number;
+  reviewStatus: PostReviewStatus;
+}
+
+export interface RiskSignal {
+  code: string;
+  level: "HIGH" | "MEDIUM";
+  message: string;
+}
+
+export interface PostDossier {
+  id: string;
+  reviewStatus: PostReviewStatus;
+  reviewReason: string | null;
+  reviewedAt: string | null;
+  riskScore: number;
+  signals: RiskSignal[];
+  network: SocialNetwork;
+  contentType: ContentType;
+  postUrl: string | null;
+  acceptedAt: string;
+  submittedAt: string | null;
+  validViews: number;
+  earned: number;
+  latestViews: number;
+  expectedEarning: number;
+  creatorRatePer1000: number;
+  taskBudget: number;
+  campaign: {
+    id: string;
+    code: string;
+    title: string;
+    endsAt: string;
+    language: string;
+    faceRequired: boolean;
+    minDurationSec: number | null;
+    maxDurationSec: number | null;
+    mandatoryElements: string[];
+    forbiddenElements: string[];
+    assetUrls: string[];
+  };
+  creator: {
+    id: string;
+    phone: string | null;
+    email: string | null;
+    country: string;
+    createdAt: string;
+    level: number;
+    account: {
+      id: string;
+      handle: string;
+      status: AccountStatus;
+      followers: number | null;
+      avgStatusViews: number | null;
+    } | null;
+    history: { validated: number; rejected: number; toReview: number; needsFix: number };
+    sharedDevice: { id: string; phone: string | null; email: string | null; country: string }[];
+  };
+  proofs: (ProofView & { sha256: string | null; deviceId: string | null; ip: string | null })[];
+  snapshots: {
+    views: number;
+    source: "CREATOR" | "STAFF" | "API";
+    takenAt: string;
+    by: string | null;
+  }[];
+  timeline: { at: string; label: string; by?: string | null }[];
+}
+
+export interface CreatorFile {
+  id: string;
+  phone: string | null;
+  email: string | null;
+  country: string;
+  createdAt: string;
+  priorityRank: number;
+  profiles: { type: ProfileType; level: number }[];
+  skills: {
+    specialties: string[];
+    languages: string[];
+    countries: string[];
+    cities: string[];
+    tasksPerWeek: number;
+    showsFace: boolean;
+  } | null;
+  accounts: {
+    id: string;
+    network: SocialNetwork;
+    handle: string;
+    status: AccountStatus;
+    statusReason: string | null;
+    followers: number | null;
+    avgStatusViews: number | null;
+  }[];
+  earned: number;
+  devices: number;
+  sharedDevice: { id: string; phone: string | null; email: string | null; country: string }[];
+  posts: {
+    id: string;
+    network: SocialNetwork;
+    campaign: { id: string; code: string; title: string };
+    status: "ACCEPTED" | "SUBMITTED";
+    reviewStatus: PostReviewStatus;
+    reviewReason: string | null;
+    riskScore: number;
+    latestViews: number | null;
+    validViews: number;
+    earned: number;
+    acceptedAt: string;
+    submittedAt: string | null;
+  }[];
+  accountReviews: {
+    id: string;
+    network: SocialNetwork;
+    status: AccountStatus;
+    reason: string | null;
+    createdAt: string;
+    by: string | null;
+  }[];
+  payouts: {
+    id: string;
+    amount: number;
+    status: PaymentStatus;
+    operator: string | null;
+    phone: string;
+    failureReason: string | null;
+    createdAt: string;
+  }[];
+}
+
+export type PostDecision = "VALIDATE" | "NEEDS_FIX" | "REJECT" | "SUSPEND_ACCOUNT";
+
+export const staffPostsApi = {
+  list: (filters: {
+    status?: PostReviewStatus | "ALL";
+    network?: SocialNetwork;
+    country?: string;
+    q?: string;
+    sort?: "risk" | "date";
+  }) => {
+    const params = new URLSearchParams(
+      Object.entries(filters).filter(([, v]) => v) as [string, string][],
+    );
+    return call<{
+      counts: Record<PostReviewStatus, number>;
+      items: StaffPostRow[];
+    }>(`/staff/posts?${params}`);
+  },
+  get: (id: string) => call<PostDossier>(`/staff/posts/${id}`),
+  review: (
+    id: string,
+    input: { decision: PostDecision; views?: number; reason?: string },
+  ) =>
+    call<PostDossier>(`/staff/posts/${id}/review`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  creator: (id: string) => call<CreatorFile>(`/staff/creators/${id}`),
 };

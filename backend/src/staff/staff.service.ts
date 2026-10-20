@@ -9,6 +9,7 @@ import {
   CampaignStatus,
   PaymentKind,
   PaymentStatus,
+  PostReviewStatus,
   UserRole,
 } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
@@ -23,6 +24,9 @@ const MEMBER_SELECT = {
   createdAt: true,
 } as const;
 
+// From this risk score on, a post counts as a fraud alert.
+export const ALERT_SCORE = 50;
+
 // Back-office home and team management.
 @Injectable()
 export class StaffService {
@@ -33,21 +37,33 @@ export class StaffService {
 
   // What is waiting for the team, one counter per queue.
   async overview() {
-    const [accounts, campaigns, withdrawals, assignments] = await Promise.all([
-      this.prisma.socialAccount.count({
-        where: { status: AccountStatus.PENDING },
-      }),
-      this.prisma.campaign.count({
-        where: { status: CampaignStatus.PENDING_REVIEW },
-      }),
-      this.prisma.payment.count({
-        where: { kind: PaymentKind.PAYOUT, status: PaymentStatus.REQUESTED },
-      }),
-      this.prisma.taskAssignment.count({
-        where: { status: AssignmentStatus.SUBMITTED },
-      }),
-    ]);
-    return { accounts, campaigns, withdrawals, assignments };
+    const [accounts, campaigns, withdrawals, assignments, alerts] =
+      await Promise.all([
+        this.prisma.socialAccount.count({
+          where: { status: AccountStatus.PENDING },
+        }),
+        this.prisma.campaign.count({
+          where: { status: CampaignStatus.PENDING_REVIEW },
+        }),
+        this.prisma.payment.count({
+          where: { kind: PaymentKind.PAYOUT, status: PaymentStatus.REQUESTED },
+        }),
+        this.prisma.taskAssignment.count({
+          where: {
+            status: AssignmentStatus.SUBMITTED,
+            reviewStatus: PostReviewStatus.TO_REVIEW,
+          },
+        }),
+        // Posts to review that the fraud rules flag.
+        this.prisma.taskAssignment.count({
+          where: {
+            status: AssignmentStatus.SUBMITTED,
+            reviewStatus: PostReviewStatus.TO_REVIEW,
+            riskScore: { gte: ALERT_SCORE },
+          },
+        }),
+      ]);
+    return { accounts, campaigns, withdrawals, assignments, alerts };
   }
 
   // Published posts whose views the team still enters by hand.

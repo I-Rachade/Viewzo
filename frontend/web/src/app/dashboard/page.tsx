@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Logo } from "../logo";
@@ -43,10 +42,6 @@ export default function DashboardPage() {
     }
   }
 
-  function logout() {
-    setToken(null);
-    router.replace("/login");
-  }
 
   if (!user) {
     return (
@@ -95,25 +90,7 @@ export default function DashboardPage() {
 
       <ContactSection user={user} onUpdated={setUser} />
 
-      <nav className="nav">
-        <Link className="button" href="/wallet">
-          Mon portefeuille
-        </Link>
-        {active.has("ADVERTISER") && (
-          <Link className="button coral" href="/campaigns">
-            Mes campagnes
-          </Link>
-        )}
-        {user.isStaff && (
-          <Link className="button secondary" href="/staff">
-            Back-office
-          </Link>
-        )}
-      </nav>
 
-      <button className="secondary" onClick={logout}>
-        Se déconnecter
-      </button>
     </div>
   );
 }

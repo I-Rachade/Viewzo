@@ -95,6 +95,11 @@ export default function CampaignsPage() {
               {DATE.format(new Date(c.endsAt))}
             </p>
             {c.statusReason && <p className="error">{c.statusReason}</p>}
+            {c.fundedAt && (
+              <Link className="button secondary" href={`/campaigns/${c.id}`}>
+                Voir le rapport
+              </Link>
+            )}
             {!c.fundedAt &&
               (c.status === "PENDING_REVIEW" || c.status === "ACTIVE") && (
                 <div className="summary">

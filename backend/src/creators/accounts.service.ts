@@ -9,12 +9,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   AccountStatus,
+  NotificationType,
   Prisma,
   ProfileType,
   SocialAccount,
   SocialNetwork,
 } from '@prisma/client';
 import { randomInt } from 'crypto';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReviewAccountDto } from './dto/review-account.dto';
 import { parseVerificationNumbers, whatsappInstructions } from './whatsapp';
@@ -25,11 +27,19 @@ const RETRY_DELAY_MS = 30 * 24 * 60 * 60 * 1000;
 const MIN_FOLLOWERS = 1000;
 const MIN_AVG_STATUS_VIEWS = 300;
 
+const ACCOUNT_STATUS_TEXT: Partial<Record<AccountStatus, string>> = {
+  ELIGIBLE: 'éligible',
+  NEEDS_FIX: 'à corriger',
+  NOT_ELIGIBLE: 'non éligible',
+  SUSPENDED: 'suspendu',
+};
+
 @Injectable()
 export class AccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async list(userId: string) {
@@ -181,6 +191,15 @@ export class AccountsService {
         },
       }),
     ]);
+    const label = ACCOUNT_STATUS_TEXT[dto.status];
+    if (label) {
+      await this.notifications.notify(account.userId, {
+        type: NotificationType.ACCOUNT_REVIEWED,
+        title: `Compte ${account.handle} : ${label}`,
+        body: reason ?? 'Résultat de la vérification de ton compte.',
+        link: '/comptes',
+      });
+    }
     return this.toStaffView(updated);
   }
 

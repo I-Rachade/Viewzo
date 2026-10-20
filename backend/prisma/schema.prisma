@@ -47,6 +47,8 @@ model User {
   assignments     TaskAssignment[]
   transactions    Transaction[]
   payments        Payment[]
+  notifications   Notification[]
+  connections     SocialConnection[]
 
   @@unique([country, priorityRank])
 }
@@ -295,25 +297,114 @@ enum AssignmentStatus {
   SUBMITTED
 }
 
+// Where the team stands on a published post, separate from the creator's steps.
+enum PostReviewStatus {
+  TO_REVIEW // À vérifier
+  VALIDATED // Validé
+  NEEDS_FIX // À corriger, the creator sends a new proof
+  REJECTED // Refusé, no payment
+}
+
 model TaskAssignment {
-  id          String           @id @default(uuid())
-  taskId      String
-  creatorId   String
-  status      AssignmentStatus @default(ACCEPTED)
-  postUrl     String?
-  acceptedAt  DateTime         @default(now())
-  submittedAt DateTime?
-  // Views validated so far and what they earned, in FCFA.
-  validViews  Int              @default(0)
-  earned      Int              @default(0)
-  task        CampaignTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  creator     User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  id             String           @id @default(uuid())
+  taskId         String
+  creatorId      String
+  status         AssignmentStatus @default(ACCEPTED)
+  postUrl        String?
+  acceptedAt     DateTime         @default(now())
+  submittedAt    DateTime?
+  validViews     Int              @default(0)
+  earned         Int              @default(0)
+  reviewStatus   PostReviewStatus @default(TO_REVIEW)
+  reviewReason   String?
+  reviewedAt     DateTime?
+  // 0 to 100, recomputed whenever a proof or a view count comes in.
+  riskScore      Int              @default(0)
+  // WhatsApp Statut reminders already sent (12 h, 23 h).
+  remindersSent  Int              @default(0)
+  // Last automatic view count, for posts the platform can be asked about.
+  viewsFetchedAt DateTime?
+  task           CampaignTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  creator        User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  proofs         PostProof[]
+  snapshots      ViewSnapshot[]
+  reviews        PostReview[]
 
   @@unique([taskId, creatorId])
   @@index([creatorId, acceptedAt])
+  @@index([status, reviewStatus, riskScore])
 }
 
-// Every moderation decision on a campaign, kept for audit.
+enum ProofKind {
+  SCREENSHOT
+  LINK
+}
+
+// Evidence a creator sends for a post: a screenshot (stored on disk) or a link.
+model PostProof {
+  id            String         @id @default(uuid())
+  assignmentId  String
+  kind          ProofKind
+  url           String?
+  fileKey       String?
+  mimeType      String?
+  sizeBytes     Int?
+  sha256        String?
+  // When the creator says the screenshot was taken (file date on the phone).
+  capturedAt    DateTime?
+  declaredViews Int?
+  deviceId      String?
+  ip            String?
+  uploadedAt    DateTime       @default(now())
+  assignment    TaskAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, uploadedAt])
+  @@index([sha256])
+  @@index([deviceId])
+}
+
+enum ViewSource {
+  CREATOR // declared with a proof
+  STAFF // entered by the team
+  API // read from the platform
+}
+
+// One reading of a post's views at a point in time: the views history.
+model ViewSnapshot {
+  id           String         @id @default(uuid())
+  assignmentId String
+  views        Int
+  source       ViewSource
+  proofId      String?
+  recordedById String?
+  takenAt      DateTime       @default(now())
+  assignment   TaskAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, takenAt])
+}
+
+enum PostReviewAction {
+  VIEWS // validated views entered
+  VALIDATE
+  NEEDS_FIX
+  REJECT
+  SUSPEND_ACCOUNT
+}
+
+// Audit trail: who did what on a post, and why.
+model PostReview {
+  id           String           @id @default(uuid())
+  assignmentId String
+  reviewerId   String
+  action       PostReviewAction
+  views        Int?
+  reason       String?
+  createdAt    DateTime         @default(now())
+  assignment   TaskAssignment   @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, createdAt])
+}
+
 model CampaignReview {
   id         String         @id @default(uuid())
   campaignId String
@@ -411,4 +502,54 @@ model Payment {
   @@unique([provider, providerRef])
   @@index([kind, status, createdAt])
   @@index([userId, createdAt])
+}
+
+enum NotificationType {
+  NEW_TASK
+  PROOF_REMINDER
+  POST_VALIDATED
+  POST_NEEDS_FIX
+  POST_REJECTED
+  ACCOUNT_REVIEWED
+  CAMPAIGN_REVIEWED
+  WITHDRAWAL_UPDATED
+}
+
+// In-app messages, shown in the bell on the web and in the app.
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  // Path inside the web or app the notification leads to.
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// A creator's login on a platform, so Viewzo can read their posts' views.
+// Tokens are stored encrypted.
+model SocialConnection {
+  id               String        @id @default(uuid())
+  userId           String
+  network          SocialNetwork
+  // The platform's id for the account (open_id, user id, page id).
+  externalId       String?
+  handle           String?
+  accessToken      String
+  refreshToken     String?
+  expiresAt        DateTime?
+  refreshExpiresAt DateTime?
+  // Facebook: the page tokens, one per page the creator manages (JSON, encrypted).
+  extra            String?
+  lastError        String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, network])
 }
