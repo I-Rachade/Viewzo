@@ -14,6 +14,8 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Viewzo a besoin de tes captures d’écran pour prouver les vues de tes publications.</string>
 	<key>CFBundleName</key>
 	<string>viewzo</string>
 	<key>CFBundlePackageType</key>

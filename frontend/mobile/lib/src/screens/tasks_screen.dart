@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
@@ -11,8 +12,11 @@ import '../ui/widgets.dart';
 /// Tasks the creator can take, and the ones they accepted with the link to
 /// submit once posted.
 class TasksScreen extends StatefulWidget {
-  const TasksScreen({super.key, required this.api});
+  const TasksScreen({super.key, required this.api, this.pickImage});
   final ApiClient api;
+
+  /// Picks a screenshot from the phone; replaced in tests.
+  final Future<XFile?> Function()? pickImage;
 
   @override
   State<TasksScreen> createState() => _TasksScreenState();
@@ -21,6 +25,7 @@ class TasksScreen extends StatefulWidget {
 class _TasksScreenState extends State<TasksScreen> {
   List<CampaignTask>? _available;
   List<Assignment>? _assignments;
+  CreatorResults? _results;
   SocialNetwork? _network;
   String? _error;
 
@@ -39,7 +44,17 @@ class _TasksScreenState extends State<TasksScreen> {
       _available = results[0] as List<CampaignTask>;
       _assignments = results[1] as List<Assignment>;
     });
+    _loadResults();
   });
+
+  Future<void> _loadResults() async {
+    try {
+      final results = await widget.api.results();
+      if (mounted) setState(() => _results = results);
+    } catch (_) {
+      // The summary simply stays hidden.
+    }
+  }
 
   Future<void> _run(Future<void> Function() action) async {
     setState(() => _error = null);
@@ -74,9 +89,47 @@ class _TasksScreenState extends State<TasksScreen> {
     });
     if (_error != null) return false;
     if (mounted) {
-      showVzToast(context, 'Lien envoyé, on compte tes vues');
+      showVzToast(context, 'Lien envoyé, l’équipe vérifie tes vues');
     }
     return true;
+  }
+
+  /// Picks a screenshot, asks the views it shows and sends it.
+  Future<void> _sendScreenshot(Assignment assignment) async {
+    final pick =
+        widget.pickImage ??
+        () => ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 2000,
+          imageQuality: 85,
+        );
+    final file = await pick();
+    if (file == null || !mounted) return;
+    final views = await showDialog<int>(
+      context: context,
+      builder: (_) => const _ViewsDialog(),
+    );
+    if (views == null) return;
+    final bytes = await file.readAsBytes();
+    DateTime? capturedAt;
+    try {
+      capturedAt = await file.lastModified();
+    } catch (_) {
+      // Some pickers don't know it; the team then sees "date inconnue".
+    }
+    await _run(() async {
+      await widget.api.addScreenshot(
+        assignment.id,
+        bytes: bytes,
+        filename: file.name.isEmpty ? 'capture.jpg' : file.name,
+        declaredViews: views,
+        capturedAt: capturedAt,
+      );
+      await _load();
+    });
+    if (_error == null && mounted) {
+      showVzToast(context, 'Capture envoyée, l’équipe la vérifie');
+    }
   }
 
   @override
@@ -177,46 +230,267 @@ class _TasksScreenState extends State<TasksScreen> {
   Widget _assignmentList() {
     final assignments = _assignments;
     if (assignments == null) return const SkeletonList();
+    final results = _results;
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (results != null && assignments.isNotEmpty)
+            FadeSlideIn(child: _ResultsCard(results: results)),
           if (assignments.isEmpty)
             const Text('Tu n’as pas encore accepté de tâche.'),
           for (final (i, a) in assignments.indexed)
             FadeSlideIn(
-              index: i,
+              index: i + 1,
               child: _TaskCard(
                 task: a.task,
-                status: a.submitted ? 'Lien envoyé' : 'À publier',
-                action: a.submitted
-                    ? OutlinedButton(
-                        onPressed: () => _submit(a, () {}),
-                        child: const Text('Modifier le lien'),
-                      )
-                    : _MorphButton(
-                        label: 'J’ai publié',
-                        color: Theme.of(context).colorScheme.primary,
-                        foreground: Theme.of(context).colorScheme.onPrimary,
-                        onPress: (loading) => _submit(a, loading),
-                      ),
+                status: _status(a),
+                details: _AssignmentDetails(assignment: a),
+                action: _actions(a),
               ),
             ),
         ],
       ),
     );
   }
+
+  (String, PillTone) _status(Assignment a) {
+    final statut = a.task.network == SocialNetwork.whatsappStatus;
+    if (!a.submitted && !(statut && a.screenshots > 0)) {
+      return ('À publier', PillTone.violet);
+    }
+    return (
+      a.reviewStatus.label,
+      switch (a.reviewStatus) {
+        ReviewStatus.validated => PillTone.paid,
+        ReviewStatus.rejected => PillTone.refused,
+        _ => PillTone.pending,
+      },
+    );
+  }
+
+  Widget? _actions(Assignment a) {
+    if (a.reviewStatus == ReviewStatus.rejected) return null;
+    final statut = a.task.network == SocialNetwork.whatsappStatus;
+    final screenshot = FilledButton.tonalIcon(
+      icon: const Icon(Icons.add_photo_alternate_outlined),
+      label: Text(statut ? 'Envoyer une capture' : 'Ajouter une capture'),
+      onPressed: () => _sendScreenshot(a),
+    );
+    if (statut) return screenshot;
+    if (!a.submitted) {
+      return _MorphButton(
+        label: 'J’ai publié',
+        color: Theme.of(context).colorScheme.primary,
+        foreground: Theme.of(context).colorScheme.onPrimary,
+        onPress: (loading) => _submit(a, loading),
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      alignment: WrapAlignment.end,
+      children: [
+        if (a.reviewStatus != ReviewStatus.validated)
+          OutlinedButton(
+            onPressed: () => _submit(a, () {}),
+            child: const Text('Modifier le lien'),
+          ),
+        screenshot,
+      ],
+    );
+  }
+}
+
+String _views(int n) {
+  final digits = '$n';
+  final out = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) out.write('\u202F');
+    out.write(digits[i]);
+  }
+  return out.toString();
+}
+
+String _time(DateTime d) =>
+    '${_date(d)} à ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+/// Totals of what the team validated and paid, on top of "Mes tâches".
+class _ResultsCard extends StatelessWidget {
+  const _ResultsCard({required this.results});
+  final CreatorResults results;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    Widget stat(String label, String value) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: text.bodySmall),
+          Text(value, style: text.titleMedium),
+        ],
+      ),
+    );
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: 10,
+          children: [
+            Text('Mes résultats', style: text.titleMedium),
+            Row(
+              children: [
+                stat('Vues validées', _views(results.validViews)),
+                stat(
+                  'Gagné ce mois',
+                  '${_views(results.earnedThisMonth)} FCFA',
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                stat('Gagné au total', '${_views(results.earned)} FCFA'),
+                stat(
+                  'Taux de validation',
+                  results.validationRate == null
+                      ? '—'
+                      : '${results.validationRate} %',
+                ),
+              ],
+            ),
+            Text(
+              '${results.toReview} en vérification · ${results.needsFix} à '
+              'corriger · ${results.validated} validées · '
+              '${results.rejected} refusées',
+              style: text.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The team's decision, the counted views and, for a statut, the
+/// screenshots still to send.
+class _AssignmentDetails extends StatelessWidget {
+  const _AssignmentDetails({required this.assignment});
+  final Assignment assignment;
+
+  @override
+  Widget build(BuildContext context) {
+    final a = assignment;
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 6,
+      children: [
+        if (a.reviewReason != null)
+          Text(a.reviewReason!, style: TextStyle(color: scheme.error)),
+        if (a.submitted || a.screenshots > 0)
+          Text(
+            [
+              '${_views(a.validViews)} vues validées',
+              '${_views(a.earned)} FCFA gagnés',
+              if (a.declaredViews != null && a.declaredViews != a.validViews)
+                '${_views(a.declaredViews!)} déclarées',
+            ].join(' · '),
+          ),
+        for (final (i, step) in a.proofSteps.indexed)
+          Row(
+            spacing: 10,
+            children: [
+              CircleAvatar(
+                radius: 12,
+                backgroundColor: step.doneAt != null
+                    ? VzColors.paid
+                    : scheme.primaryContainer,
+                child: step.doneAt != null
+                    ? const Icon(Icons.check, size: 14, color: Colors.white)
+                    : Text('${i + 1}', style: text.labelSmall),
+              ),
+              Expanded(
+                child: Text(
+                  '${step.label} · ${switch ((step.doneAt, step.dueAt)) {
+                    (final done?, _) => 'envoyée le ${_time(done)}',
+                    (null, final due?) => 'à envoyer vers le ${_time(due)}',
+                    _ => 'dès que ton statut est publié',
+                  }}',
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+/// Asks how many views the screenshot shows.
+class _ViewsDialog extends StatefulWidget {
+  const _ViewsDialog();
+
+  @override
+  State<_ViewsDialog> createState() => _ViewsDialogState();
+}
+
+class _ViewsDialogState extends State<_ViewsDialog> {
+  final _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final views = int.tryParse(_controller.text.trim());
+    if (views == null || views < 0) {
+      setState(() => _error = 'Écris le nombre de vues visible sur la capture');
+      return;
+    }
+    Navigator.pop(context, views);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Vues sur la capture'),
+    content: TextField(
+      controller: _controller,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      autofocus: true,
+      decoration: InputDecoration(hintText: 'Ex. : 350', errorText: _error),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Annuler'),
+      ),
+      FilledButton(onPressed: _send, child: const Text('Envoyer')),
+    ],
+  );
 }
 
 String _date(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 
 class _TaskCard extends StatelessWidget {
-  const _TaskCard({required this.task, required this.action, this.status});
+  const _TaskCard({
+    required this.task,
+    required this.action,
+    this.status,
+    this.details,
+  });
   final CampaignTask task;
-  final Widget action;
-  final String? status;
+  final Widget? action;
+  final (String, PillTone)? status;
+  final Widget? details;
 
   @override
   Widget build(BuildContext context) {
@@ -240,13 +514,8 @@ class _TaskCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(child: Text(brief.title, style: text.titleMedium)),
-                if (status != null)
-                  Pill(
-                    status!,
-                    tone: status == 'Lien envoyé'
-                        ? PillTone.pending
-                        : PillTone.violet,
-                  ),
+                if (status case (final label, final tone))
+                  Pill(label, tone: tone),
               ],
             ),
             Wrap(
@@ -295,7 +564,9 @@ class _TaskCard extends StatelessWidget {
               _LinkButton(label: 'Élément ${i + 1}', url: url),
             for (final (i, url) in brief.examples.indexed)
               _LinkButton(label: 'Exemple ${i + 1}', url: url),
-            Align(alignment: Alignment.centerRight, child: action),
+            ?details,
+            if (action != null)
+              Align(alignment: Alignment.centerRight, child: action),
           ],
         ),
       ),
