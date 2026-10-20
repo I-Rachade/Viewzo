@@ -5,6 +5,8 @@ import { AuthModule } from './auth/auth.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { CreatorsModule } from './creators/creators.module';
 import { MailModule } from './mail/mail.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { PostsModule } from './posts/posts.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SmsModule } from './sms/sms.module';
 import { StaffModule } from './staff/staff.module';
@@ -15,6 +17,7 @@ import { WalletModule } from './wallet/wallet.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    NotificationsModule,
     SmsModule,
     MailModule,
     UsersModule,
@@ -22,6 +25,7 @@ import { WalletModule } from './wallet/wallet.module';
     CreatorsModule,
     CampaignsModule,
     WalletModule,
+    PostsModule,
     StaffModule,
   ],
   controllers: [AppController],

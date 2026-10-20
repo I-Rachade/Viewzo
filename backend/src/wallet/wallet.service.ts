@@ -11,13 +11,17 @@ import {
   AssignmentStatus,
   Campaign,
   CampaignStatus,
+  NotificationType,
   Payment,
   PaymentKind,
+  PostReviewAction,
+  PostReviewStatus,
   PaymentStatus,
   Prisma,
   ProfileType,
   TransactionStatus,
   TransactionType,
+  ViewSource,
 } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { parsePhone } from '../auth/phone';
@@ -34,6 +38,7 @@ import {
 } from './earnings';
 import { FLUTTERWAVE_OPERATORS } from './gateways/flutterwave.gateway';
 import { GatewayStatus, PayinResult } from './gateways/gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentRouter } from './payment-router';
 
 const CURRENCY = 'XOF';
@@ -49,6 +54,7 @@ export class WalletService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly router: PaymentRouter,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async summary(userId: string) {
@@ -306,9 +312,11 @@ export class WalletService {
         where: { paymentId: id },
         data: { status: TransactionStatus.CANCELLED, note: reason?.trim() },
       });
-      return this.toPaymentView(
-        await this.prisma.payment.findUniqueOrThrow({ where: { id } }),
-      );
+      const rejected = await this.prisma.payment.findUniqueOrThrow({
+        where: { id },
+      });
+      await this.notifyWithdrawal(rejected);
+      return this.toPaymentView(rejected);
     }
 
     const { country } = parsePhone(payment.phone, 'TG');
@@ -360,7 +368,11 @@ export class WalletService {
    * Records the validated views of a post and credits the creator. Stands in
    * for the automatic view counting, which comes with the anti-fraud module.
    */
-  async recordViews(assignmentId: string, totalViews: number) {
+  async recordViews(
+    assignmentId: string,
+    totalViews: number,
+    reviewerId?: string,
+  ) {
     const assignment = await this.prisma.taskAssignment.findUnique({
       where: { id: assignmentId },
       include: { task: { include: { campaign: true } } },
@@ -374,13 +386,16 @@ export class WalletService {
     if (!assignment.task.campaign.fundedAt) {
       throw new BadRequestException('Campagne non financée');
     }
+    if (assignment.reviewStatus === PostReviewStatus.REJECTED) {
+      throw new BadRequestException('Publication refusée');
+    }
     if (totalViews < assignment.validViews) {
       throw new BadRequestException(
         `Déjà ${assignment.validViews} vues validées pour cette publication`,
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await this.lock(tx, assignment.creatorId);
       const current = await tx.taskAssignment.findUniqueOrThrow({
         where: { id: assignmentId },
@@ -420,8 +435,33 @@ export class WalletService {
 
       const updated = await tx.taskAssignment.update({
         where: { id: current.id },
-        data: { validViews: views, earned },
+        data: {
+          validViews: views,
+          earned,
+          reviewStatus: PostReviewStatus.VALIDATED,
+          reviewReason: null,
+          reviewedAt: new Date(),
+        },
       });
+      // The views history and the audit trail of the post.
+      await tx.viewSnapshot.create({
+        data: {
+          assignmentId: current.id,
+          views: totalViews,
+          source: ViewSource.STAFF,
+          recordedById: reviewerId,
+        },
+      });
+      if (reviewerId) {
+        await tx.postReview.create({
+          data: {
+            assignmentId: current.id,
+            reviewerId,
+            action: PostReviewAction.VIEWS,
+            views: totalViews,
+          },
+        });
+      }
       if (costDelta > 0) {
         await tx.campaign.update({
           where: { id: task.campaignId },
@@ -449,6 +489,53 @@ export class WalletService {
         // Views above what the task budget can pay.
         unpaidViews: totalViews - views,
       };
+    });
+    await this.notifications.notify(assignment.creatorId, {
+      type: NotificationType.POST_VALIDATED,
+      title: `Publication validée · #${assignment.task.campaign.code}`,
+      body: `${result.validViews.toLocaleString('fr-FR')} vues validées, ${result.earned.toLocaleString('fr-FR')} FCFA gagnés au total.`,
+      link: '/resultats',
+    });
+    return result;
+  }
+
+  /**
+   * Takes back a rejected post's earnings while they are still in their
+   * security hold, and returns their cost to the campaign escrow.
+   */
+  async reverseEarnings(tx: Tx, assignmentId: string) {
+    const a = await tx.taskAssignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+      include: { task: true },
+    });
+    if (a.validViews === 0 && a.earned === 0) return;
+    await this.lock(tx, a.creatorId);
+    const now = new Date();
+    const earnings = await tx.transaction.findMany({
+      where: {
+        assignmentId,
+        type: TransactionType.EARNING,
+        status: TransactionStatus.COMPLETED,
+      },
+    });
+    if (earnings.some((t) => t.availableAt <= now)) {
+      throw new ConflictException(
+        'Gains déjà disponibles pour le créateur, refus impossible',
+      );
+    }
+    await tx.transaction.updateMany({
+      where: { id: { in: earnings.map((t) => t.id) } },
+      data: { status: TransactionStatus.CANCELLED },
+    });
+    await tx.campaign.update({
+      where: { id: a.task.campaignId },
+      data: {
+        spent: { decrement: advertiserCost(a.validViews, a.task.contentType) },
+      },
+    });
+    await tx.taskAssignment.update({
+      where: { id: assignmentId },
+      data: { validViews: 0, earned: 0 },
     });
   }
 
@@ -607,7 +694,7 @@ export class WalletService {
         where: { id: payment.id },
       });
     }
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.payment.updateMany({
         where: { id: payment.id, status: PaymentStatus.PROCESSING },
         data: {
@@ -632,6 +719,33 @@ export class WalletService {
         });
       }
       return tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    });
+    if (updated.status !== payment.status) {
+      await this.notifyWithdrawal(updated);
+    }
+    return updated;
+  }
+
+  private notifyWithdrawal(p: Payment) {
+    const amount = `${p.amount.toLocaleString('fr-FR')} FCFA`;
+    const text: Partial<Record<PaymentStatus, [string, string]>> = {
+      SUCCEEDED: ['Retrait envoyé', `${amount} envoyés sur ton Mobile Money.`],
+      FAILED: [
+        'Retrait échoué',
+        `${amount} sont revenus sur ton solde. ${p.failureReason ?? ''}`.trim(),
+      ],
+      REJECTED: [
+        'Retrait refusé',
+        `${amount} sont revenus sur ton solde. ${p.failureReason ?? ''}`.trim(),
+      ],
+    };
+    const t = text[p.status];
+    if (!t || p.kind !== PaymentKind.PAYOUT) return;
+    return this.notifications.notify(p.userId, {
+      type: NotificationType.WITHDRAWAL_UPDATED,
+      title: t[0],
+      body: t[1],
+      link: '/wallet',
     });
   }
 

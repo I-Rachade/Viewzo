@@ -13,13 +13,18 @@ import {
   CampaignStatus,
   CampaignTask,
   ContentType,
+  PostReviewStatus,
   CreatorSkills,
   CreatorTaskType,
+  NotificationType,
+  PostProof,
   Prisma,
   ProfileType,
   SocialNetwork,
 } from '@prisma/client';
 import { randomInt } from 'crypto';
+import { NotificationsService } from '../notifications/notifications.service';
+import { ProofSource, ProofsService } from '../posts/proofs.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
@@ -43,6 +48,8 @@ export class CampaignsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: WalletService,
+    private readonly proofs: ProofsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   quote(pkg: CampaignPackage, budget: number, platforms: SocialNetwork[]) {
@@ -206,7 +213,62 @@ export class CampaignsService {
       }
       return result;
     });
+    await this.notifications.notify(campaign.advertiserId, {
+      type: NotificationType.CAMPAIGN_REVIEWED,
+      title:
+        dto.status === CampaignStatus.ACTIVE
+          ? `Campagne validée · #${campaign.code}`
+          : `Campagne refusée · #${campaign.code}`,
+      body:
+        dto.status === CampaignStatus.ACTIVE
+          ? updated.fundedAt
+            ? 'Les créateurs voient maintenant tes tâches.'
+            : 'Paie la campagne pour que les créateurs la voient.'
+          : (reason ?? 'Le budget en séquestre revient sur ton solde.'),
+      link: `/campaigns/${campaign.id}`,
+    });
+    if (dto.status === CampaignStatus.ACTIVE && updated.fundedAt) {
+      await this.notifyNewTasks(updated);
+    }
     return this.toAdvertiserView(updated);
+  }
+
+  /** Tells creators who can take a task of a campaign that just opened. */
+  private async notifyNewTasks(campaign: CampaignWithTasks) {
+    const candidates = await this.prisma.user.findMany({
+      where: {
+        id: { not: campaign.advertiserId },
+        country: { in: campaign.countries },
+        accounts: {
+          some: {
+            status: AccountStatus.ELIGIBLE,
+            network: { in: campaign.tasks.map((t) => t.network) },
+          },
+        },
+        skills: { isNot: null },
+      },
+      select: { id: true },
+      take: 2000,
+    });
+    const ids: string[] = [];
+    for (const { id } of candidates) {
+      const ctx = await this.creatorContext(id);
+      if (
+        ctx &&
+        campaign.tasks.some(
+          (t) =>
+            ctx.networks.includes(t.network) && this.canTake(ctx, campaign, t),
+        )
+      ) {
+        ids.push(id);
+      }
+    }
+    await this.notifications.notifyMany(ids, {
+      type: NotificationType.NEW_TASK,
+      title: `Nouvelle campagne : ${campaign.title}`,
+      body: 'Une tâche correspond à ton profil. Accepte-la avant les autres.',
+      link: '/taches',
+    });
   }
 
   // Tasks the creator can take now: an eligible account on the network, the
@@ -282,14 +344,23 @@ export class CampaignsService {
     const assignments = await this.prisma.taskAssignment.findMany({
       where: { creatorId },
       orderBy: { acceptedAt: 'desc' },
-      include: { task: { include: { campaign: true } } },
+      include: {
+        task: { include: { campaign: true } },
+        proofs: { orderBy: { uploadedAt: 'asc' } },
+        snapshots: { select: { views: true, takenAt: true } },
+      },
     });
     return assignments.map((a) =>
-      this.toAssignmentView(a, a.task, a.task.campaign),
+      this.toAssignmentView(a, a.task, a.task.campaign, a.proofs, a.snapshots),
     );
   }
 
-  async submit(creatorId: string, id: string, postUrl: string) {
+  async submit(
+    creatorId: string,
+    id: string,
+    postUrl: string,
+    source: ProofSource = {},
+  ) {
     const assignment = await this.prisma.taskAssignment.findUnique({
       where: { id },
       include: { task: { include: { campaign: true } } },
@@ -297,21 +368,36 @@ export class CampaignsService {
     if (!assignment || assignment.creatorId !== creatorId) {
       throw new NotFoundException();
     }
+    this.proofs.assertOpen(assignment);
     if (assignment.task.campaign.endsAt <= new Date()) {
       throw new BadRequestException('Échéance dépassée');
     }
-    const updated = await this.prisma.taskAssignment.update({
+    await this.prisma.$transaction(async (tx) => {
+      const review = await this.proofs.addLink(tx, assignment, postUrl, source);
+      await tx.taskAssignment.update({
+        where: { id },
+        data: {
+          postUrl,
+          status: AssignmentStatus.SUBMITTED,
+          submittedAt: assignment.submittedAt ?? new Date(),
+          ...review,
+        },
+      });
+    });
+    await this.proofs.refreshRisk(id);
+    const updated = await this.prisma.taskAssignment.findUniqueOrThrow({
       where: { id },
-      data: {
-        postUrl,
-        status: AssignmentStatus.SUBMITTED,
-        submittedAt: new Date(),
+      include: {
+        proofs: { orderBy: { uploadedAt: 'asc' } },
+        snapshots: { select: { views: true, takenAt: true } },
       },
     });
     return this.toAssignmentView(
       updated,
       assignment.task,
       assignment.task.campaign,
+      updated.proofs,
+      updated.snapshots,
     );
   }
 
@@ -553,9 +639,15 @@ export class CampaignsService {
       postUrl: string | null;
       acceptedAt: Date;
       submittedAt: Date | null;
+      reviewStatus: PostReviewStatus;
+      reviewReason: string | null;
+      validViews: number;
+      earned: number;
     },
     t: CampaignTask,
     c: Campaign,
+    proofs: PostProof[] = [],
+    snapshots: { views: number; takenAt: Date }[] = [],
   ) {
     return {
       id: a.id,
@@ -563,6 +655,12 @@ export class CampaignsService {
       postUrl: a.postUrl,
       acceptedAt: a.acceptedAt,
       submittedAt: a.submittedAt,
+      // The team's decision, with the reason shown to the creator.
+      reviewStatus: a.reviewStatus,
+      reviewReason: a.reviewReason,
+      validViews: a.validViews,
+      earned: a.earned,
+      ...this.proofs.creatorView(t.network, proofs, snapshots),
       task: this.toTaskView(t, c),
     };
   }

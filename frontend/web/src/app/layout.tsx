@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import { Suspense } from "react";
 import "./globals.css";
+import { AppShell } from "./_shell/app-shell";
+import { SessionProvider } from "./_shell/session";
+import { LoadingCard } from "./loading-card";
 
 // Same files as the mobile app (SIL Open Font License, see fonts/).
 const sora = localFont({
@@ -41,7 +45,18 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="fr" className={`${sora.variable} ${dmSans.variable}`}>
       <body>
-        <main className="container">{children}</main>
+        {/* The menu reads the URL, which pages with an id only know at request time. */}
+        <Suspense
+          fallback={
+            <main className="container">
+              <LoadingCard />
+            </main>
+          }
+        >
+          <SessionProvider>
+            <AppShell>{children}</AppShell>
+          </SessionProvider>
+        </Suspense>
       </body>
     </html>
   );

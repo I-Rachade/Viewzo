@@ -88,6 +88,24 @@ Pflicht: `DOMAIN`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `OTP_SECRET` (je `openssl 
 
 Testmodus ohne Zahlungsanbieter: `PAYMENT_MODE=local` lässt jede Zahlung sofort gelingen, ohne echtes Geld. Damit lassen sich Aufladen, Kampagnen bezahlen und Auszahlungen durchspielen, bevor die Schlüssel der Anbieter da sind. Danach `docker compose up -d` im Ordner `/opt/viewzo`. Vor dem Start mit echten Nutzern wieder leeren, sonst kann sich jeder kostenlos Guthaben aufladen.
 
+### Automatischer Abruf der Views
+
+Ohne diese Schlüssel läuft alles über Captures. Jeder Schlüssel schaltet ein Netzwerk frei, danach `docker compose up -d`.
+
+| Netzwerk | Was anlegen | In die `.env` |
+| --- | --- | --- |
+| YouTube | Google Cloud Console: Projekt, *YouTube Data API v3* aktivieren, API-Schlüssel | `YOUTUBE_API_KEY` |
+| X | developer.x.com: App mit Lesezugriff (kostenpflichtiger Plan), Bearer Token | `X_BEARER_TOKEN` |
+| Telegram | nichts, öffentliche Kanäle werden direkt gelesen | |
+| TikTok | developers.tiktok.com: App mit *Login Kit* und Scope `video.list`, App-Prüfung | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` |
+| Instagram | developers.facebook.com: App mit *Instagram API with Instagram Login*, Rechte `instagram_business_basic` und `instagram_business_manage_insights`, App-Prüfung. Nur Creator- oder Business-Konten | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` |
+| Facebook | gleiche Meta-App mit *Facebook Login*, Rechte `pages_show_list`, `pages_read_engagement`, `read_insights`. Nur Seiten, keine Privatprofile | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` |
+| Threads | gleiche Meta-App mit *Threads API*, Rechte `threads_basic`, `threads_manage_insights` | `THREADS_APP_ID`, `THREADS_APP_SECRET` |
+
+Als Redirect- bzw. Callback-URL trägt man bei jeder Plattform ein: `https://api.<DOMAIN>/connections/<tiktok|instagram|facebook|threads>/callback`. Solange eine App nicht geprüft ist, können sich nur die in der App eingetragenen Testkonten verbinden. Die Tokens der Creator liegen verschlüsselt in der Datenbank (`TOKEN_ENCRYPTION_KEY`, sonst `JWT_SECRET`).
+
+Captures der Creator liegen im Docker-Volume `uploads` und gehören ins Backup, wenn man sie länger behalten will.
+
 ### 7. GitHub
 
 Unter *Settings → Secrets and variables → Actions*:

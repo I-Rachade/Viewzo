@@ -74,7 +74,13 @@ describe('Back-office (e2e)', () => {
     await http().get('/staff/overview').set(auth(user)).expect(403);
     expect(
       (await http().get('/staff/overview').set(auth(staff)).expect(200)).body,
-    ).toEqual({ accounts: 0, campaigns: 0, withdrawals: 0, assignments: 0 });
+    ).toEqual({
+      accounts: 0,
+      campaigns: 0,
+      withdrawals: 0,
+      assignments: 0,
+      alerts: 0,
+    });
 
     const creator = await prisma.user.findUniqueOrThrow({
       where: { phone: '+22894000002' },
@@ -130,7 +136,13 @@ describe('Back-office (e2e)', () => {
 
     expect(
       (await http().get('/staff/overview').set(auth(staff)).expect(200)).body,
-    ).toEqual({ accounts: 1, campaigns: 0, withdrawals: 0, assignments: 1 });
+    ).toEqual({
+      accounts: 1,
+      campaigns: 0,
+      withdrawals: 0,
+      assignments: 1,
+      alerts: 0,
+    });
     const list = await http()
       .get('/staff/assignments')
       .set(auth(staff))

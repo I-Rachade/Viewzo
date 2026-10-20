@@ -86,6 +86,9 @@ class ApiClient {
   final String baseUrl;
   String? token;
 
+  /// Random id kept on this phone; the team sees when accounts share one.
+  String? deviceId;
+
   Future<String> requestCode(String phone) async {
     final body = await _post('/auth/otp/request', {'phone': phone});
     return body['phone'] as String;
@@ -275,6 +278,95 @@ class ApiClient {
     );
   }
 
+  Future<CreatorResults> results() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/results'),
+      headers: _headers,
+    );
+    return CreatorResults.fromJson(_decode(res));
+  }
+
+  /// Sends a screenshot showing [declaredViews] as proof for a post.
+  Future<void> addScreenshot(
+    String assignmentId, {
+    required List<int> bytes,
+    required String filename,
+    required int declaredViews,
+    DateTime? capturedAt,
+  }) async {
+    final request =
+        http.MultipartRequest(
+            'POST',
+            Uri.parse('$baseUrl/me/assignments/$assignmentId/proofs'),
+          )
+          ..headers.addAll({
+            if (token != null) 'Authorization': 'Bearer $token',
+            'X-Device-Id': ?deviceId,
+          })
+          ..fields['declaredViews'] = '$declaredViews'
+          ..files.add(
+            http.MultipartFile.fromBytes('file', bytes, filename: filename),
+          );
+    if (capturedAt != null) {
+      request.fields['capturedAt'] = capturedAt.toUtc().toIso8601String();
+    }
+    _decode(await http.Response.fromStream(await _client.send(request)));
+  }
+
+  Future<(int, List<AppNotification>)> notifications() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/notifications'),
+      headers: _headers,
+    );
+    final body = _decode(res);
+    return (
+      body['unread'] as int,
+      [
+        for (final n in body['items'] as List)
+          AppNotification.fromJson(n as Map<String, dynamic>),
+      ],
+    );
+  }
+
+  Future<int> unreadNotifications() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/notifications/unread'),
+      headers: _headers,
+    );
+    return _decode(res)['unread'] as int;
+  }
+
+  /// Marks all notifications read.
+  Future<void> readNotifications() => _post('/me/notifications/read', {});
+
+  Future<List<Connection>> connections() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/connections'),
+      headers: _headers,
+    );
+    return [
+      for (final c in _decodeList(res))
+        Connection.fromJson(c as Map<String, dynamic>),
+    ];
+  }
+
+  /// The platform page where the creator logs in to connect the account.
+  Future<String> connectionStartUrl(SocialNetwork network) async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/connections/${network.code}/start'),
+      headers: _headers,
+    );
+    return _decode(res)['url'] as String;
+  }
+
+  Future<void> disconnect(SocialNetwork network) async {
+    final res = await _client.delete(
+      Uri.parse('$baseUrl/me/connections/${network.code}'),
+      headers: _headers,
+    );
+    _decode(res);
+  }
+
   Future<WalletSummary> wallet() async {
     final res = await _client.get(
       Uri.parse('$baseUrl/me/wallet'),
@@ -317,6 +409,7 @@ class ApiClient {
   Map<String, String> get _headers => {
     'Content-Type': 'application/json',
     if (token != null) 'Authorization': 'Bearer $token',
+    'X-Device-Id': ?deviceId,
   };
 
   Future<Map<String, dynamic>> _post(String path, Object body) async {

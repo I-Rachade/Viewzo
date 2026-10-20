@@ -8,7 +8,9 @@ import '../ui/widgets.dart';
 import '../wallet_models.dart';
 import 'accounts_screen.dart';
 import 'auth_widgets.dart';
+import 'connections_screen.dart';
 import 'login_screen.dart';
+import 'notifications_screen.dart';
 import 'skills_screen.dart';
 import 'tasks_screen.dart';
 import 'wallet_screen.dart';
@@ -28,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen>
   UserView? _user;
   String? _error;
   int _tab = 0;
+  int _unread = 0;
   // Tabs are built the first time they are opened, then kept.
   final _opened = <int>{0};
   late final _fade = AnimationController(
@@ -41,6 +44,39 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     _user = widget.initialUser;
     if (_user == null) _load();
+    _loadUnread();
+  }
+
+  Future<void> _loadUnread() async {
+    try {
+      final unread = await widget.session.api.unreadNotifications();
+      if (mounted) setState(() => _unread = unread);
+    } catch (_) {
+      // The bell simply shows no count.
+    }
+  }
+
+  Future<void> _openNotifications() async {
+    final api = widget.session.api;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NotificationsScreen(
+          api: api,
+          onOpen: (link) {
+            Navigator.of(context).pop();
+            switch (link) {
+              case '/taches' || '/resultats':
+                _select(1);
+              case '/wallet':
+                _select(2);
+              case '/comptes':
+                _open(AccountsScreen(api: api, phone: _user?.phone ?? ''));
+            }
+          },
+        ),
+      ),
+    );
+    _loadUnread();
   }
 
   @override
@@ -121,6 +157,8 @@ class _HomeScreenState extends State<HomeScreen>
               onActivate: _activate,
               onWallet: () => _select(2),
               onCampaigns: () => _select(1),
+              unread: _unread,
+              onNotifications: _openNotifications,
             ),
             lazy(
               1,
@@ -139,6 +177,7 @@ class _HomeScreenState extends State<HomeScreen>
                     _open(AccountsScreen(api: api, phone: user.phone ?? '')),
                 onSkills: () =>
                     _open(SkillsScreen(api: api, country: user.country)),
+                onConnections: () => _open(ConnectionsScreen(api: api)),
                 onAddContact: _addContact,
                 onLogout: _logout,
               ),
@@ -252,6 +291,8 @@ class _HomeTab extends StatefulWidget {
     required this.onActivate,
     required this.onWallet,
     required this.onCampaigns,
+    required this.unread,
+    required this.onNotifications,
   });
   final UserView user;
   final ApiClient api;
@@ -259,6 +300,8 @@ class _HomeTab extends StatefulWidget {
   final ValueChanged<ProfileType> onActivate;
   final VoidCallback onWallet;
   final VoidCallback onCampaigns;
+  final int unread;
+  final VoidCallback onNotifications;
 
   @override
   State<_HomeTab> createState() => _HomeTabState();
@@ -319,9 +362,21 @@ class _HomeTabState extends State<_HomeTab> {
                 spacing: 12,
                 children: [
                   const VzMark(size: 40),
-                  Text(
-                    hour >= 18 || hour < 5 ? 'Bonsoir' : 'Bonjour',
-                    style: text.headlineSmall,
+                  Expanded(
+                    child: Text(
+                      hour >= 18 || hour < 5 ? 'Bonsoir' : 'Bonjour',
+                      style: text.headlineSmall,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Notifications',
+                    onPressed: widget.onNotifications,
+                    icon: Badge(
+                      isLabelVisible: widget.unread > 0,
+                      label: Text('${widget.unread}'),
+                      backgroundColor: VzColors.coral,
+                      child: const Icon(Icons.notifications_none_rounded),
+                    ),
                   ),
                 ],
               ),
@@ -591,12 +646,14 @@ class _ProfileTab extends StatelessWidget {
     required this.user,
     required this.onAccounts,
     required this.onSkills,
+    required this.onConnections,
     required this.onAddContact,
     required this.onLogout,
   });
   final UserView user;
   final VoidCallback onAccounts;
   final VoidCallback onSkills;
+  final VoidCallback onConnections;
   final ValueChanged<IdentifierKind> onAddContact;
   final VoidCallback onLogout;
 
@@ -687,9 +744,16 @@ class _ProfileTab extends StatelessWidget {
               'Ce que tu sais faire',
               onSkills,
             ),
+            tile(
+              2,
+              Icons.link_rounded,
+              'Comptes connectés',
+              'Tes vues relevées automatiquement',
+              onConnections,
+            ),
           ],
           tile(
-            2,
+            3,
             Icons.logout_rounded,
             'Se déconnecter',
             'Sur ce téléphone',
