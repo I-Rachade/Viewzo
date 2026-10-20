@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { authApi, setToken } from "@/lib/api";
+import { CountrySelect } from "../country-select";
 import { AuthScreen } from "../_auth/auth-screen";
 import { CodeField } from "../_auth/code-field";
-import { COUNTRIES } from "../_auth/countries";
 import { IdentifierField, IdentifierKind } from "../_auth/identifier-field";
 import { NewPasswordFields, passwordsReady } from "../_auth/password-input";
 import { useAction } from "../_auth/use-action";
@@ -126,16 +126,7 @@ export default function RegisterPage() {
           {kind === "email" && (
             <label>
               Pays
-              <select
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-              >
-                {COUNTRIES.map(([c, name]) => (
-                  <option key={c} value={c}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+              <CountrySelect value={country} onChange={setCountry} required />
             </label>
           )}
           <button disabled={busy}>Recevoir un code</button>

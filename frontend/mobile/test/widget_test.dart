@@ -60,7 +60,15 @@ Future<void> reachPasswordStep(WidgetTester tester) async {
   await tester.pumpAndSettle();
 
   expect(find.text('Étape 2 sur 4'), findsOneWidget);
+  // Closed, the country field shows only the flag; open, flag and name.
+  expect(find.text('🇹🇬'), findsOneWidget);
+  await tester.tap(find.text('🇹🇬'));
+  await tester.pumpAndSettle();
   expect(find.text('Togo'), findsOneWidget);
+  await tester.tap(find.text('Bénin'));
+  await tester.pumpAndSettle();
+  expect(find.text('🇧🇯'), findsOneWidget);
+  expect(find.text('Bénin'), findsNothing);
   await tester.enterText(
     find.byKey(const Key('identifier')),
     'ama@exemple.com',
@@ -81,6 +89,7 @@ MockClientHandler registerBackend({
   void Function(Map<String, dynamic> body)? onComplete,
   void Function()? onStart,
 }) => (request) async {
+  if (request.url.path == '/countries') return json(['TG', 'BJ']);
   final body = jsonDecode(request.body) as Map<String, dynamic>;
   switch (request.url.path) {
     case '/auth/register/start':
@@ -228,7 +237,7 @@ void main() {
       'ticket': 'ticket-1',
       'password': 'secret123',
       'role': 'CREATOR',
-      'country': 'TG',
+      'country': 'BJ',
     });
     expect(find.text('Tu es inscrit n° 237 (TG)'), findsOneWidget);
     expect(session.api.token, 'token');

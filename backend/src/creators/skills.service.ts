@@ -4,12 +4,16 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { CreatorTaskType, ProfileType } from '@prisma/client';
+import { CountriesService } from '../countries/countries.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SkillsDto } from './dto/skills.dto';
 
 @Injectable()
 export class SkillsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly countries: CountriesService,
+  ) {}
 
   async get(userId: string) {
     return this.prisma.creatorSkills.findUnique({
@@ -25,6 +29,8 @@ export class SkillsService {
     if (!creator) {
       throw new ForbiddenException("Active d'abord le profil Créateur");
     }
+
+    await this.countries.assertAllowed(dto.countries);
 
     const data = {
       ...dto,

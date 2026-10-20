@@ -26,6 +26,7 @@ import { randomInt } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { assertCountry, assertNotSelf, countryScope } from '../auth/staff';
 import type { StaffActor } from '../auth/staff';
+import { CountriesService } from '../countries/countries.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ProofSource, ProofsService } from '../posts/proofs.service';
 import { linkMatchesNetwork } from '../posts/risk';
@@ -55,6 +56,7 @@ export class CampaignsService {
     private readonly proofs: ProofsService,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
+    private readonly countries: CountriesService,
   ) {}
 
   quote(pkg: CampaignPackage, budget: number, platforms: SocialNetwork[]) {
@@ -95,6 +97,8 @@ export class CampaignsService {
     ) {
       throw new BadRequestException('Durée minimale supérieure à la maximale');
     }
+
+    await this.countries.assertAllowed(dto.countries);
 
     const networks = dto.platforms.map((p) => p.network);
     if (new Set(networks).size !== networks.length) {

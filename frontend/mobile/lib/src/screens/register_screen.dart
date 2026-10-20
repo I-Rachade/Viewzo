@@ -3,27 +3,10 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../api_client.dart';
 import '../session.dart';
+import '../ui/country_select.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import 'auth_widgets.dart';
-
-const countries = {
-  'TG': 'Togo',
-  'BJ': 'Bénin',
-  'CI': "Côte d'Ivoire",
-  'SN': 'Sénégal',
-  'BF': 'Burkina Faso',
-  'ML': 'Mali',
-  'NE': 'Niger',
-  'CM': 'Cameroun',
-  'GH': 'Ghana',
-  'NG': 'Nigeria',
-  'GN': 'Guinée',
-  'GA': 'Gabon',
-  'CD': 'RD Congo',
-  'CG': 'Congo',
-  'FR': 'France',
-};
 
 const _stepCount = 4;
 
@@ -282,8 +265,9 @@ class _RegisterScreenState extends State<RegisterScreen>
       if (_kind == IdentifierKind.email) ...[
         const SizedBox(height: 16),
         _CountryField(
+          api: widget.session.api,
           value: _country,
-          onChanged: (v) => setState(() => _country = v ?? _country),
+          onChanged: (v) => setState(() => _country = v),
         ),
       ],
       const SizedBox(height: 28),
@@ -380,9 +364,14 @@ class _RegisterScreenState extends State<RegisterScreen>
 
 /// The country of an e-mail sign-up, phone numbers carrying their own.
 class _CountryField extends StatelessWidget {
-  const _CountryField({required this.value, required this.onChanged});
+  const _CountryField({
+    required this.api,
+    required this.value,
+    required this.onChanged,
+  });
+  final ApiClient api;
   final String value;
-  final ValueChanged<String?> onChanged;
+  final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -392,15 +381,10 @@ class _CountryField extends StatelessWidget {
       spacing: 8,
       children: [
         Text('Pays', style: theme.textTheme.small),
-        ShadSelect<String>(
+        CountrySelect(
           key: const Key('country'),
-          initialValue: value,
-          maxHeight: 320,
-          options: [
-            for (final c in countries.entries)
-              ShadOption(value: c.key, child: Text(c.value)),
-          ],
-          selectedOptionBuilder: (context, v) => Text(countries[v] ?? v),
+          api: api,
+          value: value,
           onChanged: onChanged,
         ),
       ],

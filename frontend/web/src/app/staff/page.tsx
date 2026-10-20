@@ -6,19 +6,21 @@ import { Suspense } from "react";
 import { CAN_PAY, StaffRole } from "@/lib/api";
 import { AccountsSection } from "./_sections/accounts";
 import { CampaignsSection } from "./_sections/campaigns";
+import { CountriesSection } from "./_sections/countries";
 import { TeamSection } from "./_sections/team";
 import { useStaffOnly } from "./_sections/use-staff";
 import { WithdrawalsSection } from "./_sections/withdrawals";
 import { LoadingCard } from "../loading-card";
 import { useSession } from "../_shell/session";
 
-type Tab = "accounts" | "campaigns" | "withdrawals" | "team";
+type Tab = "accounts" | "campaigns" | "withdrawals" | "team" | "countries";
 
 const TABS: { key: Tab; label: string; roles?: StaffRole[] }[] = [
   { key: "accounts", label: "Comptes" },
   { key: "campaigns", label: "Campagnes" },
   { key: "withdrawals", label: "Retraits", roles: CAN_PAY },
   { key: "team", label: "Équipe", roles: ["SUPER_ADMIN"] },
+  { key: "countries", label: "Pays", roles: ["SUPER_ADMIN"] },
 ];
 
 export default function StaffPage() {
@@ -63,7 +65,9 @@ function Staff() {
             onClick={() => router.replace(`/staff?tab=${t.key}`)}
           >
             {t.label}
-            {t.key !== "team" && staff && <small>{staff[t.key]} en attente</small>}
+            {t.key !== "team" && t.key !== "countries" && staff && (
+              <small>{staff[t.key]} en attente</small>
+            )}
           </button>
         ))}
       </div>
@@ -74,6 +78,7 @@ function Staff() {
         <WithdrawalsSection selfId={user.id} onChange={refreshStaff} />
       )}
       {tab === "team" && <TeamSection selfId={user.id} />}
+      {tab === "countries" && <CountriesSection />}
     </div>
   );
 }

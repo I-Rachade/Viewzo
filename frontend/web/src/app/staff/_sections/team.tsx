@@ -9,18 +9,11 @@ import {
   StaffMember,
   StaffRole,
 } from "@/lib/api";
+import { CountryMultiSelect, flagOf } from "../../country-select";
 import { confirmed } from "./confirm";
 import { DATE, useQueue } from "./use-queue";
 
 const ROLES = Object.keys(STAFF_ROLE_LABELS) as StaffRole[];
-
-// "TG, bj" → ["TG", "BJ"]; empty means every country.
-function parseCountries(text: string) {
-  return text
-    .split(/[\s,;]+/)
-    .map((c) => c.trim().toUpperCase())
-    .filter(Boolean);
-}
 
 function RightsFields({
   role,
@@ -29,9 +22,9 @@ function RightsFields({
   onCountries,
 }: {
   role: StaffRole;
-  countries: string;
+  countries: string[];
   onRole: (role: StaffRole) => void;
-  onCountries: (text: string) => void;
+  onCountries: (codes: string[]) => void;
 }) {
   return (
     <>
@@ -47,11 +40,11 @@ function RightsFields({
       </label>
       {role !== "SUPER_ADMIN" && (
         <label>
-          Pays (codes, ex. TG, BJ)
-          <input
+          Pays
+          <CountryMultiSelect
             value={countries}
-            onChange={(e) => onCountries(e.target.value)}
-            placeholder={role === "COUNTRY_MANAGER" ? "TG" : "Tous les pays"}
+            onChange={onCountries}
+            emptyLabel={role === "COUNTRY_MANAGER" ? "Choisir" : "Tous les pays"}
             required={role === "COUNTRY_MANAGER"}
           />
         </label>
@@ -60,25 +53,23 @@ function RightsFields({
   );
 }
 
-function rights(role: StaffRole, countries: string): MemberRights {
-  return {
-    staffRole: role,
-    countries: role === "SUPER_ADMIN" ? [] : parseCountries(countries),
-  };
+// Empty countries means every country.
+function rights(role: StaffRole, countries: string[]): MemberRights {
+  return { staffRole: role, countries: role === "SUPER_ADMIN" ? [] : countries };
 }
 
 export function TeamSection({ selfId }: { selfId: string }) {
   const queue = useQueue(staffApi.members, () => {});
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<StaffRole>("MODERATOR");
-  const [countries, setCountries] = useState("");
+  const [countries, setCountries] = useState<string[]>([]);
 
   function add(e: FormEvent) {
     e.preventDefault();
     queue.act(async () => {
       await staffApi.addMember(phone, rights(role, countries));
       setPhone("");
-      setCountries("");
+      setCountries([]);
     });
   }
 
@@ -141,8 +132,10 @@ function MemberLine({
 }) {
   const [editing, setEditing] = useState(false);
   const [role, setRole] = useState(m.staffRole);
-  const [countries, setCountries] = useState(m.staffCountries.join(", "));
-  const scope = m.staffCountries.length ? m.staffCountries.join(", ") : "tous les pays";
+  const [countries, setCountries] = useState(m.staffCountries);
+  const scope = m.staffCountries.length
+    ? m.staffCountries.map(flagOf).join(" ")
+    : "tous les pays";
 
   if (editing) {
     return (

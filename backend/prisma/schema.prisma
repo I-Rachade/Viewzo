@@ -122,6 +122,16 @@ model UserProfile {
   @@unique([userId, type])
 }
 
+// Countries Viewzo works in, set by super admins in the back-office. Country
+// pickers on the web and in the app only offer the enabled ones.
+model AllowedCountry {
+  // ISO 3166-1 alpha-2.
+  code      String   @id
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model CountryCounter {
   country  String @id
   lastRank Int    @default(0)

@@ -74,6 +74,11 @@ Registrieren: E-Mail oder Nummer mit einem Code bestätigen, dann Passwort festl
 | `GET` | `/staff/assignments` | Eingereichte Beiträge mit Link, Kampagne und bisher geprüften Views (nur Team) |
 | `GET` / `POST` | `/staff/members` | Team-Mitglieder auflisten bzw. `{ phone }` hinzufügen; die Person muss sich vorher einmal angemeldet haben (nur Team) |
 | `DELETE` | `/staff/members/:id` | Team-Zugang entziehen, nicht bei sich selbst (nur Team) |
+| `GET` | `/countries` | Freigeschaltete Länder (ISO-Codes), öffentlich; alle Länderauswahlen in Web und App nutzen diese Liste |
+| `GET` / `POST` | `/staff/countries` | Alle Länder mit Status lesen (Team) bzw. `{ code }` hinzufügen oder wieder einschalten (nur Super-Admin, im Audit-Journal) |
+| `PATCH` | `/staff/countries/:code` | `{ enabled }` ein- oder ausschalten (nur Super-Admin, im Audit-Journal) |
+
+Nicht freigeschaltete Länder lehnt der Server mit `400 COUNTRY_NOT_ALLOWED` ab: bei der Registrierung (Telefon schon vor dem Code, E-Mail beim letzten Schritt), bei neuen Konten über den Code-Login, in Kampagnen, im Kompetenzformular und bei den Ländern eines Team-Mitglieds. Bestehende Konten eines abgeschalteten Landes bleiben nutzbar.
 | `GET` | `/health` | Healthcheck |
 
 Kampagnenregeln (Standardwerte aus dem Lastenheft in `src/campaigns/pricing.ts`, später pro Land im Back-Office): Package begrenzt die Plattformen (Basique 1, Pro 3, Premium 6, Élite alle), jede Plattform hat ein Mindestbudget, der Inhaltstyp multipliziert den Preis (× 1 bis × 1,6). Annonceur pro 1.000 Views: 1.000 FCFA, Creator: 450 FCFA, jeweils mal Koeffizient. Annonceure auf Niveau 1 nur Basique und höchstens 100.000 FCFA im Monat. Creator auf Niveau 1 bekommen nur Aufgaben mit gelieferten Elementen aus Basique-Kampagnen.

@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
+import { CountriesModule } from './countries/countries.module';
 import { CreatorsModule } from './creators/creators.module';
 import { MailModule } from './mail/mail.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -41,6 +42,7 @@ import { WalletModule } from './wallet/wallet.module';
     WalletModule,
     PostsModule,
     StaffModule,
+    CountriesModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: AppThrottlerGuard }],

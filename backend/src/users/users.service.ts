@@ -11,6 +11,7 @@ import {
   UserProfile,
   UserRole,
 } from '@prisma/client';
+import { CountriesService } from '../countries/countries.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 type UserWithProfiles = User & { profiles: UserProfile[] };
@@ -23,6 +24,7 @@ export interface Contact {
 
 export const ALREADY_REGISTERED =
   'Un compte existe déjà avec cet identifiant, connecte-toi';
+export const SIGNUP_CLOSED = 'Viewzo n’est pas encore ouvert dans ton pays';
 const CONTACT_TAKEN = 'Cet identifiant est déjà utilisé par un autre compte';
 
 function isUniqueViolation(e: unknown) {
@@ -36,6 +38,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly countries: CountriesService,
   ) {}
 
   async findOrCreateByPhone(phone: string, country: string) {
@@ -115,10 +118,11 @@ export class UsersService {
     }
   }
 
-  private createRanked(
+  private async createRanked(
     country: string,
     data: Omit<Prisma.UserCreateInput, 'country' | 'priorityRank'>,
   ) {
+    await this.countries.assertAllowed(country, SIGNUP_CLOSED);
     return this.prisma.$transaction(async (tx) => {
       // Atomic per-country counter: the rank is assigned once and never changes.
       const counter = await tx.countryCounter.upsert({
