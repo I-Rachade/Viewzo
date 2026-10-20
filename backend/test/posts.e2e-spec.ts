@@ -135,7 +135,7 @@ describe('Posts, proofs and reports (e2e)', () => {
         endsAt: new Date(Date.now() + 5 * day),
         package: 'BASIC',
         budget: 60_000,
-        hasAssets: true,
+        contentCase: 'READY',
         language: 'Français',
         status: 'ACTIVE',
         fundedAt: new Date(),

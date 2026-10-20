@@ -313,8 +313,10 @@ describe('Sessions, roles and money safety (e2e)', () => {
           endsAt: new Date(Date.now() + day),
           package: 'BASIC',
           budget: 20_000,
-          hasAssets: true,
+          contentCase: 'READY',
           language: 'Français',
+          keyMessage: 'Le bissap qui rafraîchit',
+          status: 'PENDING_REVIEW',
           fundedAt: new Date(),
         },
       });

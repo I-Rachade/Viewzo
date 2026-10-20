@@ -64,6 +64,7 @@ model User {
   connections     SocialConnection[]
   sessions        Session[]
   identityChecks  IdentityCheck[]
+  campaignFiles   CampaignFile[]
   liveProducts    LiveProduct[]
   liveSales       LiveSale[]
 
@@ -363,10 +364,54 @@ enum ContentType {
 }
 
 enum CampaignStatus {
-  PENDING_REVIEW
+  DRAFT // Saved by the advertiser, not sent yet
+  PENDING_PAYMENT // Sent, waiting for the budget to go into escrow
+  PENDING_REVIEW // Paid, waiting for the team
   ACTIVE
+  PAUSED // Stopped by the advertiser: no new creator can take a task
   REJECTED
   COMPLETED
+}
+
+// What the advertiser brings for the content.
+enum ContentCase {
+  READY // Contenu prêt : visuels ou vidéos à publier tels quels
+  PARTIAL // Matière partielle : logo, photos, rushes que le créateur assemble
+  NONE // Rien : les créateurs ou le Studio créent tout
+}
+
+enum CampaignFileKind {
+  IMAGE
+  VIDEO
+  AUDIO
+  PDF
+}
+
+enum CampaignFilePurpose {
+  ASSET // Element given to the creators
+  BRIEF // Voice or video brief
+}
+
+// A file sent by an advertiser for a campaign, kept by FileStorage and only
+// reachable through signed links. Not attached yet while the campaign form is
+// being filled; files left unattached are removed after a day.
+model CampaignFile {
+  id         String              @id @default(uuid())
+  ownerId    String
+  campaignId String?
+  purpose    CampaignFilePurpose
+  kind       CampaignFileKind
+  name       String
+  key        String              @unique
+  mimeType   String
+  sizeBytes  Int
+  sha256     String
+  createdAt  DateTime            @default(now())
+  owner      User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  campaign   Campaign?           @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, createdAt])
+  @@index([campaignId])
 }
 
 model Campaign {
@@ -383,10 +428,18 @@ model Campaign {
   package           CampaignPackage
   // Total budget in FCFA (XOF).
   budget            Int
-  hasAssets         Boolean
-  // Links to the provided posters, videos, logos (file upload comes with storage).
+  contentCase       ContentCase
+  // Extra links (a shared folder, for instance); the files are in CampaignFile.
   assetUrls         String[]
+  // Who creates the content when the advertiser brings nothing.
   noAssetsChoice    NoAssetsChoice?
+  // The brief: what the post must say and make people do.
+  keyMessage        String?
+  callToAction      String?
+  caption           String?
+  // Sound or music to use, by name or link.
+  sound             String?
+  productDetails    String?
   shipsProduct      Boolean           @default(false)
   productPickup     String?
   faceRequired      Boolean           @default(false)
@@ -397,7 +450,7 @@ model Campaign {
   mandatoryElements String[]
   forbiddenElements String[]
   examples          String[]
-  status            CampaignStatus    @default(PENDING_REVIEW)
+  status            CampaignStatus    @default(PENDING_PAYMENT)
   statusReason      String?
   // Set once the budget is held in escrow; tasks are only shown after that.
   fundedAt          DateTime?
@@ -412,6 +465,7 @@ model Campaign {
   advertiser        User              @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
   tasks             CampaignTask[]
   reviews           CampaignReview[]
+  files             CampaignFile[]
 
   @@index([status, createdAt])
   @@index([advertiserId, createdAt])

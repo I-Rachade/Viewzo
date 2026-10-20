@@ -14,6 +14,7 @@ import {
   SocialNetwork,
   ViewSource,
 } from '@prisma/client';
+import { CampaignFilesService } from '../files/campaign-files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -28,7 +29,8 @@ const EVERY = 10 * 60 * 1000;
 /**
  * Background jobs, every 10 minutes: reminds creators to send the next
  * screenshot of a statut, reads view counts from the platforms that allow
- * it, and closes the campaigns that are over.
+ * it, closes the campaigns that are over and removes campaign files nobody
+ * attached.
  */
 @Injectable()
 export class PostsScheduler implements OnModuleInit, OnModuleDestroy {
@@ -42,6 +44,7 @@ export class PostsScheduler implements OnModuleInit, OnModuleDestroy {
     private readonly notifications: NotificationsService,
     private readonly proofs: ProofsService,
     private readonly wallet: WalletService,
+    private readonly files: CampaignFilesService,
     @Inject(VIEW_COUNTER_LIST) private readonly counters: ViewCounter[],
   ) {}
 
@@ -65,6 +68,7 @@ export class PostsScheduler implements OnModuleInit, OnModuleDestroy {
       await this.sendReminders();
       await this.fetchViews();
       await this.wallet.closeDueCampaigns();
+      await this.files.purgeOrphans();
     } catch (e) {
       this.logger.error('Background jobs failed', e as Error);
     } finally {

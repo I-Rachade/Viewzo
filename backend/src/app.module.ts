@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { CountriesModule } from './countries/countries.module';
 import { CreatorsModule } from './creators/creators.module';
+import { FilesModule } from './files/files.module';
 import { IdentityModule } from './identity/identity.module';
 import { LiveModule } from './live/live.module';
 import { MailModule } from './mail/mail.module';
@@ -41,6 +42,7 @@ import { WalletModule } from './wallet/wallet.module';
     UsersModule,
     AuthModule,
     CreatorsModule,
+    FilesModule,
     IdentityModule,
     CampaignsModule,
     WalletModule,

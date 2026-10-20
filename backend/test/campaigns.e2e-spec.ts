@@ -63,9 +63,10 @@ describe('Campaigns and tasks (e2e)', () => {
     package: 'BASIC',
     budget: 30_000,
     platforms: [{ network: 'TIKTOK', contentType: 'PROVIDED_ASSETS' }],
-    hasAssets: true,
+    contentCase: 'READY',
     assetUrls: ['https://cdn.example.com/affiche.png'],
     language: 'Français',
+    keyMessage: 'Le bissap qui rafraîchit',
   });
 
   beforeAll(async () => {
@@ -173,14 +174,18 @@ describe('Campaigns and tasks (e2e)', () => {
     await http()
       .post('/campaigns')
       .set(auth(advertiser))
-      .send({ ...basic(), hasAssets: false, noAssetsChoice: 'CREATOR_VIDEOS' })
+      .send({
+        ...basic(),
+        contentCase: 'NONE',
+        noAssetsChoice: 'CREATOR_VIDEOS',
+      })
       .expect(400);
     await http()
       .post('/campaigns')
       .set(auth(advertiser))
       .send({
         ...basic(),
-        hasAssets: false,
+        contentCase: 'NONE',
         noAssetsChoice: 'CREATOR_VIDEOS',
         platforms: [{ network: 'WHATSAPP_STATUS', contentType: 'FREE_BRIEF' }],
       })
@@ -200,7 +205,7 @@ describe('Campaigns and tasks (e2e)', () => {
       .expect(201);
     const campaign = created.body as CampaignView;
     expect(campaign).toMatchObject({
-      status: 'PENDING_REVIEW',
+      status: 'PENDING_PAYMENT',
       estimatedViews: 30_000,
       platforms: [{ network: 'TIKTOK', budget: 30_000, creators: 0 }],
     });
@@ -208,20 +213,12 @@ describe('Campaigns and tasks (e2e)', () => {
     let tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
     expect(tasks.body).toEqual([]);
 
-    await http()
-      .post(`/staff/campaigns/${campaign.id}/review`)
-      .set(auth(advertiser))
-      .send({ status: 'ACTIVE' })
-      .expect(403);
+    // The team only sees paid campaigns.
     await http()
       .post(`/staff/campaigns/${campaign.id}/review`)
       .set(auth(staff))
       .send({ status: 'ACTIVE' })
-      .expect(200);
-
-    // Tasks only show once the budget is in escrow.
-    tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
-    expect(tasks.body).toEqual([]);
+      .expect(409);
     const payment = await http()
       .post(`/campaigns/${campaign.id}/pay`)
       .set(auth(advertiser))
@@ -233,6 +230,25 @@ describe('Campaigns and tasks (e2e)', () => {
       .set(auth(advertiser))
       .expect(200)
       .expect((res) => expect(res.body).toMatchObject({ status: 'SUCCEEDED' }));
+    const paid = await http()
+      .get(`/me/campaigns/${campaign.id}`)
+      .set(auth(advertiser))
+      .expect(200);
+    expect(paid.body).toMatchObject({ status: 'PENDING_REVIEW' });
+
+    // Tasks only show once the team has approved the campaign.
+    tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
+    expect(tasks.body).toEqual([]);
+    await http()
+      .post(`/staff/campaigns/${campaign.id}/review`)
+      .set(auth(advertiser))
+      .send({ status: 'ACTIVE' })
+      .expect(403);
+    await http()
+      .post(`/staff/campaigns/${campaign.id}/review`)
+      .set(auth(staff))
+      .send({ status: 'ACTIVE' })
+      .expect(200);
 
     tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
     const [task] = tasks.body as TaskView[];
@@ -324,7 +340,7 @@ describe('Campaigns and tasks (e2e)', () => {
         ...basic(),
         package: 'PRO',
         budget: 60_000,
-        hasAssets: false,
+        contentCase: 'NONE',
         noAssetsChoice: 'CREATOR_VIDEOS',
         platforms: [
           { network: 'TIKTOK', contentType: 'FACECAM', budget: 35_000 },
@@ -334,15 +350,15 @@ describe('Campaigns and tasks (e2e)', () => {
       .expect(201);
     const campaign = created.body as CampaignView;
     expect(campaign.platforms.map((p) => p.budget)).toEqual([35_000, 25_000]);
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { fundedAt: new Date(), status: 'PENDING_REVIEW' },
+    });
     await http()
       .post(`/staff/campaigns/${campaign.id}/review`)
       .set(auth(staff))
       .send({ status: 'ACTIVE' })
       .expect(200);
-    await prisma.campaign.update({
-      where: { id: campaign.id },
-      data: { fundedAt: new Date() },
-    });
 
     let tasks = await http().get('/me/tasks').set(auth(creator)).expect(200);
     expect(tasks.body).toEqual([]);
@@ -382,6 +398,10 @@ describe('Campaigns and tasks (e2e)', () => {
       .send(basic())
       .expect(201);
     const id = (created.body as CampaignView).id;
+    await prisma.campaign.update({
+      where: { id },
+      data: { status: 'PENDING_REVIEW' },
+    });
     await http()
       .post(`/staff/campaigns/${id}/review`)
       .set(auth(staff))

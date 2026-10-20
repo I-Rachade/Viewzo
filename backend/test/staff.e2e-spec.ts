@@ -102,7 +102,7 @@ describe('Back-office (e2e)', () => {
         endsAt: new Date(Date.now() + day),
         package: 'BASIC',
         budget: 20_000,
-        hasAssets: true,
+        contentCase: 'READY',
         language: 'Français',
         status: 'ACTIVE',
         fundedAt: new Date(),

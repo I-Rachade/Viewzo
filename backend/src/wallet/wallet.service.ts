@@ -55,6 +55,13 @@ const DEFAULT_MIN_WITHDRAWAL = 1_000;
 // From this amount a second finance member must approve a withdrawal.
 const DEFAULT_SECOND_APPROVAL_FROM = 100_000;
 // A campaign closes this long after its end, once its posts are decided.
+// Older campaigns could be approved before being paid.
+const FUNDABLE: CampaignStatus[] = [
+  CampaignStatus.PENDING_PAYMENT,
+  CampaignStatus.PENDING_REVIEW,
+  CampaignStatus.ACTIVE,
+];
+
 const CLOSE_AFTER_MS = 48 * 3600 * 1000;
 
 type Tx = Prisma.TransactionClient;
@@ -91,7 +98,11 @@ export class WalletService {
           advertiserId: userId,
           fundedAt: { not: null },
           status: {
-            in: [CampaignStatus.PENDING_REVIEW, CampaignStatus.ACTIVE],
+            in: [
+              CampaignStatus.PENDING_REVIEW,
+              CampaignStatus.ACTIVE,
+              CampaignStatus.PAUSED,
+            ],
           },
         },
         select: { budget: true, spent: true },
@@ -763,9 +774,10 @@ export class WalletService {
    */
   async closeDueCampaigns(now = new Date()) {
     const candidates = await this.prisma.campaign.findMany({
-      where: { status: CampaignStatus.ACTIVE },
+      where: { status: { in: [CampaignStatus.ACTIVE, CampaignStatus.PAUSED] } },
       select: {
         id: true,
+        status: true,
         budget: true,
         spent: true,
         endsAt: true,
@@ -791,7 +803,7 @@ export class WalletService {
       // Posts still waiting for the team keep the campaign open, unless no
       // money is left to pay them.
       if (waiting > 0 && c.spent < c.budget) continue;
-      if (await this.closeCampaign(c.id, now)) closed += 1;
+      if (await this.closeCampaign(c.id, c.status, now)) closed += 1;
     }
     return closed;
   }
@@ -823,11 +835,15 @@ export class WalletService {
     return remaining;
   }
 
-  private async closeCampaign(campaignId: string, now: Date) {
+  private async closeCampaign(
+    campaignId: string,
+    status: CampaignStatus,
+    now: Date,
+  ) {
     const result = await this.prisma.$transaction(async (tx) => {
       await this.lock(tx, `campaign:${campaignId}`);
       const claimed = await tx.campaign.updateMany({
-        where: { id: campaignId, status: CampaignStatus.ACTIVE },
+        where: { id: campaignId, status },
         data: { status: CampaignStatus.COMPLETED, completedAt: now },
       });
       if (claimed.count === 0) return null;
@@ -840,7 +856,7 @@ export class WalletService {
         action: 'campaign.complete',
         entity: 'Campaign',
         entityId: campaignId,
-        before: { status: CampaignStatus.ACTIVE },
+        before: { status },
         after: { status: CampaignStatus.COMPLETED, refunded },
       });
       return { campaign, refunded };
@@ -1088,17 +1104,22 @@ export class WalletService {
         note: `Séquestre #${campaign.code}`,
       },
     });
+    // A sent campaign goes to the team once it is paid.
     await tx.campaign.update({
       where: { id: campaign.id },
-      data: { fundedAt: new Date() },
+      data: {
+        fundedAt: new Date(),
+        ...(campaign.status === CampaignStatus.PENDING_PAYMENT
+          ? { status: CampaignStatus.PENDING_REVIEW }
+          : {}),
+      },
     });
   }
 
   private isFundable(campaign: Campaign) {
     return (
       !campaign.fundedAt &&
-      (campaign.status === CampaignStatus.PENDING_REVIEW ||
-        campaign.status === CampaignStatus.ACTIVE) &&
+      FUNDABLE.includes(campaign.status) &&
       campaign.endsAt > new Date()
     );
   }

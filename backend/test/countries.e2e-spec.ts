@@ -188,9 +188,10 @@ describe('Allowed countries (e2e)', () => {
         package: 'BASIC',
         budget: 30_000,
         platforms: [{ network: 'TIKTOK', contentType: 'PROVIDED_ASSETS' }],
-        hasAssets: true,
+        contentCase: 'READY',
         assetUrls: ['https://cdn.example.com/affiche.png'],
         language: 'Français',
+        keyMessage: 'Le bissap qui rafraîchit',
       })
       .expect(400);
     expect(campaign.body).toMatchObject(closed);
