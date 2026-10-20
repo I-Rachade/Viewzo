@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'creator_models.dart';
+import 'live_models.dart';
 import 'task_models.dart';
 import 'wallet_models.dart';
 
@@ -459,6 +460,48 @@ class ApiClient {
         'operator': ?operator,
       }),
     );
+  }
+
+  /// Modules the team switched on; screens of the others stay hidden.
+  Future<List<String>> enabledModules() async {
+    final res = await _client.get(Uri.parse('$baseUrl/modules'));
+    return [for (final m in _decodeList(res)) m as String];
+  }
+
+  Future<List<LiveSale>> liveSales() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/live/sales'),
+      headers: _headers,
+    );
+    return [
+      for (final l in _decodeList(res))
+        LiveSale.fromJson(l as Map<String, dynamic>),
+    ];
+  }
+
+  Future<LiveBoard> liveBoard(String id) async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/live/sales/$id'),
+      headers: _headers,
+    );
+    return LiveBoard.fromJson(_decode(res));
+  }
+
+  Future<void> startLive(String id) => _post('/me/live/sales/$id/start', {});
+
+  Future<void> stopLive(String id) => _post('/me/live/sales/$id/stop', {});
+
+  Future<void> setLeadStatus(
+    String liveId,
+    String leadId,
+    String status,
+  ) async {
+    final res = await _client.patch(
+      Uri.parse('$baseUrl/me/live/sales/$liveId/leads/$leadId'),
+      headers: _headers,
+      body: jsonEncode({'status': status}),
+    );
+    _decode(res);
   }
 
   Map<String, String> get _headers => {

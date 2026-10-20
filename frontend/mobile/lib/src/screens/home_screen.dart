@@ -10,6 +10,7 @@ import '../wallet_models.dart';
 import 'accounts_screen.dart';
 import 'auth_widgets.dart';
 import 'connections_screen.dart';
+import 'live_screen.dart';
 import 'login_screen.dart';
 import 'notifications_screen.dart';
 import 'phone_required_screen.dart';
@@ -34,6 +35,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _offline = false;
   int _tab = 0;
   int _unread = 0;
+  // Modules the team switched on (e.g. LIVE_SALES); the others stay hidden.
+  List<String> _modules = const [];
   // Tabs are built the first time they are opened, then kept.
   final _opened = <int>{0};
   late final _fade = AnimationController(
@@ -48,6 +51,16 @@ class _HomeScreenState extends State<HomeScreen>
     _user = widget.initialUser;
     if (_user == null) _load();
     _loadUnread();
+    _loadModules();
+  }
+
+  Future<void> _loadModules() async {
+    try {
+      final modules = await widget.session.api.enabledModules();
+      if (mounted) setState(() => _modules = modules);
+    } catch (_) {
+      // Switched-on modules stay hidden until the next start.
+    }
   }
 
   Future<void> _loadUnread() async {
@@ -227,6 +240,13 @@ class _HomeScreenState extends State<HomeScreen>
                 onSkills: () =>
                     _open(SkillsScreen(api: api, country: user.country)),
                 onConnections: () => _open(ConnectionsScreen(api: api)),
+                onLive:
+                    _modules.contains('LIVE_SALES') &&
+                        user.profiles.any(
+                          (p) => p.type == ProfileType.advertiser,
+                        )
+                    ? () => _open(LiveListScreen(api: api))
+                    : null,
                 onAddContact: _addContact,
                 onLogout: _logout,
               ),
@@ -937,6 +957,7 @@ class _ProfileTab extends StatelessWidget {
     required this.onAccounts,
     required this.onSkills,
     required this.onConnections,
+    this.onLive,
     required this.onAddContact,
     required this.onLogout,
   });
@@ -944,6 +965,9 @@ class _ProfileTab extends StatelessWidget {
   final VoidCallback onAccounts;
   final VoidCallback onSkills;
   final VoidCallback onConnections;
+
+  /// Null while the live module is off or the user isn't an advertiser.
+  final VoidCallback? onLive;
   final ValueChanged<IdentifierKind> onAddContact;
   final VoidCallback onLogout;
 
@@ -1051,10 +1075,24 @@ class _ProfileTab extends StatelessWidget {
             ),
             const SizedBox(height: 24),
           ],
+          if (onLive case final onLive?) ...[
+            _Group(
+              children: [
+                tile(
+                  3,
+                  LucideIcons.radio,
+                  'Ventes en live',
+                  'Tes lives TikTok et tes acheteurs',
+                  onLive,
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+          ],
           _Group(
             children: [
               tile(
-                3,
+                4,
                 LucideIcons.logOut,
                 'Se déconnecter',
                 'Sur ce téléphone',
