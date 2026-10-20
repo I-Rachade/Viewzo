@@ -53,8 +53,13 @@ function PaymentStatus() {
         </p>
       )}
       {payment?.status === "SUCCEEDED" && (
+        <span className="done" aria-hidden="true">
+          ✓
+        </span>
+      )}
+      {payment?.status === "SUCCEEDED" && (
         <p>
-          ✓ Paiement de {formatFcfa(payment.amount)} reçu
+          Paiement de {formatFcfa(payment.amount)} reçu
           {payment.campaignId ? ", ta campagne est financée." : "."}
         </p>
       )}

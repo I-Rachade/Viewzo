@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Logo } from "../logo";
 import {
   api,
   getToken,
@@ -46,13 +47,24 @@ export default function DashboardPage() {
     router.replace("/login");
   }
 
-  if (!user) return <p>Chargement…</p>;
+  if (!user) {
+    return (
+      <div className="card">
+        <div className="skeleton" style={{ width: "60%" }} />
+        <div className="skeleton" />
+        <div className="skeleton" style={{ width: "40%" }} />
+      </div>
+    );
+  }
 
   const active = new Set(user.profiles.map((p) => p.type));
 
   return (
-    <div className="card">
-      <h1>Bienvenue</h1>
+    <div className="card stagger">
+      <h1 className="brand">
+        <Logo size={36} />
+        Bienvenue
+      </h1>
       <p>
         Tu es inscrit n° {user.priorityRank} au{" "}
         {COUNTRY_NAMES.of(user.country) ?? user.country}.
@@ -62,10 +74,12 @@ export default function DashboardPage() {
       <h2>Mes profils</h2>
       {(Object.keys(PROFILE_LABELS) as ProfileType[]).map((type) =>
         active.has(type) ? (
-          <p key={type}>
-            ✓ {PROFILE_LABELS[type]} (niveau{" "}
-            {user.profiles.find((p) => p.type === type)?.level})
-          </p>
+          <div key={type} className="line">
+            <span>{PROFILE_LABELS[type]}</span>
+            <span className="pill paid">
+              Niveau {user.profiles.find((p) => p.type === type)?.level}
+            </span>
+          </div>
         ) : (
           <button
             key={type}
@@ -78,20 +92,21 @@ export default function DashboardPage() {
       )}
       {error && <p className="error">{error}</p>}
 
-      <Link className="button" href="/wallet">
-        Mon portefeuille
-      </Link>
-      {active.has("ADVERTISER") && (
-        <Link className="button" href="/campaigns">
-          Mes campagnes
+      <nav className="nav">
+        <Link className="button" href="/wallet">
+          Mon portefeuille
         </Link>
-      )}
-
-      {user.isStaff && (
-        <Link className="button" href="/staff">
-          Back-office
-        </Link>
-      )}
+        {active.has("ADVERTISER") && (
+          <Link className="button coral" href="/campaigns">
+            Mes campagnes
+          </Link>
+        )}
+        {user.isStaff && (
+          <Link className="button secondary" href="/staff">
+            Back-office
+          </Link>
+        )}
+      </nav>
 
       <button className="secondary" onClick={logout}>
         Se déconnecter
