@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
+import '../ui/theme.dart';
+import '../ui/widgets.dart';
 import '../wallet_models.dart';
 
 /// The wallet shared by all profiles: balances, history, top-up, withdrawal.
@@ -92,6 +94,7 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget build(BuildContext context) {
     final summary = _summary;
     final text = Theme.of(context).textTheme;
+    final week = _lastSevenDays(_history);
     return Scaffold(
       appBar: AppBar(title: const Text('Mon portefeuille')),
       body: summary == null
@@ -103,61 +106,23 @@ class _WalletScreenState extends State<WalletScreen> {
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 children: [
-                  Text('Disponible', style: text.labelLarge),
+                  FadeSlideIn(
+                    child: _BalanceCard(
+                      summary: summary,
+                      onWithdraw:
+                          summary.withdrawalsOpen &&
+                              summary.available >= summary.minWithdrawal
+                          ? () => _withdraw(summary)
+                          : null,
+                      onDeposit: _deposit,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Text(
-                    formatFcfa(summary.available),
-                    style: text.headlineMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      Chip(
-                        label: Text('En attente : ${formatFcfa(summary.held)}'),
-                      ),
-                      if (summary.escrow > 0)
-                        Chip(
-                          label: Text(
-                            'Séquestre : ${formatFcfa(summary.escrow)}',
-                          ),
-                        ),
-                      if (summary.pendingWithdrawals > 0)
-                        Chip(
-                          label: Text(
-                            'Retraits en cours : '
-                            '${formatFcfa(summary.pendingWithdrawals)}',
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
                     'Les gains du mois deviennent disponibles le 1er du mois suivant.',
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    spacing: 12,
-                    children: [
-                      Expanded(
-                        child: FilledButton(
-                          onPressed:
-                              summary.withdrawalsOpen &&
-                                  summary.available >= summary.minWithdrawal
-                              ? () => _withdraw(summary)
-                              : null,
-                          child: const Text('Retirer'),
-                        ),
-                      ),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _deposit,
-                          child: const Text('Recharger'),
-                        ),
-                      ),
-                    ],
+                    style: text.bodySmall,
                   ),
                   if (!summary.withdrawalsOpen)
                     const Padding(
@@ -177,6 +142,10 @@ class _WalletScreenState extends State<WalletScreen> {
                         ),
                       ),
                     ),
+                  if (week.any((v) => v > 0)) ...[
+                    const SizedBox(height: 16),
+                    FadeSlideIn(index: 1, child: _WeekChart(days: week)),
+                  ],
                   const SizedBox(height: 24),
                   Text('Historique', style: text.titleMedium),
                   if (_history.isEmpty)
@@ -184,10 +153,199 @@ class _WalletScreenState extends State<WalletScreen> {
                       padding: EdgeInsets.only(top: 8),
                       child: Text('Aucune opération pour l’instant.'),
                     ),
-                  for (final t in _history) _TransactionTile(t),
+                  for (final (i, t) in _history.indexed)
+                    FadeSlideIn(index: i + 2, child: _TransactionTile(t)),
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// Earnings per day over the last seven days, oldest first.
+List<int> _lastSevenDays(List<WalletTransaction> history) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final days = List.filled(7, 0);
+  for (final t in history) {
+    if (t.type != 'EARNING' || t.amount <= 0) continue;
+    final d = t.createdAt;
+    final age = today.difference(DateTime(d.year, d.month, d.day)).inDays;
+    if (age >= 0 && age < 7) days[6 - age] += t.amount;
+  }
+  return days;
+}
+
+class _BalanceCard extends StatelessWidget {
+  const _BalanceCard({
+    required this.summary,
+    required this.onWithdraw,
+    required this.onDeposit,
+  });
+  final WalletSummary summary;
+  final VoidCallback? onWithdraw;
+  final VoidCallback onDeposit;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: VzColors.ink,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: 10,
+        children: [
+          Text(
+            'Disponible',
+            style: text.labelLarge?.copyWith(color: VzColors.mutedDark),
+          ),
+          AnimatedCount(
+            value: summary.available,
+            format: formatFcfa,
+            style: text.headlineMedium?.copyWith(color: Colors.white),
+          ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Pill(
+                'En attente : ${formatFcfa(summary.held)}',
+                tone: PillTone.pending,
+              ),
+              if (summary.escrow > 0)
+                Pill('Séquestre : ${formatFcfa(summary.escrow)}'),
+              if (summary.pendingWithdrawals > 0)
+                Pill(
+                  'Retraits en cours : '
+                  '${formatFcfa(summary.pendingWithdrawals)}',
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            spacing: 12,
+            children: [
+              Expanded(
+                child: Pressable(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: VzColors.coral,
+                      foregroundColor: VzColors.ink,
+                      disabledBackgroundColor: VzColors.nightLine,
+                      disabledForegroundColor: VzColors.mutedDark,
+                    ),
+                    onPressed: onWithdraw,
+                    child: const Text('Retirer'),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Pressable(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: VzColors.nightLine),
+                    ),
+                    onPressed: onDeposit,
+                    child: const Text('Recharger'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeekChart extends StatelessWidget {
+  const _WeekChart({required this.days});
+  final List<int> days;
+
+  static const _letters = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final max = days.reduce((a, b) => a > b ? a : b);
+    final total = days.fold(0, (a, b) => a + b);
+    final today = DateTime.now().weekday % 7;
+    final duration = VzMotion.of(context, VzMotion.bounce);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: 12,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Gains des 7 derniers jours',
+                    style: text.titleSmall,
+                  ),
+                ),
+                Text(
+                  '+${formatFcfa(total)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: VzColors.paidText,
+                  ),
+                ),
+              ],
+            ),
+            Semantics(
+              label: 'Gains par jour sur les 7 derniers jours',
+              child: SizedBox(
+                height: 130,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  spacing: 8,
+                  children: [
+                    for (final (i, v) in days.indexed)
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          spacing: 6,
+                          children: [
+                            TweenAnimationBuilder<double>(
+                              tween: Tween(
+                                begin: 0,
+                                end: max == 0 ? 0 : v / max,
+                              ),
+                              duration: duration + VzMotion.stagger * i,
+                              curve: VzMotion.spring,
+                              builder: (context, f, _) => Container(
+                                height: 4 + 80 * f.clamp(0, 1.2),
+                                decoration: BoxDecoration(
+                                  color: i == 6
+                                      ? VzColors.coral
+                                      : scheme.primary,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                            Text(
+                              _letters[(today - 6 + i) % 7],
+                              style: text.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -209,15 +367,32 @@ class _TransactionTile extends StatelessWidget {
         'disponible le ${_date(t.availableAt)}',
       ?t.note,
     ];
+    final positive = t.amount > 0;
+    final scheme = Theme.of(context).colorScheme;
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text(t.label),
+      leading: Container(
+        width: 40,
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: positive ? const Color(0x221FA971) : scheme.primaryContainer,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          positive ? Icons.south_west_rounded : Icons.north_east_rounded,
+          size: 20,
+          color: positive ? VzColors.paidText : scheme.primary,
+        ),
+      ),
+      title: Text(t.label, style: const TextStyle(fontWeight: FontWeight.w700)),
       subtitle: Text(details.join(' · ')),
       trailing: Text(
-        '${t.amount > 0 ? '+' : ''}${formatFcfa(t.amount)}',
+        '${positive ? '+' : ''}${formatFcfa(t.amount)}',
         style: TextStyle(
-          fontWeight: FontWeight.w600,
-          color: t.amount > 0 ? Colors.green.shade700 : null,
+          fontFamily: 'Sora',
+          fontWeight: FontWeight.w700,
+          color: positive ? VzColors.paidText : null,
         ),
       ),
     );
@@ -328,17 +503,20 @@ class _WithdrawSheetState extends State<_WithdrawSheet> {
     final s = widget.summary;
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        16,
-        16,
-        16,
-        16 + MediaQuery.of(context).viewInsets.bottom,
+        20,
+        0,
+        20,
+        24 + MediaQuery.of(context).viewInsets.bottom,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         spacing: 12,
         children: [
-          Text('Retirer', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            'Retirer mes gains',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           TextField(
             controller: _amount,
             keyboardType: TextInputType.number,
@@ -357,14 +535,17 @@ class _WithdrawSheetState extends State<_WithdrawSheet> {
             ),
           ),
           if (s.operators.isNotEmpty)
-            DropdownButtonFormField<String>(
-              initialValue: _operator,
-              decoration: const InputDecoration(labelText: 'Opérateur'),
-              items: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
                 for (final o in s.operators)
-                  DropdownMenuItem(value: o, child: Text(o)),
+                  _OperatorChoice(
+                    label: o,
+                    selected: _operator == o,
+                    onTap: () => setState(() => _operator = o),
+                  ),
               ],
-              onChanged: (v) => setState(() => _operator = v),
             ),
           const Text('Envoyé sur ton numéro Viewzo après validation.'),
           if (_error != null)
@@ -377,6 +558,47 @@ class _WithdrawSheetState extends State<_WithdrawSheet> {
             child: const Text('Demander le retrait'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _OperatorChoice extends StatelessWidget {
+  const _OperatorChoice({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Pressable(
+      child: Material(
+        color: selected ? scheme.primaryContainer : scheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: selected ? scheme.primary : scheme.outline,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: VzMotion.of(context, VzMotion.standard),
+            constraints: const BoxConstraints(minWidth: 120, minHeight: 52),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            ),
+          ),
+        ),
       ),
     );
   }
