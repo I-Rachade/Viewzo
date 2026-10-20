@@ -264,9 +264,20 @@ class ApiClient {
     ];
   }
 
-  Future<SocialAccount> addAccount(SocialNetwork network, String handle) async {
+  /// The creator confirms the account is theirs and not anonymous; the
+  /// follower count is optional, the team checks it.
+  Future<SocialAccount> addAccount(
+    SocialNetwork network,
+    String handle, {
+    int? followers,
+  }) async {
     return SocialAccount.fromJson(
-      await _post('/me/accounts', {'network': network.code, 'handle': handle}),
+      await _post('/me/accounts', {
+        'network': network.code,
+        'handle': handle,
+        'followers': ?followers,
+        'notAnonymous': true,
+      }),
     );
   }
 

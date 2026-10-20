@@ -270,8 +270,9 @@ function AccountCard({
       ) : (
         a.declaredFollowers !== null && (
           <p className="hint">
-            {a.declaredFollowers.toLocaleString("fr-FR")} déclarés, à confirmer
-            par l’équipe
+            Déclaré : {a.declaredFollowers.toLocaleString("fr-FR")}{" "}
+            {a.network === "WHATSAPP_STATUS" ? "vues par statut" : "abonnés"}, à
+            confirmer par l’équipe
           </p>
         )
       )}
