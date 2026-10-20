@@ -148,18 +148,43 @@ class _NotificationTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               spacing: 2,
               children: [
-                Text(
-                  n.title,
-                  style: theme.textTheme.p.copyWith(
-                    fontWeight: n.read ? FontWeight.w600 : FontWeight.w700,
-                    height: 1.3,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 8,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        n.title,
+                        style: theme.textTheme.p.copyWith(
+                          fontWeight: n.read
+                              ? FontWeight.w400
+                              : FontWeight.w700,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                    // Unread: a coral dot after the bold title.
+                    if (!n.read)
+                      Semantics(
+                        label: 'Non lue',
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          margin: const EdgeInsets.only(top: 7),
+                          decoration: const BoxDecoration(
+                            color: VzColors.coral,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 Text(
                   n.body,
                   style: theme.textTheme.small.copyWith(
                     fontWeight: FontWeight.w400,
                     height: 1.4,
+                    color: n.read ? colors.mutedForeground : null,
                   ),
                 ),
                 Text(

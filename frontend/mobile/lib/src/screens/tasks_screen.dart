@@ -188,22 +188,26 @@ class _TasksScreenState extends State<TasksScreen> {
           if (networks.length > 1)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _Filter(
-                    label: 'Tous',
-                    selected: _network == null,
-                    onTap: () => setState(() => _network = null),
-                  ),
-                  for (final n in networks)
+              // One row that scrolls sideways, into the list's margins.
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                clipBehavior: Clip.none,
+                child: Row(
+                  spacing: 8,
+                  children: [
                     _Filter(
-                      label: n.label,
-                      selected: _network == n,
-                      onTap: () => setState(() => _network = n),
+                      label: 'Tous',
+                      selected: _network == null,
+                      onTap: () => setState(() => _network = null),
                     ),
-                ],
+                    for (final n in networks)
+                      _Filter(
+                        label: n.label,
+                        selected: _network == n,
+                        onTap: () => setState(() => _network = n),
+                      ),
+                  ],
+                ),
               ),
             ),
           for (final (i, task) in shown.indexed)
@@ -321,6 +325,9 @@ String _views(int n) {
   }
   return out.toString();
 }
+
+/// "s" for a French plural: 0 and 1 stay singular.
+String _s(int n) => n > 1 ? 's' : '';
 
 String _time(DateTime d) =>
     '${_date(d)} à ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
@@ -470,9 +477,9 @@ class _ResultsCard extends StatelessWidget {
             const ShadSeparator.horizontal(margin: EdgeInsets.zero),
             Text(
               '${results.toReview} en vérification · ${results.needsFix} à '
-              'corriger · ${results.validated} validées · '
-              '${results.rejected} refusées',
-              style: theme.textTheme.muted.copyWith(fontSize: 13),
+              'corriger · ${results.validated} validée${_s(results.validated)} · '
+              '${results.rejected} refusée${_s(results.rejected)}',
+              style: theme.textTheme.muted.copyWith(fontSize: 13, height: 1.35),
             ),
           ],
         ),
@@ -501,17 +508,22 @@ class _AssignmentDetails extends StatelessWidget {
           if (a.reviewReason != null)
             Text(
               a.reviewReason!,
-              style: theme.textTheme.small.copyWith(color: colors.destructive),
+              style: theme.textTheme.small.copyWith(
+                color: colors.destructive,
+                height: 1.35,
+              ),
             ),
           if (a.submitted || a.screenshots > 0)
             Text(
               [
-                '${_views(a.validViews)} vues validées',
-                '${_views(a.earned)} FCFA gagnés',
+                // The figures stay on the line of their words.
+                '${_views(a.validViews)}\u00A0vue${_s(a.validViews)}\u00A0'
+                    'validée${_s(a.validViews)}',
+                '${_views(a.earned)}\u00A0FCFA\u00A0gagnés',
                 if (a.declaredViews != null && a.declaredViews != a.validViews)
-                  '${_views(a.declaredViews!)} déclarées',
+                  '${_views(a.declaredViews!)} déclarée${_s(a.declaredViews!)}',
               ].join(' · '),
-              style: theme.textTheme.small,
+              style: theme.textTheme.small.copyWith(height: 1.35),
             ),
           for (final (i, step) in a.proofSteps.indexed)
             Row(
@@ -679,8 +691,9 @@ class _TaskCard extends StatelessWidget {
               ],
             ),
             Text(
-              '${task.ratePer1000} FCFA pour 1 000 vues · '
-              'jusqu’au ${_date(brief.endsAt)}',
+              // Breaks only after the dot, never inside "jusqu’au <date>".
+              '${task.ratePer1000} FCFA pour 1 000 vues\u00A0· '
+              'jusqu’au\u00A0${_date(brief.endsAt)}',
               style: theme.textTheme.p.copyWith(
                 fontWeight: FontWeight.w700,
                 color: theme.brightness == Brightness.dark

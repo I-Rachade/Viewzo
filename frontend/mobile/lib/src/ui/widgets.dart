@@ -177,7 +177,8 @@ class Pill extends StatelessWidget {
 /// The Viewzo mark: the segmented status ring around the V.
 ///
 /// [ring] turns the ring (0 to 1 is one full turn), [draw] draws the V from
-/// 0 to 1, and [intro] grows and fades the ring in.
+/// 0 to 1, and [intro] grows and fades the ring in. [outline] draws a
+/// hairline around the tile, which keeps it visible on a dark background.
 class VzMark extends StatelessWidget {
   const VzMark({
     super.key,
@@ -186,17 +187,33 @@ class VzMark extends StatelessWidget {
     this.ring = 0,
     this.draw = 1,
     this.intro = 1,
+    this.outline,
   });
   final double size;
   final bool tile;
   final double ring;
   final double draw;
   final double intro;
+  final Color? outline;
+
+  /// The tile's hairline for the current theme: only in dark mode, where
+  /// the ink tile would otherwise melt into the background.
+  static Color? outlineFor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? Colors.white.withValues(alpha: 0.16)
+      : null;
 
   @override
   Widget build(BuildContext context) => CustomPaint(
     size: Size.square(size),
-    painter: _MarkPainter(tile: tile, ring: ring, draw: draw, intro: intro),
+    painter: _MarkPainter(
+      tile: tile,
+      ring: ring,
+      draw: draw,
+      intro: intro,
+      outline: outline,
+      unitWidth: 1 / size,
+    ),
   );
 }
 
@@ -206,11 +223,16 @@ class _MarkPainter extends CustomPainter {
     required this.ring,
     required this.draw,
     required this.intro,
+    this.outline,
+    this.unitWidth = 0,
   });
   final bool tile;
   final double ring;
   final double draw;
   final double intro;
+  final Color? outline;
+  // One logical pixel on the 64-unit grid.
+  final double unitWidth;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -225,6 +247,19 @@ class _MarkPainter extends CustomPainter {
         ),
         Paint()..color = VzColors.ink,
       );
+      if (outline case final outline?) {
+        final hairline = 64 * unitWidth;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(0, 0, 64, 64).deflate(hairline / 2),
+            Radius.circular(16 - hairline / 2),
+          ),
+          Paint()
+            ..color = outline
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = hairline,
+        );
+      }
     }
 
     const center = Offset(32, 32);
@@ -285,7 +320,11 @@ class _MarkPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_MarkPainter old) =>
-      old.ring != ring || old.draw != draw || old.intro != intro;
+      old.ring != ring ||
+      old.draw != draw ||
+      old.intro != intro ||
+      old.outline != outline ||
+      old.unitWidth != unitWidth;
 }
 
 /// A grey placeholder that shimmers while content loads. The shimmer stops

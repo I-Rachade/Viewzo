@@ -157,6 +157,9 @@ class _ConnectionTile extends StatelessWidget {
     final colors = theme.colorScheme;
     final dark = theme.brightness == Brightness.dark;
     final green = dark ? const Color(0xFF7BE0B0) : VzColors.paidText;
+    // A failing connection is flagged in amber, not shown as healthy.
+    final failing = c.lastError != null;
+    final warning = dark ? const Color(0xFFFFD27A) : const Color(0xFF8A5600);
     final status = c.connected
         ? 'Connecté${c.handle != null ? ' : ${c.handle}' : ''}'
         : c.available
@@ -172,13 +175,25 @@ class _ConnectionTile extends StatelessWidget {
             height: 42,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: c.connected ? const Color(0x221FA971) : colors.secondary,
+              color: failing
+                  ? const Color(0x33F5A524)
+                  : c.connected
+                  ? const Color(0x221FA971)
+                  : colors.secondary,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              c.connected ? LucideIcons.link : LucideIcons.unlink,
+              failing
+                  ? LucideIcons.triangleAlert
+                  : c.connected
+                  ? LucideIcons.link
+                  : LucideIcons.unlink,
               size: 20,
-              color: c.connected ? green : colors.mutedForeground,
+              color: failing
+                  ? warning
+                  : c.connected
+                  ? green
+                  : colors.mutedForeground,
             ),
           ),
           Expanded(
@@ -194,12 +209,22 @@ class _ConnectionTile extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  [status, ?c.lastError].join('\n'),
+                  status,
                   style: theme.textTheme.muted.copyWith(
                     fontSize: 13,
                     height: 1.35,
                   ),
                 ),
+                if (c.lastError case final error?)
+                  Text(
+                    error,
+                    style: theme.textTheme.muted.copyWith(
+                      fontSize: 13,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                      color: warning,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -210,11 +235,20 @@ class _ConnectionTile extends StatelessWidget {
               onPressed: busy ? null : onDisconnect,
               child: const Text('Déconnecter'),
             )
-          else
+          else if (c.available)
             ShadButton(
               size: ShadButtonSize.sm,
-              enabled: !busy && c.available,
-              onPressed: busy || !c.available ? null : onConnect,
+              enabled: !busy,
+              onPressed: busy ? null : onConnect,
+              child: const Text('Connecter'),
+            )
+          else
+            // Not offered yet: an outline in full text colour, so it stays
+            // readable once dimmed.
+            ShadButton.outline(
+              size: ShadButtonSize.sm,
+              enabled: false,
+              foregroundColor: colors.foreground,
               child: const Text('Connecter'),
             ),
         ],

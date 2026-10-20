@@ -391,15 +391,16 @@ class _BalanceCard extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: ShadButton.outline(
+                // A translucent button with the theme's radius, like Retirer.
+                child: ShadButton(
                   width: double.infinity,
                   onPressed: onDeposit,
-                  backgroundColor: const Color(0x14FFFFFF),
-                  hoverBackgroundColor: const Color(0x22FFFFFF),
-                  pressedBackgroundColor: const Color(0x22FFFFFF),
+                  backgroundColor: const Color(0x1FFFFFFF),
+                  hoverBackgroundColor: const Color(0x2EFFFFFF),
+                  pressedBackgroundColor: const Color(0x2EFFFFFF),
                   foregroundColor: Colors.white,
                   hoverForegroundColor: Colors.white,
-                  decoration: const ShadDecoration(border: ShadBorder.none),
+                  pressedForegroundColor: Colors.white,
                   leading: const Icon(LucideIcons.plus, size: 18),
                   child: const Flexible(
                     child: Text('Recharger', overflow: TextOverflow.ellipsis),
@@ -450,7 +451,8 @@ class _WeekChart extends StatelessWidget {
   const _WeekChart({required this.days});
   final List<int> days;
 
-  static const _letters = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+  // Two letters, so Mardi and Mercredi can't be confused.
+  static const _letters = ['Di', 'Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa'];
 
   @override
   Widget build(BuildContext context) {

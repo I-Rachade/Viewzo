@@ -245,6 +245,7 @@ ShadThemeData buildShadTheme(Brightness brightness) {
   final primary = dark ? VzColors.lilac : VzColors.violet;
   final tint = dark ? VzColors.violetTintDark : VzColors.violetTint;
   final onTint = dark ? const Color(0xFFC9BEFF) : VzColors.violet;
+  final mutedForeground = dark ? VzColors.mutedDark : VzColors.muted;
 
   TextStyle display(TextStyle s) =>
       s.copyWith(fontFamily: _display, letterSpacing: -0.3);
@@ -263,7 +264,7 @@ ShadThemeData buildShadTheme(Brightness brightness) {
       secondary: tint,
       secondaryForeground: onTint,
       muted: dark ? VzColors.nightLine : const Color(0xFFEFEEF5),
-      mutedForeground: dark ? VzColors.mutedDark : VzColors.muted,
+      mutedForeground: mutedForeground,
       accent: tint,
       accentForeground: onTint,
       destructive: dark ? VzColors.coral : VzColors.red,
@@ -279,8 +280,16 @@ ShadThemeData buildShadTheme(Brightness brightness) {
       h1: display(ShadTextDefaultTheme.h1(family: _display)),
       h2: display(ShadTextDefaultTheme.h2(family: _display)),
       h3: display(ShadTextDefaultTheme.h3(family: _display)),
-      h4: display(ShadTextDefaultTheme.h4(family: _display)),
+      // Section headings sit clearly below the page titles.
+      h4: display(ShadTextDefaultTheme.h4(family: _display))
+          .copyWith(fontSize: 17, height: 24 / 17, fontWeight: FontWeight.w700),
+      // shadcn_ui leaves text colours to the surrounding text style, so the
+      // secondary text carries its grey itself.
+      muted: ShadTextDefaultTheme.muted(family: _body)
+          .copyWith(color: mutedForeground),
     ),
+    // A light thumb on both tracks, so it never reads like a hole.
+    switchTheme: const ShadSwitchTheme(thumbColor: Colors.white),
     buttonSizesTheme: const ShadButtonSizesTheme(
       regular: ShadButtonSizeTheme(
         height: 48,

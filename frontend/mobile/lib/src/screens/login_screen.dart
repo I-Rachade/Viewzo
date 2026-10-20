@@ -59,6 +59,22 @@ class _LoginScreenState extends State<LoginScreen>
       body: ListView(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
         children: [
+          // The brand on top: the mark and a short welcome.
+          FadeSlideIn(
+            child: Column(
+              spacing: 16,
+              children: [
+                VzMark(size: 56, outline: VzMark.outlineFor(context)),
+                Text(
+                  'Content de te revoir',
+                  textAlign: TextAlign.center,
+                  style: ShadTheme.of(context).textTheme.h3
+                      .copyWith(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
           FadeSlideIn(
             child: IdentifierInput(
               kind: _kind,

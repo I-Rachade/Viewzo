@@ -551,7 +551,7 @@ class _HomeTabState extends State<_HomeTab> {
               child: Row(
                 spacing: 12,
                 children: [
-                  const VzMark(size: 40),
+                  VzMark(size: 40, outline: VzMark.outlineFor(context)),
                   Expanded(
                     child: Text(
                       hour >= 18 || hour < 5 ? 'Bonsoir' : 'Bonjour',
@@ -896,7 +896,7 @@ class _BecomeCreator extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           spacing: 20,
           children: [
-            const VzMark(size: 72),
+            VzMark(size: 72, outline: VzMark.outlineFor(context)),
             Text(
               'Active ton profil créateur pour recevoir des campagnes payées '
               'à la vue.',

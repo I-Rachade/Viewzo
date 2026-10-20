@@ -129,7 +129,14 @@ class _AccountsScreenState extends State<AccountsScreen> {
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 112),
+          // Room for the floating button (52), its margin and the home
+          // indicator, so the last card can scroll fully clear of it.
+          padding: EdgeInsets.fromLTRB(
+            16,
+            8,
+            16,
+            52 + 40 + MediaQuery.paddingOf(context).bottom,
+          ),
           children: [
             if (_error != null)
               Padding(
@@ -191,6 +198,7 @@ class _AccountCard extends StatelessWidget {
           children: [
             Row(
               spacing: 12,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: Column(
@@ -202,7 +210,14 @@ class _AccountCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Pill(account.status.label, tone: _tone(account.status)),
+                // Centred on the 28 px line of the network name.
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Pill(
+                    account.status.label,
+                    tone: _tone(account.status),
+                  ),
+                ),
               ],
             ),
             if (details.isNotEmpty) ...[
@@ -223,12 +238,13 @@ class _AccountCard extends StatelessWidget {
               const SizedBox(height: 16),
               _VerificationSteps(verification),
             ],
-            if (account.canRemove || account.canResubmit) ...[
+            if (account.canResubmit) ...[
               const SizedBox(height: 16),
               Align(
                 alignment: Alignment.centerRight,
                 child: Wrap(
                   alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   spacing: 8,
                   runSpacing: 8,
                   children: [
@@ -249,6 +265,21 @@ class _AccountCard extends StatelessWidget {
                         ),
                       ),
                   ],
+                ),
+              ),
+            ] else if (account.canRemove) ...[
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerRight,
+                // A compact text action whose label lines up with the
+                // card's right edge, like the status badge above it.
+                child: Transform.translate(
+                  offset: const Offset(12, 0),
+                  child: ShadButton.ghost(
+                    size: ShadButtonSize.sm,
+                    onPressed: onRemove,
+                    child: const Text('Retirer'),
+                  ),
                 ),
               ),
             ],
@@ -352,7 +383,9 @@ class _VerificationSteps extends StatelessWidget {
       spacing: 10,
       children: [
         Text(
-          '1. Enregistre le numéro Viewzo ${verification.contactNumber} '
+          // The number never breaks across two lines.
+          '1. Enregistre le numéro Viewzo '
+          '${verification.contactNumber?.replaceAll(' ', '\u00A0')} '
           'dans tes contacts.',
           style: step,
         ),
