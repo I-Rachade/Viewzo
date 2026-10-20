@@ -1,6 +1,10 @@
+import type { Viewport } from "next";
 import Link from "next/link";
 
 import { Logo } from "./logo";
+
+// The landing screen is dark from edge to edge, browser bars included.
+export const viewport: Viewport = { themeColor: "#16151d" };
 
 export default function Home() {
   return (
