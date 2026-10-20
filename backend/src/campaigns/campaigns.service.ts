@@ -659,6 +659,8 @@ export class CampaignsService {
       // Null until the budget is in escrow.
       fundedAt: c.fundedAt,
       spent: c.spent,
+      completedAt: c.completedAt,
+      refunded: c.refunded,
       hasAssets: c.hasAssets,
       noAssetsChoice: c.noAssetsChoice,
       platforms: c.tasks.map((t) => ({

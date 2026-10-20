@@ -401,6 +401,10 @@ model Campaign {
   fundedAt          DateTime?
   // Part of the escrow already paid out for validated views, in FCFA.
   spent             Int               @default(0)
+  // Closed by the system: what was left in escrow went back to the advertiser.
+  completedAt       DateTime?
+  // Escrow given back after the closing, in FCFA; spent keeps what was paid.
+  refunded          Int               @default(0)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   advertiser        User              @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
@@ -654,6 +658,7 @@ enum NotificationType {
   CAMPAIGN_REVIEWED
   WITHDRAWAL_UPDATED
   IDENTITY_REVIEWED
+  CAMPAIGN_COMPLETED
 }
 
 // In-app messages, shown in the bell on the web and in the app.

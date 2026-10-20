@@ -54,6 +54,8 @@ const CURRENCY = 'XOF';
 const DEFAULT_MIN_WITHDRAWAL = 1_000;
 // From this amount a second finance member must approve a withdrawal.
 const DEFAULT_SECOND_APPROVAL_FROM = 100_000;
+// A campaign closes this long after its end, once its posts are decided.
+const CLOSE_AFTER_MS = 48 * 3600 * 1000;
 
 type Tx = Prisma.TransactionClient;
 
@@ -537,6 +539,11 @@ export class WalletService {
     if (!assignment.task.campaign.fundedAt) {
       throw new BadRequestException('Campagne non financée');
     }
+    if (assignment.task.campaign.status === CampaignStatus.COMPLETED) {
+      throw new BadRequestException(
+        'Campagne clôturée : son budget restant a été rendu',
+      );
+    }
     if (assignment.reviewStatus === PostReviewStatus.REJECTED && !reopen) {
       throw new BadRequestException('Publication refusée');
     }
@@ -701,12 +708,16 @@ export class WalletService {
       where: { id: { in: earnings.map((t) => t.id) } },
       data: { status: TransactionStatus.CANCELLED },
     });
-    await tx.campaign.update({
+    const campaign = await tx.campaign.update({
       where: { id: a.task.campaignId },
       data: {
         spent: { decrement: advertiserCost(a.validViews, a.task.contentType) },
       },
     });
+    // A closed campaign has no escrow left: the advertiser gets the cost back.
+    if (campaign.status === CampaignStatus.COMPLETED) {
+      await this.refundRemaining(tx, campaign.id);
+    }
     await tx.taskAssignment.update({
       where: { id: assignmentId },
       data: { validViews: 0, earned: 0 },
@@ -743,6 +754,109 @@ export class WalletService {
       },
     });
     return remaining;
+  }
+
+  /**
+   * Closes the campaigns that are over: 48 h after their end, once the team
+   * has decided on every post, or as soon as their budget is used up. What is
+   * left in escrow goes back to the advertiser's wallet.
+   */
+  async closeDueCampaigns(now = new Date()) {
+    const candidates = await this.prisma.campaign.findMany({
+      where: { status: CampaignStatus.ACTIVE },
+      select: {
+        id: true,
+        budget: true,
+        spent: true,
+        endsAt: true,
+        fundedAt: true,
+      },
+    });
+    const due = candidates.filter(
+      (c) =>
+        c.endsAt.getTime() + CLOSE_AFTER_MS <= now.getTime() ||
+        (c.fundedAt !== null && c.spent >= c.budget),
+    );
+    let closed = 0;
+    for (const c of due) {
+      const waiting = await this.prisma.taskAssignment.count({
+        where: {
+          task: { campaignId: c.id },
+          status: AssignmentStatus.SUBMITTED,
+          reviewStatus: {
+            in: [PostReviewStatus.TO_REVIEW, PostReviewStatus.NEEDS_FIX],
+          },
+        },
+      });
+      // Posts still waiting for the team keep the campaign open, unless no
+      // money is left to pay them.
+      if (waiting > 0 && c.spent < c.budget) continue;
+      if (await this.closeCampaign(c.id, now)) closed += 1;
+    }
+    return closed;
+  }
+
+  /** Gives a closed campaign's unspent escrow back to the advertiser. */
+  private async refundRemaining(tx: Tx, campaignId: string) {
+    await this.lock(tx, `campaign:${campaignId}`);
+    const campaign = await tx.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+    });
+    await this.lock(tx, campaign.advertiserId);
+    if (!campaign.fundedAt) return 0;
+    const remaining = campaign.budget - campaign.spent - campaign.refunded;
+    if (remaining <= 0) return 0;
+    await tx.campaign.update({
+      where: { id: campaign.id },
+      data: { refunded: { increment: remaining } },
+    });
+    await tx.transaction.create({
+      data: {
+        userId: campaign.advertiserId,
+        type: TransactionType.REFUND,
+        amount: remaining,
+        currency: CURRENCY,
+        campaignId: campaign.id,
+        note: `Budget non dépensé #${campaign.code}`,
+      },
+    });
+    return remaining;
+  }
+
+  private async closeCampaign(campaignId: string, now: Date) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, `campaign:${campaignId}`);
+      const claimed = await tx.campaign.updateMany({
+        where: { id: campaignId, status: CampaignStatus.ACTIVE },
+        data: { status: CampaignStatus.COMPLETED, completedAt: now },
+      });
+      if (claimed.count === 0) return null;
+      const refunded = await this.refundRemaining(tx, campaignId);
+      const campaign = await tx.campaign.findUniqueOrThrow({
+        where: { id: campaignId },
+      });
+      await this.audit.record(tx, {
+        actor: null,
+        action: 'campaign.complete',
+        entity: 'Campaign',
+        entityId: campaignId,
+        before: { status: CampaignStatus.ACTIVE },
+        after: { status: CampaignStatus.COMPLETED, refunded },
+      });
+      return { campaign, refunded };
+    });
+    if (!result) return false;
+    const { campaign, refunded } = result;
+    await this.notifications.notify(campaign.advertiserId, {
+      type: NotificationType.CAMPAIGN_COMPLETED,
+      title: `Campagne terminée · #${campaign.code}`,
+      body:
+        refunded > 0
+          ? `${refunded.toLocaleString('fr-FR')} FCFA non dépensés sont revenus sur ton solde. Le rapport final est disponible.`
+          : 'Tout le budget a été utilisé. Le rapport final est disponible.',
+      link: `/campaigns/${campaign.id}`,
+    });
+    return true;
   }
 
   // ---- Internals --------------------------------------------------------

@@ -123,6 +123,9 @@ export class ReportService {
       endsAt: campaign.endsAt,
       budget: campaign.budget,
       spent: campaign.spent,
+      // Final report: when the campaign closed and what went back to the wallet.
+      completedAt: campaign.completedAt,
+      refunded: campaign.refunded,
       verifiedViews,
       unbilledViews: Math.max(0, declared - verifiedViews),
       costPer1000: verifiedViews

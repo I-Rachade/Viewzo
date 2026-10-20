@@ -76,6 +76,13 @@ export default function CampaignReportPage() {
         {STATUS_LABELS[report.status]} · du {DAY.format(new Date(report.startsAt))} au{" "}
         {DAY.format(new Date(report.endsAt))}
       </p>
+      {report.completedAt && (
+        <p className="hint">
+          Rapport final · clôturée le {DAY.format(new Date(report.completedAt))}
+          {report.refunded > 0 &&
+            ` · ${formatFcfa(report.refunded)} non dépensés rendus sur ton solde`}
+        </p>
+      )}
       <div className="stats">
         <div>
           <small>Vues vérifiées</small>

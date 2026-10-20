@@ -918,6 +918,8 @@ export interface CampaignReport {
   endsAt: string;
   budget: number;
   spent: number;
+  completedAt: string | null;
+  refunded: number;
   verifiedViews: number;
   unbilledViews: number;
   costPer1000: number | null;
