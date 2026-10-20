@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { authApi, setToken } from "@/lib/api";
+import { AuthScreen } from "../_auth/auth-screen";
 import { CodeField } from "../_auth/code-field";
 import { COUNTRIES } from "../_auth/countries";
 import { IdentifierField, IdentifierKind } from "../_auth/identifier-field";
@@ -89,12 +90,11 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="card">
-      <h1>Créer un compte</h1>
+    <AuthScreen title="Créer un compte">
       <p className="hint">Étape {step} sur 4</p>
 
       {step === 1 && (
-        <div className="card">
+        <div className="stack">
           {ROLES.map((r) => (
             <button
               key={r.role}
@@ -116,7 +116,7 @@ export default function RegisterPage() {
       )}
 
       {step === 2 && (
-        <form className="card" onSubmit={submitIdentifier}>
+        <form className="stack" onSubmit={submitIdentifier}>
           <IdentifierField
             kind={kind}
             onKindChange={setKind}
@@ -150,7 +150,7 @@ export default function RegisterPage() {
       )}
 
       {step === 3 && (
-        <form className="card" onSubmit={submitCode}>
+        <form className="stack" onSubmit={submitCode}>
           <CodeField
             sentTo={sentTo}
             value={code}
@@ -171,7 +171,7 @@ export default function RegisterPage() {
       )}
 
       {step === 4 && (
-        <form className="card" onSubmit={submitPassword}>
+        <form className="stack" onSubmit={submitPassword}>
           <NewPasswordFields
             password={password}
             confirm={confirm}
@@ -190,9 +190,9 @@ export default function RegisterPage() {
           Se connecter
         </Link>
       )}
-      <p>
+      <p className="auth-foot">
         Déjà un compte ? <Link href="/login">Se connecter</Link>
       </p>
-    </div>
+    </AuthScreen>
   );
 }

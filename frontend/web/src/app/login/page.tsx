@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { authApi, setToken } from "@/lib/api";
+import { AuthScreen } from "../_auth/auth-screen";
 import { IdentifierField, IdentifierKind } from "../_auth/identifier-field";
 import { PasswordInput } from "../_auth/password-input";
 import { useAction } from "../_auth/use-action";
@@ -35,9 +36,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="card">
-      <h1>Connexion</h1>
-      <form className="card" onSubmit={login}>
+    <AuthScreen title="Connexion">
+      <form className="stack" onSubmit={login}>
         <IdentifierField
           kind={kind}
           onKindChange={setKind}
@@ -50,13 +50,15 @@ export default function LoginPage() {
           onChange={setPassword}
           autoComplete="current-password"
         />
+        <Link className="auth-forgot" href="/mot-de-passe-oublie">
+          Mot de passe oublié ?
+        </Link>
         <button disabled={busy}>Se connecter</button>
-        <Link href="/mot-de-passe-oublie">Mot de passe oublié ?</Link>
       </form>
       {error && <p className="error">{error}</p>}
-      <p>
+      <p className="auth-foot">
         Pas encore de compte ? <Link href="/inscription">Créer un compte</Link>
       </p>
-    </div>
+    </AuthScreen>
   );
 }
