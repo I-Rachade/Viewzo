@@ -12,18 +12,33 @@ npm run db:migrate           # Tabellen anlegen
 npm run start:dev            # http://localhost:3001
 ```
 
-## SMS-Code (Login)
+## Anmeldung
 
-`OTP_PROVIDER` in `.env` wählt, wer den Code verschickt und prüft:
+Registrieren: E-Mail oder Nummer mit einem Code bestätigen, dann Passwort festlegen. Einloggen: E-Mail oder Nummer plus Passwort. Nach 5 Fehlversuchen ist das Konto 15 Minuten gesperrt. Passwörter werden mit scrypt gehasht; ein neues Passwort beendet alle anderen Sitzungen.
+
+`OTP_PROVIDER` in `.env` wählt, wer SMS-Codes verschickt und prüft:
 
 - `local` (Standard): Das Backend erzeugt den Code selbst und schreibt ihn ins Log. Für Entwicklung und Tests.
 - `didit`: [Didit](https://docs.didit.me/standalone-apis/phone-send) verschickt den Code per SMS und prüft ihn. Dafür `DIDIT_API_KEY` setzen.
+
+`MAIL_PROVIDER` wählt, wer E-Mail-Codes verschickt (das Backend erzeugt und prüft sie selbst):
+
+- leer (Standard): Die Mail landet im Log.
+- `cloudflare`: [Cloudflare Email Sending](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/). Dafür `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_EMAIL_TOKEN` (Berechtigung *Email Sending: Edit*) und optional `MAIL_FROM` (Standard `noreply@viewzo.app`) setzen.
 
 ## API
 
 | Methode | Pfad | Beschreibung |
 | --- | --- | --- |
-| `POST` | `/auth/otp/request` | `{ phone }` schickt einen Code |
+| `POST` | `/auth/register/start` | `{ identifier }` (E-Mail oder Nummer) schickt einen Code, 409 wenn schon registriert |
+| `POST` | `/auth/register/verify` | `{ identifier, code }` liefert ein `ticket` (15 Minuten gültig) |
+| `POST` | `/auth/register/complete` | `{ ticket, password, role: CREATOR \| ADVERTISER, country? }` legt das Konto an; `country` nur bei E-Mail |
+| `POST` | `/auth/login` | `{ identifier, password }` liefert `accessToken` und Nutzer; 403 `PASSWORD_NOT_SET` für alte Konten ohne Passwort |
+| `POST` | `/auth/password/forgot` | `{ identifier }` schickt einen Code, falls das Konto existiert |
+| `POST` | `/auth/password/reset` | `{ identifier, code, password }` setzt das Passwort und meldet an |
+| `POST` | `/auth/contact/request` | `{ identifier }` andere Angabe zum eigenen Konto hinzufügen (Bearer-Token) |
+| `POST` | `/auth/contact/verify` | `{ identifier, code }` bestätigt sie |
+| `POST` | `/auth/otp/request` | `{ phone }` alter Login per SMS-Code, bleibt bis zum App-Update |
 | `POST` | `/auth/otp/verify` | `{ phone, code }` liefert `accessToken` und Nutzer |
 | `GET` | `/me` | Eigenes Konto (Bearer-Token) |
 | `POST` | `/me/profiles` | `{ type: CREATOR \| ADVERTISER \| PROVIDER }` aktiviert ein Profil |

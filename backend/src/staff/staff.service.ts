@@ -18,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service';
 const MEMBER_SELECT = {
   id: true,
   phone: true,
+  email: true,
   country: true,
   createdAt: true,
 } as const;
@@ -56,7 +57,7 @@ export class StaffService {
       orderBy: { submittedAt: 'asc' },
       take: 100,
       include: {
-        creator: { select: { phone: true, country: true } },
+        creator: { select: { phone: true, email: true, country: true } },
         task: {
           include: {
             campaign: { select: { id: true, code: true, title: true } },
