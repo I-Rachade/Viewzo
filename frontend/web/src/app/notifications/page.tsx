@@ -17,6 +17,7 @@ const WEB_LINKS: Record<string, string> = {
   "/resultats": "/resultats",
   "/wallet": "/wallet",
   "/comptes": "/comptes",
+  "/identite": "/identite",
   "/campaigns": "/campaigns",
 };
 

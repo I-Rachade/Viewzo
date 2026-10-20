@@ -45,6 +45,8 @@ import {
   GatewayStatus,
   PayinResult,
 } from './gateways/gateway';
+import { IdentityService } from '../identity/identity.service';
+import { namesMatch } from '../identity/names';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentRouter } from './payment-router';
 
@@ -65,6 +67,7 @@ export class WalletService {
     private readonly router: PaymentRouter,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
+    private readonly identity: IdentityService,
   ) {}
 
   async summary(userId: string) {
@@ -291,9 +294,18 @@ export class WalletService {
         },
       },
     });
+    const verified = await this.identity.verifiedNames([
+      ...new Set(payments.map((p) => p.userId)),
+    ]);
     return payments.map((p) => ({
       ...this.toPaymentView(p),
       beneficiaryName: p.beneficiaryName,
+      // Name on the verified ID, and whether the Mobile Money holder matches.
+      verifiedName: verified.get(p.userId) ?? null,
+      nameMatches:
+        verified.has(p.userId) && p.beneficiaryName
+          ? namesMatch(verified.get(p.userId)!, p.beneficiaryName)
+          : null,
       phone: p.phone,
       operator: p.operator,
       userId: p.userId,

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'creator_models.dart';
+import 'identity_models.dart';
 import 'task_models.dart';
 import 'wallet_models.dart';
 
@@ -432,6 +433,22 @@ class ApiClient {
     );
     _decode(res);
   }
+
+  Future<IdentityStatus> identity() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/identity'),
+      headers: _headers,
+    );
+    return IdentityStatus.fromJson(_decode(res));
+  }
+
+  /// Opens a verification and returns the provider's page to send the person to.
+  Future<IdentityCheck> startIdentity() async =>
+      IdentityCheck.fromJson(await _post('/me/identity/start', {}));
+
+  /// Asks the provider again after the person comes back from its page.
+  Future<IdentityCheck> refreshIdentity() async =>
+      IdentityCheck.fromJson(await _post('/me/identity/refresh', {}));
 
   Future<WalletSummary> wallet() async {
     final res = await _client.get(

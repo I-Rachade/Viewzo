@@ -63,6 +63,7 @@ model User {
   notifications   Notification[]
   connections     SocialConnection[]
   sessions        Session[]
+  identityChecks  IdentityCheck[]
 
   @@unique([country, priorityRank])
 }
@@ -124,6 +125,50 @@ model UserProfile {
 
 // Countries Viewzo works in, set by super admins in the back-office. Country
 // pickers on the web and in the app only offer the enabled ones.
+enum IdentityCheckStatus {
+  STARTED // the person is on the provider's pages
+  IN_REVIEW // waiting for the team
+  APPROVED // level 2 given
+  DECLINED // may try again
+  ABANDONED // expired or left before the end
+}
+
+// One identity verification (ID document, selfie, liveness) of a person.
+// Approval raises the creator and advertiser profiles to level 2. Only what
+// the team needs is kept: no images, and the document number as a hash.
+model IdentityCheck {
+  id                  String              @id @default(uuid())
+  userId              String
+  // didit, or local on a developer machine.
+  provider            String
+  sessionId           String?             @unique
+  url                 String?
+  status              IdentityCheckStatus @default(STARTED)
+  // The provider's own status, e.g. Approved, In Review, Declined.
+  providerStatus      String?
+  fullName            String?
+  dateOfBirth         String?
+  documentType        String?
+  documentCountry     String?
+  documentNumberLast4 String?
+  // HMAC of the document number: finds one document used by two accounts.
+  documentNumberHash  String?
+  livenessScore       Float?
+  faceMatchScore      Float?
+  // Why the check was declined or sent to the team.
+  reason              String?
+  reviewerId          String?
+  reviewedAt          DateTime?
+  checkedAt           DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([documentNumberHash])
+}
+
 model AllowedCountry {
   // ISO 3166-1 alpha-2.
   code      String   @id
@@ -608,6 +653,7 @@ enum NotificationType {
   ACCOUNT_REVIEWED
   CAMPAIGN_REVIEWED
   WITHDRAWAL_UPDATED
+  IDENTITY_REVIEWED
 }
 
 // In-app messages, shown in the bell on the web and in the app.

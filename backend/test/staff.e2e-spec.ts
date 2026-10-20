@@ -76,6 +76,7 @@ describe('Back-office (e2e)', () => {
       (await http().get('/staff/overview').set(auth(staff)).expect(200)).body,
     ).toEqual({
       accounts: 0,
+      identity: 0,
       campaigns: 0,
       withdrawals: 0,
       assignments: 0,
@@ -140,6 +141,7 @@ describe('Back-office (e2e)', () => {
       (await http().get('/staff/overview').set(auth(staff)).expect(200)).body,
     ).toEqual({
       accounts: 1,
+      identity: 0,
       campaigns: 0,
       withdrawals: 0,
       assignments: 1,

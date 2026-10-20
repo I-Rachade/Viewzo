@@ -11,6 +11,7 @@ import '../wallet_models.dart';
 import 'accounts_screen.dart';
 import 'auth_widgets.dart';
 import 'connections_screen.dart';
+import 'identity_screen.dart';
 import 'login_screen.dart';
 import 'notifications_screen.dart';
 import 'phone_required_screen.dart';
@@ -75,6 +76,8 @@ class _HomeScreenState extends State<HomeScreen>
                 _select(2);
               case '/comptes':
                 _open(AccountsScreen(api: api, phone: _user?.phone ?? ''));
+              case '/identite':
+                _open(IdentityScreen(api: api));
             }
           },
         ),
@@ -228,6 +231,7 @@ class _HomeScreenState extends State<HomeScreen>
                 onSkills: () =>
                     _open(SkillsScreen(api: api, country: user.country)),
                 onConnections: () => _open(ConnectionsScreen(api: api)),
+                onIdentity: () => _open(IdentityScreen(api: api)),
                 onAddContact: _addContact,
                 onLogout: _logout,
               ),
@@ -941,6 +945,7 @@ class _ProfileTab extends StatelessWidget {
     required this.onAccounts,
     required this.onSkills,
     required this.onConnections,
+    required this.onIdentity,
     required this.onAddContact,
     required this.onLogout,
   });
@@ -948,6 +953,7 @@ class _ProfileTab extends StatelessWidget {
   final VoidCallback onAccounts;
   final VoidCallback onSkills;
   final VoidCallback onConnections;
+  final VoidCallback onIdentity;
   final ValueChanged<IdentifierKind> onAddContact;
   final VoidCallback onLogout;
 
@@ -1057,10 +1063,26 @@ class _ProfileTab extends StatelessWidget {
             ),
             const SizedBox(height: 24),
           ],
+          if (user.profiles.any((p) => p.type != ProfileType.provider)) ...[
+            _Group(
+              children: [
+                tile(
+                  3,
+                  LucideIcons.idCard,
+                  'Mon identité',
+                  user.profiles.any((p) => p.level >= 2)
+                      ? 'Vérifiée · niveau 2'
+                      : 'Pièce et selfie pour le niveau 2',
+                  onIdentity,
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+          ],
           _Group(
             children: [
               tile(
-                3,
+                4,
                 LucideIcons.logOut,
                 'Se déconnecter',
                 'Sur ce téléphone',

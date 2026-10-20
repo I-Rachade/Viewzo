@@ -7,6 +7,7 @@ import {
   AccountStatus,
   AssignmentStatus,
   CampaignStatus,
+  IdentityCheckStatus,
   PaymentKind,
   PaymentStatus,
   PostReviewStatus,
@@ -49,7 +50,7 @@ export class StaffService {
   async overview(actor: StaffActor) {
     const user = userInScope(actor);
     const scope = countryScope(actor);
-    const [accounts, campaigns, withdrawals, assignments, alerts] =
+    const [accounts, campaigns, withdrawals, assignments, alerts, identity] =
       await Promise.all([
         this.prisma.socialAccount.count({
           where: { status: AccountStatus.PENDING, user },
@@ -83,9 +84,13 @@ export class StaffService {
             creator: user,
           },
         }),
+        this.prisma.identityCheck.count({
+          where: { status: IdentityCheckStatus.IN_REVIEW, user },
+        }),
       ]);
     return {
       accounts,
+      identity,
       campaigns,
       withdrawals,
       assignments,

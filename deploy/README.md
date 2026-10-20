@@ -86,6 +86,8 @@ chmod 600 /opt/viewzo/.env
 
 Pflicht: `DOMAIN`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `OTP_SECRET`, `TOKEN_ENCRYPTION_KEY` (je `openssl rand -hex 32`, alle verschieden), `DIDIT_API_KEY`, `MAIL_PROVIDER` samt Cloudflare-Schlüsseln, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
 
+Für Stufe 2 (Identitätsprüfung) im Didit-Konsole einen Workflow mit Ausweis, Selfie und Lebenderkennung anlegen, seine ID in `DIDIT_KYC_WORKFLOW_ID` eintragen und als Webhook `https://api.<DOMAIN>/identity/webhooks/didit` hinterlegen. Ohne diese ID bleibt die Prüfung geschlossen; die API startet trotzdem.
+
 Die API startet in Produktion nicht, wenn eine dieser Bedingungen verletzt ist, und nennt im Log den Grund (`docker compose logs api`):
 
 - `JWT_SECRET`, `OTP_SECRET` und `TOKEN_ENCRYPTION_KEY` haben mindestens 32 Zeichen, `TOKEN_ENCRYPTION_KEY` ist nicht gleich `JWT_SECRET`.

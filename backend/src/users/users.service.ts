@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  IdentityCheckStatus,
   Prisma,
   ProfileType,
   User,
@@ -148,9 +149,15 @@ export class UsersService {
   }
 
   async activateProfile(userId: string, type: ProfileType) {
+    // A verified identity counts for every profile that depends on it.
+    const verified =
+      type !== ProfileType.PROVIDER &&
+      (await this.prisma.identityCheck.count({
+        where: { userId, status: IdentityCheckStatus.APPROVED },
+      })) > 0;
     await this.prisma.userProfile.upsert({
       where: { userId_type: { userId, type } },
-      create: { userId, type },
+      create: { userId, type, level: verified ? 2 : 1 },
       update: {},
     });
     return this.getById(userId);

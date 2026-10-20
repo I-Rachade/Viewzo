@@ -539,6 +539,49 @@ export const accountsApi = {
     call<void>(`/me/accounts/${id}`, { method: "DELETE" }),
 };
 
+export type IdentityStatus =
+  | "STARTED"
+  | "IN_REVIEW"
+  | "APPROVED"
+  | "DECLINED"
+  | "ABANDONED";
+
+export const IDENTITY_STATUS_LABELS: Record<IdentityStatus, string> = {
+  STARTED: "Commencée",
+  IN_REVIEW: "En examen par l’équipe",
+  APPROVED: "Vérifiée",
+  DECLINED: "Refusée",
+  ABANDONED: "Interrompue",
+};
+
+export interface IdentityCheckView {
+  id: string;
+  status: IdentityStatus;
+  // The provider's page, while the check is open.
+  url: string | null;
+  fullName: string | null;
+  documentType: string | null;
+  reason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+export interface IdentityStatusView {
+  available: boolean;
+  verified: boolean;
+  needsProfile: boolean;
+  check: IdentityCheckView | null;
+  retryAfter: string | null;
+}
+
+export const identityApi = {
+  status: () => call<IdentityStatusView>("/me/identity"),
+  start: () =>
+    call<IdentityCheckView>("/me/identity/start", { method: "POST" }),
+  refresh: () =>
+    call<IdentityCheckView>("/me/identity/refresh", { method: "POST" }),
+};
+
 interface StaffUser {
   phone: string | null;
   email?: string | null;
@@ -580,6 +623,7 @@ export interface StaffOverview {
   // The member's own role and countries (empty: all countries).
   me: { staffRole: StaffRole; countries: string[] };
   accounts: number;
+  identity: number;
   campaigns: number;
   withdrawals: number;
   // Posts waiting for review, and those the fraud rules flag.
@@ -623,7 +667,23 @@ export interface StaffWithdrawal extends PaymentView {
   // Large withdrawals need two different finance members.
   needsSecondApproval: boolean;
   firstApprovedById: string | null;
+  // Name on the verified ID and whether the Mobile Money holder matches it.
+  verifiedName: string | null;
+  nameMatches: boolean | null;
   user: StaffUser & { profiles: { type: ProfileType; level: number }[] };
+}
+
+export interface StaffIdentityCheck extends IdentityCheckView {
+  userId: string;
+  user: StaffUser & { profiles: { type: ProfileType; level: number }[] };
+  dateOfBirth: string | null;
+  documentCountry: string | null;
+  documentNumberLast4: string | null;
+  livenessScore: number | null;
+  faceMatchScore: number | null;
+  providerStatus: string | null;
+  // Other accounts that showed the same document.
+  sameDocumentUsers: string[];
 }
 
 export interface StaffMember {
@@ -683,6 +743,11 @@ export const staffApi = {
     id: string,
     input: { outcome: "SUCCEEDED" | "FAILED"; reason: string },
   ) => call<PaymentView>(`/staff/withdrawals/${id}/resolve`, post(input)),
+  identityChecks: () => call<StaffIdentityCheck[]>("/staff/identity"),
+  reviewIdentity: (
+    id: string,
+    input: { decision: "APPROVE" | "DECLINE"; reason?: string },
+  ) => call<IdentityCheckView>(`/staff/identity/${id}/review`, post(input)),
   members: () => call<StaffMember[]>("/staff/members"),
   addMember: (phone: string, rights: MemberRights) =>
     call<StaffMember>("/staff/members", post({ phone, ...rights })),

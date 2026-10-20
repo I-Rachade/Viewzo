@@ -208,10 +208,15 @@ export default function WalletPage() {
           </button>
         </form>
       ) : (
-        <p>
-          Les retraits s’ouvrent au niveau 2, après la vérification de ton
-          identité.
-        </p>
+        <div className="card">
+          <p>
+            Les retraits s’ouvrent au niveau 2, après la vérification de ton
+            identité : une pièce d’identité et un selfie, en quelques minutes.
+          </p>
+          <Link className="button" href="/identite">
+            Vérifier mon identité
+          </Link>
+        </div>
       )}
       {message && <Toast message={message} onDone={() => setMessage(null)} />}
       {error && <p className="error">{error}</p>}
