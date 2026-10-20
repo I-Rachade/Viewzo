@@ -484,6 +484,61 @@ export const ACCOUNT_STATUS_LABELS: Record<AccountStatus, string> = {
   SUSPENDED: "Suspendu",
 };
 
+export type AutoRejection = "NOT_FOUND" | "ANONYMOUS";
+export type FollowersSource = "CREATOR" | "ADMIN" | "SYSTEM";
+
+export const AUTO_REJECTION_LABELS: Record<AutoRejection, string> = {
+  NOT_FOUND: "Compte introuvable",
+  ANONYMOUS: "Compte anonyme",
+};
+
+export const FOLLOWERS_SOURCE_LABELS: Record<FollowersSource, string> = {
+  CREATOR: "déclaré par le créateur",
+  ADMIN: "saisi par l’équipe",
+  SYSTEM: "lu sur le réseau",
+};
+
+// A creator's account in "Mes comptes".
+export interface MyAccount {
+  id: string;
+  network: SocialNetwork;
+  handle: string;
+  status: AccountStatus;
+  statusReason: string | null;
+  retryAfter: string | null;
+  reviewDueAt: string | null;
+  followers: number | null;
+  avgStatusViews: number | null;
+  declaredFollowers: number | null;
+  autoRejection: AutoRejection | null;
+  // How to prove the account is theirs, while it is being checked.
+  verification: {
+    kind: "BIO_CODE" | "WHATSAPP";
+    code: string;
+    contactNumber?: string;
+    whatsappLink?: string;
+  } | null;
+  createdAt: string;
+}
+
+export const accountsApi = {
+  list: () => call<MyAccount[]>("/me/accounts"),
+  add: (input: {
+    network: SocialNetwork;
+    handle: string;
+    followers?: number;
+    notAnonymous: boolean;
+  }) =>
+    call<MyAccount>("/me/accounts", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  resubmit: (id: string) =>
+    call<MyAccount>(`/me/accounts/${id}/resubmit`, { method: "POST" }),
+  remove: (id: string) =>
+    call<void>(`/me/accounts/${id}`, { method: "DELETE" }),
+};
+
 interface StaffUser {
   phone: string | null;
   email?: string | null;
@@ -536,13 +591,24 @@ export interface StaffAccount {
   id: string;
   network: SocialNetwork;
   handle: string;
+  profileUrl: string | null;
   verificationCode: string;
   status: AccountStatus;
   statusReason: string | null;
   followers: number | null;
   avgStatusViews: number | null;
+  declaredFollowers: number | null;
+  followersSource: FollowersSource | null;
+  notAnonymousConfirmed: boolean;
+  autoRejection: AutoRejection | null;
+  autoCheckedAt: string | null;
   submittedAt: string;
-  user: StaffUser;
+  user: StaffUser & { id: string };
+  otherAccounts: {
+    network: SocialNetwork;
+    handle: string;
+    status: AccountStatus;
+  }[];
 }
 
 export interface StaffCampaign extends CampaignView {
@@ -583,6 +649,9 @@ const post = (body: object) => ({
 export const staffApi = {
   overview: () => call<StaffOverview>("/staff/overview"),
   accounts: () => call<StaffAccount[]>("/staff/accounts"),
+  // Accounts the system refused on its own, so the team can catch mistakes.
+  autoRejectedAccounts: () =>
+    call<StaffAccount[]>("/staff/accounts?auto=1"),
   accountByCode: (code: string) =>
     call<StaffAccount>(`/staff/accounts/by-code/${encodeURIComponent(code)}`),
   reviewAccount: (
