@@ -10,8 +10,10 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt.strategy';
+import { proofSource } from '../posts/posts.controller';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { QuoteDto } from './dto/quote.dto';
@@ -71,10 +73,15 @@ export class CampaignsController {
   @Post('me/assignments/:id/submit')
   @HttpCode(200)
   submit(
-    @Req() req: { user: AuthUser },
+    @Req() req: Request & { user: AuthUser },
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SubmitPostDto,
   ) {
-    return this.campaigns.submit(req.user.userId, id, dto.postUrl);
+    return this.campaigns.submit(
+      req.user.userId,
+      id,
+      dto.postUrl,
+      proofSource(req),
+    );
   }
 }

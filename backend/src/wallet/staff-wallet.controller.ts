@@ -57,9 +57,10 @@ export class StaffWalletController {
   @Post('assignments/:id/views')
   @HttpCode(200)
   recordViews(
+    @Req() req: { user: AuthUser },
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RecordViewsDto,
   ) {
-    return this.wallet.recordViews(id, dto.totalViews);
+    return this.wallet.recordViews(id, dto.totalViews, req.user.userId);
   }
 }
