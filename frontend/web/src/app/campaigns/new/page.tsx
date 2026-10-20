@@ -21,6 +21,7 @@ import {
   Unavailable,
   UserView,
 } from "@/lib/api";
+import { LoadingCard } from "../../loading-card";
 
 // Content types that post or reuse the advertiser's own elements.
 const NEEDS_ASSETS: ContentType[] = ["PROVIDED_ASSETS", "VIDEO_WITH_POSTERS"];
@@ -98,7 +99,7 @@ export default function NewCampaignPage() {
     return () => clearTimeout(timer);
   }, [user, pkg, budget, platforms]);
 
-  if (!user) return <p>Chargement…</p>;
+  if (!user) return <LoadingCard />;
 
   const advertiser = user.profiles.find((p) => p.type === "ADVERTISER");
   if (!advertiser) {

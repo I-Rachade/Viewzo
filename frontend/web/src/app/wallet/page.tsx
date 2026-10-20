@@ -14,6 +14,8 @@ import {
   WalletTransaction,
 } from "@/lib/api";
 import { CountUp } from "../count-up";
+import { LoadingCard } from "../loading-card";
+import { Toast } from "../toast";
 
 const PAYMENT_TONES: Record<PaymentView["status"], string> = {
   REQUESTED: "pending",
@@ -102,7 +104,7 @@ export default function WalletPage() {
   }
 
   if (!summary) {
-    return error ? <p className="error">{error}</p> : <p>Chargement…</p>;
+    return error ? <p className="error">{error}</p> : <LoadingCard />;
   }
 
   return (
@@ -211,7 +213,7 @@ export default function WalletPage() {
           identité.
         </p>
       )}
-      {message && <p>{message}</p>}
+      {message && <Toast message={message} onDone={() => setMessage(null)} />}
       {error && <p className="error">{error}</p>}
 
       {withdrawals.length > 0 && (

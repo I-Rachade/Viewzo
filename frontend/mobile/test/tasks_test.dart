@@ -75,8 +75,18 @@ void main() {
     expect(find.textContaining('au plus 30 s'), findsOneWidget);
 
     await tester.tap(find.text('Accepter'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(
+      find.text('Tâche acceptée, retrouve-la dans Mes tâches'),
+      findsOneWidget,
+    );
     await tester.pumpAndSettle();
     expect(find.text('Accepter'), findsNothing);
+    expect(
+      find.text('Tâche acceptée, retrouve-la dans Mes tâches'),
+      findsNothing,
+    );
 
     await tester.tap(find.text('Mes tâches'));
     await tester.pumpAndSettle();
@@ -98,5 +108,44 @@ void main() {
 
     expect(submitted, {'postUrl': 'https://www.tiktok.com/@ama/video/1'});
     expect(find.text('Lien envoyé'), findsOneWidget);
+  });
+
+  testWidgets('filters the tasks by network', (tester) async {
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      if (path == '/me/tasks') {
+        return json([
+          task('t1'),
+          {
+            ...task('t2'),
+            'network': 'INSTAGRAM',
+            'campaign': {
+              ...(task('t2')['campaign'] as Map),
+              'title': 'Promo boutique Lomé',
+            },
+          },
+        ]);
+      }
+      if (path == '/me/assignments') return json([]);
+      return http.Response('', 404);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TasksScreen(api: ApiClient(client: client)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Lancement jus Bissap'), findsOneWidget);
+    expect(find.text('Promo boutique Lomé'), findsOneWidget);
+
+    await tester.tap(find.text('Instagram').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Lancement jus Bissap'), findsNothing);
+    expect(find.text('Promo boutique Lomé'), findsOneWidget);
+
+    await tester.tap(find.text('Tous'));
+    await tester.pumpAndSettle();
+    expect(find.text('Lancement jus Bissap'), findsOneWidget);
   });
 }

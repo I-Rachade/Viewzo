@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../api_client.dart';
 import '../session.dart';
+import '../task_models.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import '../wallet_models.dart';
@@ -265,12 +266,15 @@ class _HomeTab extends StatefulWidget {
 
 class _HomeTabState extends State<_HomeTab> {
   WalletSummary? _wallet;
+  List<CampaignTask>? _tasks;
 
   @override
   void initState() {
     super.initState();
-    _loadWallet();
+    _refresh();
   }
+
+  Future<void> _refresh() => Future.wait([_loadWallet(), _loadTasks()]);
 
   Future<void> _loadWallet() async {
     try {
@@ -278,6 +282,18 @@ class _HomeTabState extends State<_HomeTab> {
       if (mounted) setState(() => _wallet = wallet);
     } catch (_) {
       // The balance card simply stays hidden.
+    }
+  }
+
+  Future<void> _loadTasks() async {
+    if (!widget.user.profiles.any((p) => p.type == ProfileType.creator)) {
+      return;
+    }
+    try {
+      final tasks = await widget.api.availableTasks();
+      if (mounted) setState(() => _tasks = tasks);
+    } catch (_) {
+      // The preview simply stays hidden.
     }
   }
 
@@ -293,7 +309,7 @@ class _HomeTabState extends State<_HomeTab> {
 
     return SafeArea(
       child: RefreshIndicator(
-        onRefresh: _loadWallet,
+        onRefresh: _refresh,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           children: [
@@ -373,6 +389,14 @@ class _HomeTabState extends State<_HomeTab> {
                   ),
                 ),
               ),
+              for (final task in (_tasks ?? const <CampaignTask>[]).take(3))
+                FadeSlideIn(
+                  index: i++,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: _TaskPreview(task: task, onTap: widget.onCampaigns),
+                  ),
+                ),
             ],
             const SizedBox(height: 24),
             Text('Mes profils', style: text.titleMedium),
@@ -411,6 +435,55 @@ class _HomeTabState extends State<_HomeTab> {
                   child: const Text('Activer'),
                 ),
               ),
+      ),
+    );
+  }
+}
+
+/// One open campaign on the home screen; the full brief is in Campagnes.
+class _TaskPreview extends StatelessWidget {
+  const _TaskPreview({required this.task, required this.onTap});
+  final CampaignTask task;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Pressable(
+      scale: 0.98,
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    spacing: 6,
+                    children: [
+                      Text(
+                        task.brief.title,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Pill(task.network.label, tone: PillTone.paid),
+                    ],
+                  ),
+                ),
+                Text(
+                  '${task.ratePer1000} F / 1 000 vues',
+                  style: TextStyle(
+                    fontFamily: 'Sora',
+                    fontWeight: FontWeight.w700,
+                    color: dark ? const Color(0xFF7BE0B0) : VzColors.paidText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
