@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { authApi, setToken } from "@/lib/api";
+import { AuthScreen } from "../_auth/auth-screen";
 import { CodeField } from "../_auth/code-field";
 import { IdentifierField, IdentifierKind } from "../_auth/identifier-field";
 import { NewPasswordFields, passwordsReady } from "../_auth/password-input";
@@ -59,8 +60,7 @@ function ForgotPassword() {
   }
 
   return (
-    <div className="card">
-      <h1>{first ? "Définis ton mot de passe" : "Mot de passe oublié"}</h1>
+    <AuthScreen title={first ? "Définis ton mot de passe" : "Mot de passe oublié"}>
       {first && (
         <p>
           Ton compte n&apos;a pas encore de mot de passe. Reçois un code pour en
@@ -68,7 +68,7 @@ function ForgotPassword() {
         </p>
       )}
       {sentTo === null ? (
-        <form className="card" onSubmit={submitIdentifier}>
+        <form className="stack" onSubmit={submitIdentifier}>
           <IdentifierField
             kind={kind}
             onKindChange={setKind}
@@ -78,7 +78,7 @@ function ForgotPassword() {
           <button disabled={busy}>Recevoir un code</button>
         </form>
       ) : (
-        <form className="card" onSubmit={submitReset}>
+        <form className="stack" onSubmit={submitReset}>
           <CodeField
             sentTo={sentTo}
             value={code}
@@ -99,9 +99,9 @@ function ForgotPassword() {
         </form>
       )}
       {error && <p className="error">{error}</p>}
-      <p>
+      <p className="auth-foot">
         <Link href="/login">Retour à la connexion</Link>
       </p>
-    </div>
+    </AuthScreen>
   );
 }

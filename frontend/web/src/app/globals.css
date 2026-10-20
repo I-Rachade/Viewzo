@@ -21,6 +21,7 @@
   --pending-on-tint: #8a5600;
   --refused-tint: #ffe3e3;
   --refused-on-tint: #b42318;
+  --field: #f7f7fb;
 
   --fast: 150ms;
   --standard: 240ms;
@@ -51,6 +52,7 @@
     --pending-on-tint: #ffd27a;
     --refused-tint: #3a1f26;
     --refused-on-tint: #ffb3b3;
+    --field: #22212d;
   }
 }
 
@@ -549,6 +551,108 @@ a.chip {
   );
   background-size: 200% 100%;
   animation: vz-shimmer 1.2s linear infinite;
+}
+
+/* Sign-in screens: dark Viewzo header, the form on a sheet below. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth {
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  animation: vz-rise var(--wide) var(--ease-out) backwards;
+}
+
+.auth-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 24px 54px;
+  text-align: center;
+  color: #f1f0f7;
+  background: radial-gradient(120% 90% at 50% 0%, #3a2a7a 0%, var(--ink) 70%);
+}
+
+.auth-head strong {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.auth-head p {
+  color: #a3a1b5;
+  font-size: 0.9rem;
+}
+
+.auth-sheet {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: -26px;
+  padding: 26px 20px 20px;
+  border-radius: 26px 26px 0 0;
+  background: var(--surface);
+}
+
+.auth-sheet h1 {
+  font-size: 1.6rem;
+}
+
+.auth input,
+.auth select {
+  min-height: 50px;
+  background: var(--field);
+}
+
+.auth input:focus,
+.auth select:focus {
+  background: var(--surface);
+}
+
+.auth .segmented {
+  padding: 4px;
+  gap: 4px;
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.auth .segmented button {
+  min-height: 40px;
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.auth .segmented button.selected {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+}
+
+.auth .chip {
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--field);
+}
+
+a.auth-forgot {
+  align-self: flex-end;
+  margin-top: -6px;
+  font-size: 0.9rem;
+}
+
+.auth-foot {
+  margin-top: auto;
+  padding-top: 8px;
+  text-align: center;
 }
 
 /* The landing screen. */
@@ -1422,6 +1526,23 @@ a.notification {
   .topbar {
     padding-top: max(8px, env(safe-area-inset-top));
     background: color-mix(in srgb, var(--surface) 88%, transparent);
+  }
+
+  /* Sign-in screens fill the phone the same way. */
+  .auth {
+    min-height: 100dvh;
+    margin: calc(-1 * max(24px, env(safe-area-inset-top))) -16px
+      calc(-1 * max(32px, env(safe-area-inset-bottom)));
+    border: none;
+    border-radius: 0;
+  }
+
+  .auth-head {
+    padding-top: max(28px, calc(env(safe-area-inset-top) + 12px));
+  }
+
+  .auth-sheet {
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
   }
 
   /* The landing screen covers its page's padding instead of the page
