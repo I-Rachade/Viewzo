@@ -45,7 +45,7 @@ export default function PhonePage() {
   function submitCode(e: FormEvent) {
     e.preventDefault();
     run(async () => {
-      updateUser(await authApi.contactVerify(sentTo!, code));
+      updateUser(await authApi.contactVerify(phone, code));
       router.replace("/dashboard");
     });
   }
