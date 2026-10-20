@@ -1558,3 +1558,127 @@ a.notification {
       max(32px, env(safe-area-inset-bottom));
   }
 }
+
+/* Country picker: a select that shows flags closed, flag and name open. */
+.country-select {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.country-trigger {
+  justify-content: space-between;
+  min-height: 0;
+  padding: 6px 12px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 400;
+}
+
+.country-trigger:focus-visible,
+.country-trigger[aria-expanded="true"] {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.auth .country-trigger {
+  min-height: 50px;
+  background: var(--field);
+}
+
+.country-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.country-empty {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.country-chevron {
+  color: var(--muted);
+}
+
+.country-required {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.country-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: max(100%, 240px);
+  max-width: calc(100vw - 32px);
+  padding: 6px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.14);
+  font-weight: 400;
+}
+
+.country-menu.right {
+  left: auto;
+  right: 0;
+}
+
+.country-menu input {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.country-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.country-menu li.hint {
+  padding: 10px;
+  color: var(--muted);
+}
+
+.country-menu button {
+  width: 100%;
+  min-height: 44px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+}
+
+.country-menu button:hover,
+.country-menu button[aria-selected="true"] {
+  background: var(--accent-tint);
+}
+
+.country-option-flag {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.country-check {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 700;
+}

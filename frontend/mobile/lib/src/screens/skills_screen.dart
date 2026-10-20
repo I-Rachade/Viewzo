@@ -3,6 +3,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../api_client.dart';
 import '../creator_models.dart';
+import '../ui/country_select.dart';
 import '../ui/widgets.dart';
 
 /// The creator skills form; tasks are only offered for the skills declared here.
@@ -31,7 +32,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
   final _editingSoftware = TextEditingController();
   final _exampleLinks = TextEditingController();
   final _languages = TextEditingController(text: 'Français');
-  late final _countries = TextEditingController(text: widget.country);
+  late var _countries = [widget.country];
   final _cities = TextEditingController();
   final _tasksPerWeek = TextEditingController(text: '3');
 
@@ -42,7 +43,6 @@ class _SkillsScreenState extends State<SkillsScreen> {
     _editingSoftware,
     _exampleLinks,
     _languages,
-    _countries,
     _cities,
     _tasksPerWeek,
   ];
@@ -84,7 +84,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
     _editingSoftware.text = s.editingSoftware ?? '';
     _exampleLinks.text = s.exampleLinks.join('\n');
     _languages.text = s.languages.join(', ');
-    _countries.text = s.countries.join(', ');
+    _countries = s.countries;
     _cities.text = s.cities.join(', ');
     _tasksPerWeek.text = '${s.tasksPerWeek}';
   }
@@ -116,7 +116,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
           editingSoftware: _optional(_editingSoftware),
           exampleLinks: _split(_exampleLinks, RegExp(r'\s+')),
           languages: _split(_languages, ','),
-          countries: [for (final c in _split(_countries, ',')) c.toUpperCase()],
+          countries: _countries,
           cities: _split(_cities, ','),
           themes: _themes.toList(),
           tasksPerWeek: int.tryParse(_tasksPerWeek.text.trim()) ?? 0,
@@ -184,7 +184,25 @@ class _SkillsScreenState extends State<SkillsScreen> {
                 ),
                 _section('Langues et zones'),
                 _field(_languages, 'Langues parlées en vidéo (virgules)'),
-                _field(_countries, 'Pays où tu peux tourner (TG, BJ…)'),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    spacing: 8,
+                    children: [
+                      Text(
+                        'Pays où tu peux tourner',
+                        style: ShadTheme.of(context).textTheme.small,
+                      ),
+                      CountryMultiSelect(
+                        key: const Key('countries'),
+                        api: widget.api,
+                        value: _countries,
+                        onChanged: (codes) => _countries = codes,
+                      ),
+                    ],
+                  ),
+                ),
                 _field(_cities, 'Villes (virgules)'),
                 _section('Thématiques'),
                 _chips(creatorThemes, (t) => t, _themes),

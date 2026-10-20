@@ -21,6 +21,7 @@ import {
   Unavailable,
   UserView,
 } from "@/lib/api";
+import { CountryMultiSelect } from "../../country-select";
 import { LoadingCard } from "../../loading-card";
 
 // Content types that post or reuse the advertiser's own elements.
@@ -44,7 +45,7 @@ export default function NewCampaignPage() {
   const [user, setUser] = useState<UserView | null>(null);
   const [title, setTitle] = useState("");
   const [objective, setObjective] = useState<CampaignObjective>("AWARENESS");
-  const [countries, setCountries] = useState("");
+  const [countries, setCountries] = useState<string[]>([]);
   const [cities, setCities] = useState("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
@@ -82,7 +83,7 @@ export default function NewCampaignPage() {
       .me()
       .then((u) => {
         setUser(u);
-        setCountries(u.country);
+        setCountries([u.country]);
       })
       .catch(() => router.replace("/login"));
   }, [router]);
@@ -174,7 +175,7 @@ export default function NewCampaignPage() {
       .create({
         title,
         objective,
-        countries: lines(countries).map((c) => c.toUpperCase()),
+        countries,
         cities: lines(cities),
         startsAt: new Date(`${startsAt}T00:00:00`).toISOString(),
         endsAt: new Date(`${endsAt}T23:59:59`).toISOString(),
@@ -232,10 +233,10 @@ export default function NewCampaignPage() {
       </label>
       <div className="row">
         <label>
-          Pays (codes, ex. TG, BJ)
-          <input
+          Pays
+          <CountryMultiSelect
             value={countries}
-            onChange={(e) => setCountries(e.target.value)}
+            onChange={setCountries}
             required
           />
         </label>

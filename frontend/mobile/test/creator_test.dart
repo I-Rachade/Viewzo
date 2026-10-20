@@ -123,6 +123,9 @@ void main() {
         // Like the server, answer in UTF-8.
         return http.Response.bytes(utf8.encode(jsonEncode(saved)), 200);
       }
+      if (request.url.path == '/countries') {
+        return http.Response(jsonEncode(['TG', 'BJ']), 200);
+      }
       return http.Response('', 200);
     });
     final api = ApiClient(client: client, baseUrl: 'http://test');
@@ -151,6 +154,15 @@ void main() {
     await tester.scrollUntilVisible(find.text('Food'), 200, scrollable: form);
     await tester.tap(find.text('Food'));
     await tester.pump();
+    // Countries are picked from the list; closed, only their flags show.
+    await tester.scrollUntilVisible(find.text('🇹🇬'), -200, scrollable: form);
+    await tester.tap(find.text('🇹🇬'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bénin'));
+    await tester.pumpAndSettle();
+    await tester.tapAt(Offset.zero);
+    await tester.pumpAndSettle();
+    expect(find.text('🇹🇬 🇧🇯'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('Enregistrer'),
       200,
@@ -162,7 +174,7 @@ void main() {
     expect(saved, isNotNull);
     expect(saved!['taskTypes'], ['POST_PROVIDED_VIDEO']);
     expect(saved!['themes'], ['Food']);
-    expect(saved!['countries'], ['TG']);
+    expect(saved!['countries'], ['TG', 'BJ']);
     expect(saved!['languages'], ['Français']);
     // Back on the previous screen once saved.
     expect(find.byType(SkillsScreen), findsNothing);

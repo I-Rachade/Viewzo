@@ -13,6 +13,7 @@ import {
   StaffPostRow,
   staffPostsApi,
 } from "@/lib/api";
+import { CountrySelect } from "../../country-select";
 import { LoadingCard } from "../../loading-card";
 import { RiskBadge } from "../_sections/risk-badge";
 import { useStaffOnly } from "../_sections/use-staff";
@@ -58,7 +59,7 @@ function Publications() {
         .list({
           status,
           network: network || undefined,
-          country: country.length === 2 ? country : undefined,
+          country: country || undefined,
           q: q.trim() || undefined,
           sort,
         })
@@ -112,13 +113,11 @@ function Publications() {
         </label>
         <label>
           Pays
-          <input
+          <CountrySelect
             id="filter-country"
             value={country}
-            maxLength={2}
-            placeholder="TG"
-            size={4}
-            onChange={(e) => setCountry(e.target.value.toUpperCase())}
+            emptyLabel="Tous"
+            onChange={setCountry}
           />
         </label>
         <label style={{ flex: "1 1 200px" }}>

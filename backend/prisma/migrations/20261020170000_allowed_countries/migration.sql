@@ -1,0 +1,27 @@
+-- CreateTable
+CREATE TABLE "AllowedCountry" (
+    "code" TEXT NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AllowedCountry_pkey" PRIMARY KEY ("code")
+);
+
+-- The countries the email sign-up offered until now.
+INSERT INTO "AllowedCountry" ("code", "updatedAt") VALUES
+  ('TG', CURRENT_TIMESTAMP),
+  ('BJ', CURRENT_TIMESTAMP),
+  ('CI', CURRENT_TIMESTAMP),
+  ('SN', CURRENT_TIMESTAMP),
+  ('BF', CURRENT_TIMESTAMP),
+  ('ML', CURRENT_TIMESTAMP),
+  ('NE', CURRENT_TIMESTAMP),
+  ('CM', CURRENT_TIMESTAMP),
+  ('GH', CURRENT_TIMESTAMP),
+  ('NG', CURRENT_TIMESTAMP),
+  ('GN', CURRENT_TIMESTAMP),
+  ('GA', CURRENT_TIMESTAMP),
+  ('CD', CURRENT_TIMESTAMP),
+  ('CG', CURRENT_TIMESTAMP),
+  ('FR', CURRENT_TIMESTAMP);

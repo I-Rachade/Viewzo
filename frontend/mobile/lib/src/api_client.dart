@@ -181,6 +181,12 @@ class ApiClient {
     );
   }
 
+  /// ISO2 codes of the countries Viewzo works in, set in the back-office.
+  Future<List<String>> allowedCountries() async {
+    final res = await _client.get(Uri.parse('$baseUrl/countries'));
+    return [for (final c in _decodeList(res)) c as String];
+  }
+
   Future<UserView> login(String identifier, String password) async {
     return _signIn(
       await _post('/auth/login', {

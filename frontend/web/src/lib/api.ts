@@ -618,6 +618,23 @@ export const staffApi = {
     call<void>(`/staff/members/${id}`, { method: "DELETE" }),
 };
 
+export interface AllowedCountry {
+  code: string;
+  enabled: boolean;
+}
+
+// Countries Viewzo works in; the list is public, changes are super admin only.
+export const countriesApi = {
+  enabled: () => call<string[]>("/countries"),
+  all: () => call<AllowedCountry[]>("/staff/countries"),
+  add: (code: string) => call<AllowedCountry>("/staff/countries", post({ code })),
+  set: (code: string, enabled: boolean) =>
+    call<AllowedCountry>(`/staff/countries/${code}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    }),
+};
+
 // ---- Posts, proofs and reviews -------------------------------------------
 
 export type PostReviewStatus = "TO_REVIEW" | "VALIDATED" | "NEEDS_FIX" | "REJECTED";
