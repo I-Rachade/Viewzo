@@ -136,3 +136,5 @@ Jedes Image ist auch mit dem Commit-Hash getaggt:
 ```bash
 IMAGE_TAG=<commit-sha> docker compose up -d
 ```
+
+Ohne `IMAGE_TAG` startet `docker compose up -d` die Version, die zuletzt automatisch deployt wurde. Das Deployment markiert sie auf dem Server zusätzlich als `latest`.

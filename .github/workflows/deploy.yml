@@ -85,6 +85,8 @@ jobs:
           scp deploy/docker-compose.yml deploy/Caddyfile \
             "deploy@${{ vars.DEPLOY_HOST }}:/opt/viewzo/"
       - name: Pull and restart
+        # The pulled images are also tagged latest on the server, so a manual
+        # `docker compose up -d` without IMAGE_TAG starts this version too.
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -93,6 +95,9 @@ jobs:
             && docker login ghcr.io -u '${{ github.actor }}' --password-stdin \
             && export IMAGE_TAG='${{ github.sha }}' \
             && docker compose pull \
+            && for img in \$(docker compose config --images | grep \":\$IMAGE_TAG\$\"); do \
+                 docker tag \"\$img\" \"\${img%:*}:latest\" || true; \
+               done \
             && docker compose up -d --remove-orphans \
             && docker image prune -f \
             && docker logout ghcr.io"
