@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import {
+  contactOf,
   CONTENT_TYPE_LABELS,
   formatFcfa,
   NETWORK_LABELS,
   PACKAGE_LABELS,
-  StaffCampaign,
   staffApi,
+  StaffCampaign,
 } from "@/lib/api";
 import { DATE, useQueue } from "./use-queue";
 
@@ -56,7 +57,7 @@ function CampaignCard({
         <span className="status">{c.fundedAt ? "Payée" : "Non payée"}</span>
       </header>
       <p>
-        {c.advertiser.phone} ({c.advertiser.country}) ·{" "}
+        {contactOf(c.advertiser)} ({c.advertiser.country}) ·{" "}
         {PACKAGE_LABELS[c.package]} · {formatFcfa(c.budget)} ·{" "}
         {c.countries.join(", ")}
       </p>

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { staffApi } from "@/lib/api";
+import { contactOf, staffApi } from "@/lib/api";
 import { DATE, useQueue } from "./use-queue";
 
 export function TeamSection({ selfId }: { selfId: string }) {
@@ -35,7 +35,7 @@ export function TeamSection({ selfId }: { selfId: string }) {
       {queue.items?.map((m) => (
         <div key={m.id} className="line">
           <span>
-            {m.phone}
+            {contactOf(m)}
             <br />
             <small>
               {m.country} · inscrit le {DATE.format(new Date(m.createdAt))}

@@ -284,3 +284,43 @@ textarea {
   align-items: center;
   gap: 12px;
 }
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.segmented button {
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.segmented button.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.password {
+  position: relative;
+}
+
+.password input {
+  padding-right: 90px;
+}
+
+.password button {
+  position: absolute;
+  right: 8px;
+  bottom: 12px;
+}
+
+button.link {
+  background: transparent;
+  color: var(--accent);
+  padding: 0 4px;
+  font-weight: 600;
+}

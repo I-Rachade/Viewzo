@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import {
+  contactOf,
   CONTENT_TYPE_LABELS,
   formatFcfa,
   NETWORK_LABELS,
-  StaffAssignment,
   staffApi,
+  StaffAssignment,
 } from "@/lib/api";
 import { DATE, useQueue } from "./use-queue";
 
@@ -69,7 +70,7 @@ function ViewsCard({
         </a>
       )}
       <p className="hint">
-        {a.creator.phone} ({a.creator.country}) ·{" "}
+        {contactOf(a.creator)} ({a.creator.country}) ·{" "}
         {CONTENT_TYPE_LABELS[a.contentType]} · budget {formatFcfa(a.taskBudget)}
         {a.submittedAt &&
           ` · envoyé le ${DATE.format(new Date(a.submittedAt))}`}

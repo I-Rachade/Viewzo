@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api_client.dart';
 import '../session.dart';
 import 'accounts_screen.dart';
+import 'auth_widgets.dart';
 import 'login_screen.dart';
 import 'skills_screen.dart';
 import 'tasks_screen.dart';
@@ -44,6 +45,14 @@ class _HomeScreenState extends State<HomeScreen> {
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     }
+  }
+
+  Future<void> _addContact(IdentifierKind kind) async {
+    final user = await showDialog<UserView>(
+      context: context,
+      builder: (_) => _AddContactDialog(api: widget.session.api, kind: kind),
+    );
+    if (user != null) setState(() => _user = user);
   }
 
   void _open(Widget screen) {
@@ -97,6 +106,23 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
                 const SizedBox(height: 24),
                 Text(
+                  'E-mail et téléphone',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                _contactTile(
+                  Icons.mail_outline,
+                  user.email,
+                  'Ajouter un e-mail',
+                  IdentifierKind.email,
+                ),
+                _contactTile(
+                  Icons.phone_outlined,
+                  user.phone,
+                  'Ajouter un numéro',
+                  IdentifierKind.phone,
+                ),
+                const SizedBox(height: 24),
+                Text(
                   'Mes profils',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
@@ -125,7 +151,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     onTap: () => _open(
                       AccountsScreen(
                         api: widget.session.api,
-                        phone: user.phone,
+                        phone: user.phone ?? '',
                       ),
                     ),
                   ),
@@ -161,6 +187,25 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _contactTile(
+    IconData icon,
+    String? value,
+    String addLabel,
+    IdentifierKind kind,
+  ) {
+    return ListTile(
+      dense: true,
+      leading: Icon(icon),
+      title: Text(value ?? 'Non renseigné'),
+      trailing: value == null
+          ? TextButton(
+              onPressed: () => _addContact(kind),
+              child: Text(addLabel),
+            )
+          : null,
+    );
+  }
+
   Widget _profileTile(UserView user, ProfileType type) {
     final profile = user.profiles.where((p) => p.type == type).firstOrNull;
     if (profile != null) {
@@ -177,6 +222,88 @@ class _HomeScreenState extends State<HomeScreen> {
         onPressed: () => _activate(type),
         child: const Text('Activer'),
       ),
+    );
+  }
+}
+
+/// Asks for the missing e-mail or number, sends it a code and confirms it.
+/// Pops with the refreshed user once verified.
+class _AddContactDialog extends StatefulWidget {
+  const _AddContactDialog({required this.api, required this.kind});
+  final ApiClient api;
+  final IdentifierKind kind;
+
+  @override
+  State<_AddContactDialog> createState() => _AddContactDialogState();
+}
+
+class _AddContactDialogState extends State<_AddContactDialog>
+    with CodeFormState<_AddContactDialog> {
+  final _identifier = TextEditingController();
+  final _code = TextEditingController();
+
+  bool get _email => widget.kind == IdentifierKind.email;
+
+  Future<void> _request() => run(() async {
+    final identifier = _identifier.text.trim();
+    final to = await widget.api.contactRequest(identifier);
+    codeSent(to, identifier);
+  });
+
+  Future<void> _verify() => run(() async {
+    final user = await widget.api.contactVerify(sentInput!, _code.text.trim());
+    if (mounted) Navigator.of(context).pop(user);
+  });
+
+  @override
+  void dispose() {
+    _identifier.dispose();
+    _code.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entering = sentTo != null;
+    return AlertDialog(
+      title: Text(_email ? 'Ajouter un e-mail' : 'Ajouter un numéro'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!entering)
+            TextField(
+              key: const Key('contact'),
+              controller: _identifier,
+              keyboardType: _email
+                  ? TextInputType.emailAddress
+                  : TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: _email ? 'Adresse e-mail' : 'Numéro de téléphone',
+                hintText: _email ? 'nom@exemple.com' : '+228 90 12 34 56',
+              ),
+            )
+          else ...[
+            Text('Code envoyé à $sentTo'),
+            const SizedBox(height: 8),
+            Text(codeHint, style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
+            CodeField(controller: _code),
+            resendButton(_request),
+          ],
+          errorText(),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
+        FilledButton(
+          onPressed: busy ? null : (entering ? _verify : _request),
+          child: Text(entering ? 'Valider' : 'Recevoir un code'),
+        ),
+      ],
     );
   }
 }
