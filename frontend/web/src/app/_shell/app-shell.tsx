@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Logo } from "../logo";
 import { Icon, IconName } from "./icons";
 import { Mode, useSession } from "./session";
 
 // Pages shown without the menu: the landing page and the sign-in flow.
 const PUBLIC = ["/", "/login", "/inscription", "/mot-de-passe-oublie"];
+// Logged in, but in the sign-in look: the phone a creator must add.
+const PHONE_PAGE = "/telephone";
 
 interface Item {
   href: string;
@@ -52,10 +54,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { user, mode, setMode, unread, staff, logout } = useSession();
   const [open, setOpen] = useState(false);
+  // Creators signed up by e-mail add a phone before anything else.
+  const blocked = !!user?.phoneRequired && mode === "CREATOR";
 
-  if (PUBLIC.includes(pathname) || !user) {
+  useEffect(() => {
+    if (blocked && !PUBLIC.includes(pathname) && pathname !== PHONE_PAGE) {
+      router.replace(PHONE_PAGE);
+    }
+  }, [blocked, pathname, router]);
+
+  if (PUBLIC.includes(pathname) || pathname === PHONE_PAGE || !user) {
     return <main className="container">{children}</main>;
   }
+  // On the way to the phone page.
+  if (blocked) return null;
 
   const types = new Set(user.profiles.map((p) => p.type));
   const main = itemsFor(mode);

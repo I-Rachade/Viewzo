@@ -46,6 +46,8 @@ interface Session {
   staff: StaffOverview | null;
   refreshStaff: () => void;
   logout: () => void;
+  // After an API call that returns the updated account.
+  updateUser: (user: UserView) => void;
 }
 
 const SessionContext = createContext<Session | null>(null);
@@ -155,6 +157,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         staff,
         refreshStaff,
         logout,
+        updateUser: setUser,
       }}
     >
       {children}

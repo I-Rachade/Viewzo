@@ -14,6 +14,8 @@ export interface UserView {
   phone: string | null;
   email: string | null;
   hasPassword: boolean;
+  // A creator without a verified phone; only /telephone is open to them.
+  phoneRequired: boolean;
   country: string;
   priorityRank: number;
   isFounder: boolean;
@@ -135,6 +137,12 @@ async function send(path: string, init: RequestInit): Promise<Response> {
 async function parse<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // Safety net: the menu already sends these creators to /telephone.
+    if (body.code === "PHONE_REQUIRED" && typeof window !== "undefined") {
+      if (window.location.pathname !== "/telephone") {
+        window.location.replace("/telephone");
+      }
+    }
     const message = Array.isArray(body.message)
       ? body.message[0]
       : body.message;
