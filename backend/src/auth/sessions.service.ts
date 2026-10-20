@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User, UserRole } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
@@ -9,6 +13,8 @@ export const ACCESS_TOKEN_TTL = '15m';
 const USER_SESSION_MS = 30 * 24 * 3600 * 1000;
 // Back-office sessions end after a working day.
 const STAFF_SESSION_MS = 12 * 3600 * 1000;
+// How long the token just replaced may still arrive from another tab.
+const ROTATION_GRACE_MS = 30 * 1000;
 
 export interface ClientInfo {
   userAgent?: string;
@@ -68,11 +74,14 @@ export class SessionsService {
       throw new UnauthorizedException('Session expirée, reconnecte-toi');
     }
     const next = this.newToken(id);
+    const presented = hash(refreshToken);
     // Only the current token may be swapped; a reused old one ends it all.
     const swapped = await this.prisma.session.updateMany({
-      where: { id, tokenHash: hash(refreshToken), revokedAt: null },
+      where: { id, tokenHash: presented, revokedAt: null },
       data: {
         tokenHash: hash(next),
+        previousTokenHash: presented,
+        rotatedAt: new Date(),
         lastUsedAt: new Date(),
         ip: client.ip,
         // Sliding for users, fixed for the back-office.
@@ -82,6 +91,17 @@ export class SessionsService {
       },
     });
     if (swapped.count === 0) {
+      // Read again: the other tab may have renewed it after our first read.
+      const now = await this.prisma.session.findUniqueOrThrow({
+        where: { id },
+      });
+      const raced =
+        !now.revokedAt &&
+        now.previousTokenHash === presented &&
+        !!now.rotatedAt &&
+        Date.now() - now.rotatedAt.getTime() < ROTATION_GRACE_MS;
+      // Another tab just renewed it: the new cookie is on its way, no alarm.
+      if (raced) throw new ConflictException('Session déjà renouvelée');
       await this.revoke(id);
       throw new UnauthorizedException('Session expirée, reconnecte-toi');
     }

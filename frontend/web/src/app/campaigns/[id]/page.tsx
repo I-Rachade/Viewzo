@@ -18,8 +18,10 @@ const DAY = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" })
 const COUNTRY_NAMES = new Intl.DisplayNames(["fr"], { type: "region" });
 
 function csvCell(v: string | number | null) {
-  const s = v == null ? "" : String(v);
-  return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = v == null ? "" : String(v);
+  // A cell starting like a formula would run in the spreadsheet: keep it text.
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 // Validated posts as a spreadsheet the advertiser can keep.

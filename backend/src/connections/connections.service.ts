@@ -138,9 +138,10 @@ export class ConnectionsService {
       where: { userId_network: { userId, network } },
     });
     if (!account || account.status === AccountStatus.SUSPENDED) {
-      throw new BadRequestException(
-        'Ajoute d’abord ce compte dans « Mes comptes »',
-      );
+      throw new BadRequestException({
+        message: 'Ajoute d’abord ce compte dans « Mes comptes »',
+        code: 'NOT_DECLARED',
+      });
     }
     const declared = normalizeHandle(account.handle);
     const connected = tokens.handle ? normalizeHandle(tokens.handle) : null;
@@ -150,9 +151,10 @@ export class ConnectionsService {
       declared &&
       connected !== declared
     ) {
-      throw new BadRequestException(
-        `Ce compte (@${connected}) n’est pas celui déclaré (@${declared})`,
-      );
+      throw new BadRequestException({
+        message: `Ce compte (@${connected}) n’est pas celui déclaré (@${declared})`,
+        code: 'OTHER_ACCOUNT',
+      });
     }
     if (tokens.externalId) {
       const other = await this.prisma.socialConnection.findFirst({
@@ -163,9 +165,10 @@ export class ConnectionsService {
         },
       });
       if (other) {
-        throw new BadRequestException(
-          'Ce compte est déjà relié à un autre compte Viewzo',
-        );
+        throw new BadRequestException({
+          message: 'Ce compte est déjà relié à un autre compte Viewzo',
+          code: 'LINKED_ELSEWHERE',
+        });
       }
     }
   }

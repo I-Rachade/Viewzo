@@ -5,10 +5,9 @@ import { useEffect, useState } from "react";
 import { Logo } from "../logo";
 import {
   api,
-  getToken,
+  hasSession,
   PROFILE_LABELS,
   ProfileType,
-  setToken,
   UserView,
 } from "@/lib/api";
 import { ContactSection } from "./contact-section";
@@ -21,16 +20,17 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!getToken()) {
+    if (!hasSession()) {
       router.replace("/login");
       return;
     }
     api
       .me()
       .then(setUser)
-      .catch(() => {
-        setToken(null);
-        router.replace("/login");
+      .catch((e) => {
+        // Only an expired session leads back to the login page.
+        if (!hasSession()) router.replace("/login");
+        else setError((e as Error).message);
       });
   }, [router]);
 

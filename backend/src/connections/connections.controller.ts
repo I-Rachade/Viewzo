@@ -86,11 +86,15 @@ export class ConnectionCallbackController {
       return back('ok');
     } catch (e) {
       this.logger.warn(`${network} callback: ${(e as Error).message}`);
-      // Our own refusals (wrong account) are worth showing to the creator.
-      return back(
-        'error',
-        e instanceof BadRequestException ? e.message : undefined,
-      );
+      // Our own refusals (wrong account) are shown to the creator, as a code:
+      // free text in the link could be used to show anything on our page.
+      const response =
+        e instanceof BadRequestException ? e.getResponse() : undefined;
+      const reason =
+        typeof response === 'object' && response && 'code' in response
+          ? String(response.code)
+          : undefined;
+      return back('error', reason);
     }
   }
 }

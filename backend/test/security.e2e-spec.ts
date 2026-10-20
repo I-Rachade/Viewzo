@@ -127,7 +127,11 @@ describe('Sessions, roles and money safety (e2e)', () => {
       expect(next.refreshToken).not.toEqual(first.refreshToken);
       await http().get('/me').set(auth(next.accessToken)).expect(200);
 
-      // The old token again: someone copied it, so the session ends for both.
+      // The old token again, well after the renewal: someone copied it, so
+      // the session ends for both.
+      await prisma.session.updateMany({
+        data: { rotatedAt: new Date(Date.now() - 60_000) },
+      });
       await http()
         .post('/auth/refresh')
         .send({ refreshToken: first.refreshToken })
@@ -137,6 +141,18 @@ describe('Sessions, roles and money safety (e2e)', () => {
         .post('/auth/refresh')
         .send({ refreshToken: next.refreshToken })
         .expect(401);
+    });
+
+    it('lets two tabs renew at the same moment without ending the session', async () => {
+      const s = (await login('+22895000015')).body as Session;
+      const results = await Promise.all(
+        [1, 2].map(() =>
+          http().post('/auth/refresh').send({ refreshToken: s.refreshToken }),
+        ),
+      );
+      expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+      const winner = results.find((r) => r.status === 200)!.body as Session;
+      await http().get('/me').set(auth(winner.accessToken)).expect(200);
     });
 
     it('ends the session on logout', async () => {

@@ -1,18 +1,84 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { contactOf, staffApi } from "@/lib/api";
+import {
+  contactOf,
+  MemberRights,
+  STAFF_ROLE_LABELS,
+  staffApi,
+  StaffMember,
+  StaffRole,
+} from "@/lib/api";
+import { confirmed } from "./confirm";
 import { DATE, useQueue } from "./use-queue";
+
+const ROLES = Object.keys(STAFF_ROLE_LABELS) as StaffRole[];
+
+// "TG, bj" → ["TG", "BJ"]; empty means every country.
+function parseCountries(text: string) {
+  return text
+    .split(/[\s,;]+/)
+    .map((c) => c.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function RightsFields({
+  role,
+  countries,
+  onRole,
+  onCountries,
+}: {
+  role: StaffRole;
+  countries: string;
+  onRole: (role: StaffRole) => void;
+  onCountries: (text: string) => void;
+}) {
+  return (
+    <>
+      <label>
+        Rôle
+        <select value={role} onChange={(e) => onRole(e.target.value as StaffRole)}>
+          {ROLES.map((r) => (
+            <option key={r} value={r}>
+              {STAFF_ROLE_LABELS[r]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {role !== "SUPER_ADMIN" && (
+        <label>
+          Pays (codes, ex. TG, BJ)
+          <input
+            value={countries}
+            onChange={(e) => onCountries(e.target.value)}
+            placeholder={role === "COUNTRY_MANAGER" ? "TG" : "Tous les pays"}
+            required={role === "COUNTRY_MANAGER"}
+          />
+        </label>
+      )}
+    </>
+  );
+}
+
+function rights(role: StaffRole, countries: string): MemberRights {
+  return {
+    staffRole: role,
+    countries: role === "SUPER_ADMIN" ? [] : parseCountries(countries),
+  };
+}
 
 export function TeamSection({ selfId }: { selfId: string }) {
   const queue = useQueue(staffApi.members, () => {});
   const [phone, setPhone] = useState("");
+  const [role, setRole] = useState<StaffRole>("MODERATOR");
+  const [countries, setCountries] = useState("");
 
   function add(e: FormEvent) {
     e.preventDefault();
     queue.act(async () => {
-      await staffApi.addMember(phone);
+      await staffApi.addMember(phone, rights(role, countries));
       setPhone("");
+      setCountries("");
     });
   }
 
@@ -28,32 +94,103 @@ export function TeamSection({ selfId }: { selfId: string }) {
             required
           />
         </label>
+        <RightsFields
+          role={role}
+          countries={countries}
+          onRole={setRole}
+          onCountries={setCountries}
+        />
         <button disabled={queue.busy}>Ajouter</button>
       </form>
-      <p className="hint">La personne doit s’être connectée une fois.</p>
+      <p className="hint">
+        La personne doit s’être connectée une fois. Chacun ne voit que ses pays
+        et ne décide jamais sur ses propres comptes ou retraits.
+      </p>
       {queue.error && <p className="error">{queue.error}</p>}
       {queue.items?.map((m) => (
-        <div key={m.id} className="line">
-          <span>
-            {contactOf(m)}
-            <br />
-            <small>
-              {m.country} · inscrit le {DATE.format(new Date(m.createdAt))}
-            </small>
-          </span>
-          {m.id === selfId ? (
-            <small>Toi</small>
-          ) : (
-            <button
-              className="secondary"
-              disabled={queue.busy}
-              onClick={() => queue.act(() => staffApi.removeMember(m.id))}
-            >
-              Retirer
-            </button>
-          )}
-        </div>
+        <MemberLine
+          key={m.id}
+          member={m}
+          self={m.id === selfId}
+          busy={queue.busy}
+          onSave={(r) => queue.act(() => staffApi.updateMember(m.id, r))}
+          onRemove={() => {
+            if (!confirmed(`Retirer ${contactOf(m)} de l’équipe ? Ses sessions se ferment aussitôt.`)) {
+              return;
+            }
+            queue.act(() => staffApi.removeMember(m.id));
+          }}
+        />
       ))}
     </>
+  );
+}
+
+function MemberLine({
+  member: m,
+  self,
+  busy,
+  onSave,
+  onRemove,
+}: {
+  member: StaffMember;
+  self: boolean;
+  busy: boolean;
+  onSave: (rights: MemberRights) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [role, setRole] = useState(m.staffRole);
+  const [countries, setCountries] = useState(m.staffCountries.join(", "));
+  const scope = m.staffCountries.length ? m.staffCountries.join(", ") : "tous les pays";
+
+  if (editing) {
+    return (
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave(rights(role, countries));
+          setEditing(false);
+        }}
+      >
+        <span>{contactOf(m)}</span>
+        <RightsFields
+          role={role}
+          countries={countries}
+          onRole={setRole}
+          onCountries={setCountries}
+        />
+        <button disabled={busy}>Enregistrer</button>
+        <button type="button" className="secondary" onClick={() => setEditing(false)}>
+          Annuler
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <div className="line">
+      <span>
+        {contactOf(m)}
+        <br />
+        <small>
+          {STAFF_ROLE_LABELS[m.staffRole]} · {scope} · inscrit le{" "}
+          {DATE.format(new Date(m.createdAt))}
+        </small>
+      </span>
+      {self ? (
+        <small>Toi</small>
+      ) : (
+        <span className="actions">
+          <button className="secondary" disabled={busy} onClick={() => setEditing(true)}>
+            Modifier
+          </button>
+          <button className="secondary" disabled={busy} onClick={onRemove}>
+            Retirer
+          </button>
+        </span>
+      )}
+    </div>
   );
 }

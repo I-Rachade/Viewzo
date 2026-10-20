@@ -74,6 +74,10 @@ model Session {
   userId     String
   // sha256 of the current refresh token.
   tokenHash  String    @unique
+  // The token it replaced, accepted without alarm for a few seconds: two
+  // browser tabs may refresh at the same moment with the same cookie.
+  previousTokenHash String?
+  rotatedAt         DateTime?
   expiresAt  DateTime
   revokedAt  DateTime?
   lastUsedAt DateTime  @default(now())

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import {
   formatFcfa,
-  getToken,
+  hasSession,
   PAYMENT_STATUS_LABELS,
   PaymentView,
   TRANSACTION_LABELS,
@@ -55,7 +55,7 @@ export default function WalletPage() {
   }
 
   useEffect(() => {
-    if (!getToken()) {
+    if (!hasSession()) {
       router.replace("/login");
       return;
     }
