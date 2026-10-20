@@ -68,7 +68,6 @@ export class CampaignsController {
   }
 
   @Get('me/assignments')
-  @UseGuards(PhoneVerifiedGuard)
   myAssignments(@Req() req: { user: AuthUser }) {
     return this.campaigns.myAssignments(req.user.userId);
   }

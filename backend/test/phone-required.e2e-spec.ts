@@ -95,15 +95,17 @@ describe('Phone required for creators (e2e)', () => {
     );
     expect(user.phoneRequired).toBe(true);
 
-    // Looking at the campaigns stays open.
+    // Looking at the campaigns and at one's own tasks stays open.
     await http().get('/me/tasks').set(auth(token)).expect(200);
+    await http().get('/me/assignments').set(auth(token)).expect(200);
+    await http().get('/me/results').set(auth(token)).expect(200);
     for (const [method, path] of [
       ['post', `/tasks/${TASK}/accept`],
-      ['get', '/me/assignments'],
       ['get', '/me/accounts'],
       ['put', '/me/skills'],
       ['get', '/me/connections'],
-      ['get', '/me/results'],
+      ['post', `/me/assignments/${TASK}/submit`],
+      ['post', `/me/assignments/${TASK}/proofs`],
       ['post', '/me/wallet/withdrawals'],
     ] as const) {
       const res = await http()[method](path).set(auth(token)).send({});

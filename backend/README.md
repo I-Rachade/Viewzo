@@ -82,7 +82,7 @@ Nicht freigeschaltete Länder lehnt der Server mit `400 COUNTRY_NOT_ALLOWED` ab:
 
 Eine nachträglich hinzugefügte Telefonnummer muss aus dem Land des Kontos stammen (`400 PHONE_COUNTRY_MISMATCH`) und dieses Land muss freigeschaltet sein. Beides wird geprüft, bevor die SMS rausgeht; eine Nummer ohne Vorwahl wird im Land des Kontos gelesen.
 
-Ein Creator ohne bestätigte Telefonnummer (Registrierung per E-Mail, oder ein Annonceur, der später das Creator-Profil aktiviert) darf nur Kampagnen ansehen (`GET /me/tasks`). Alle anderen Creator-Aktionen antworten `403 PHONE_REQUIRED`: Aufgaben annehmen, Aufgaben und Beweise, Ergebnisse, Konten, Kompetenzen, Verbindungen und Auszahlungen. `/me` liefert dafür `phoneRequired`.
+Ein Creator ohne bestätigte Telefonnummer (Registrierung per E-Mail, oder ein Annonceur, der später das Creator-Profil aktiviert) darf nur ansehen: Kampagnen (`GET /me/tasks`), eigene Aufgaben und Ergebnisse. Alle Creator-Aktionen antworten `403 PHONE_REQUIRED`: Aufgaben annehmen, Links und Beweise senden, Konten, Kompetenzen, Verbindungen und Auszahlungen. `/me` liefert dafür `phoneRequired`.
 
 | `GET` | `/health` | Healthcheck |
 

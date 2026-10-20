@@ -72,7 +72,6 @@ export class PostsController {
   }
 
   @Get('me/results')
-  @UseGuards(PhoneVerifiedGuard)
   results(@Req() req: { user: AuthUser }) {
     return this.proofs.results(req.user.userId);
   }
