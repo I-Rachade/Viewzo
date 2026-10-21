@@ -528,9 +528,57 @@ class ApiClient {
     return LiveBoard.fromJson(_decode(res));
   }
 
+  /// Puts an offer's budget in escrow from the wallet.
+  Future<void> payLive(String id) => _post('/me/live/sales/$id/pay', {});
+
+  /// The advertiser's own live only.
   Future<void> startLive(String id) => _post('/me/live/sales/$id/start', {});
 
   Future<void> stopLive(String id) => _post('/me/live/sales/$id/stop', {});
+
+  Future<CreatorLiveHome> creatorLives() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/live-tasks'),
+      headers: _headers,
+    );
+    return CreatorLiveHome.fromJson(_decode(res));
+  }
+
+  Future<CreatorLiveBoard> creatorLiveBoard(String sessionId) async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/live-tasks/sessions/$sessionId'),
+      headers: _headers,
+    );
+    return CreatorLiveBoard.fromJson(_decode(res));
+  }
+
+  Future<void> acceptLive(String offerId, DateTime at) => _post(
+    '/me/live-tasks/offers/$offerId/accept',
+    {'scheduledAt': at.toUtc().toIso8601String()},
+  );
+
+  Future<void> answerLiveInvite(String sessionId, DateTime? at) => _post(
+    '/me/live-tasks/sessions/$sessionId/respond',
+    {'accept': at != null, 'scheduledAt': ?at?.toUtc().toIso8601String()},
+  );
+
+  Future<void> rescheduleLive(String sessionId, DateTime at) async {
+    final res = await _client.patch(
+      Uri.parse('$baseUrl/me/live-tasks/sessions/$sessionId'),
+      headers: _headers,
+      body: jsonEncode({'scheduledAt': at.toUtc().toIso8601String()}),
+    );
+    _decode(res);
+  }
+
+  Future<void> withdrawLive(String sessionId) =>
+      _post('/me/live-tasks/sessions/$sessionId/withdraw', {});
+
+  Future<void> startCreatorLive(String sessionId) =>
+      _post('/me/live-tasks/sessions/$sessionId/start', {});
+
+  Future<void> stopCreatorLive(String sessionId) =>
+      _post('/me/live-tasks/sessions/$sessionId/stop', {});
 
   Future<void> setLeadStatus(
     String liveId,
