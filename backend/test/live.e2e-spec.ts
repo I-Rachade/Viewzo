@@ -587,7 +587,7 @@ describe('Vente en live TikTok (e2e)', () => {
     expect(b.sessions).toEqual([]);
 
     // Paid from the wallet, then reviewed like a campaign.
-    let res = await http()
+    const res = await http()
       .post(`/me/live/sales/${offerId}/pay`)
       .set(auth(seller))
       .expect(400);
