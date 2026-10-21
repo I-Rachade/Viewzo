@@ -18,8 +18,9 @@ import {
   RequiresModule,
 } from '../modules/module-enabled.guard';
 import { LeadStatusDto, ManualLeadDto } from './dto/lead.dto';
-import { CreateLiveDto, UpdateLiveDto } from './dto/live.dto';
+import { CreateLiveDto, InviteDto } from './dto/live.dto';
 import { ProductDto, UpdateProductDto } from './dto/product.dto';
+import { LiveOffersService } from './live-offers.service';
 import { LiveRunnerService } from './live-runner.service';
 import { LiveService } from './live.service';
 
@@ -33,6 +34,7 @@ type Req = { user: AuthUser };
 export class LiveController {
   constructor(
     private readonly lives: LiveService,
+    private readonly offers: LiveOffersService,
     private readonly runner: LiveRunnerService,
   ) {}
 
@@ -68,7 +70,7 @@ export class LiveController {
 
   @Post('sales')
   create(@Req() req: Req, @Body() dto: CreateLiveDto) {
-    return this.lives.createLive(req.user.userId, dto);
+    return this.offers.createOffer(req.user.userId, dto);
   }
 
   @Get('sales/:id')
@@ -76,36 +78,51 @@ export class LiveController {
     const board = await this.lives.dashboard(req.user.userId, id);
     return {
       ...board,
-      running: this.runner.isRunning(id),
+      sessions: board.sessions.map((s) => ({
+        ...s,
+        running: this.runner.isRunning(s.id),
+      })),
       ai: this.runner.usesAi,
     };
   }
 
-  @Patch('sales/:id')
-  update(
-    @Req() req: Req,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateLiveDto,
-  ) {
-    return this.lives.updateLive(req.user.userId, id, dto);
-  }
-
-  @Post('sales/:id/start')
+  @Post('sales/:id/pay')
   @HttpCode(200)
-  start(@Req() req: Req, @Param('id', ParseUUIDPipe) id: string) {
-    return this.runner.start(req.user.userId, id);
-  }
-
-  @Post('sales/:id/stop')
-  @HttpCode(200)
-  stop(@Req() req: Req, @Param('id', ParseUUIDPipe) id: string) {
-    return this.runner.stop(req.user.userId, id);
+  pay(@Req() req: Req, @Param('id', ParseUUIDPipe) id: string) {
+    return this.offers.pay(req.user.userId, id);
   }
 
   @Post('sales/:id/cancel')
   @HttpCode(200)
   cancel(@Req() req: Req, @Param('id', ParseUUIDPipe) id: string) {
-    return this.lives.cancelOwn(req.user.userId, id);
+    return this.offers.cancelOwn(req.user.userId, id);
+  }
+
+  @Get('sales/:id/candidates')
+  candidates(@Req() req: Req, @Param('id', ParseUUIDPipe) id: string) {
+    return this.offers.candidates(req.user.userId, id);
+  }
+
+  @Post('sales/:id/invite')
+  invite(
+    @Req() req: Req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: InviteDto,
+  ) {
+    return this.offers.invite(req.user.userId, id, dto.creatorId);
+  }
+
+  // The advertiser's own live only; creators start theirs.
+  @Post('sales/:id/start')
+  @HttpCode(200)
+  start(@Req() req: Req, @Param('id', ParseUUIDPipe) id: string) {
+    return this.offers.startSelf(req.user.userId, id);
+  }
+
+  @Post('sales/:id/stop')
+  @HttpCode(200)
+  stop(@Req() req: Req, @Param('id', ParseUUIDPipe) id: string) {
+    return this.offers.stopSelf(req.user.userId, id);
   }
 
   @Post('sales/:id/leads')

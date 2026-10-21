@@ -128,7 +128,8 @@ DateTime? _date(Object? value) =>
 enum CreatorTaskType {
   postVisual('POST_PROVIDED_VISUAL', 'Publier des visuels fournis'),
   postVideo('POST_PROVIDED_VIDEO', 'Publier des vidéos fournies'),
-  createVideo('CREATE_ORIGINAL_VIDEO', 'Créer des vidéos originales');
+  createVideo('CREATE_ORIGINAL_VIDEO', 'Créer des vidéos originales'),
+  liveSelling('LIVE_SELLING', 'Faire des lives de vente');
 
   const CreatorTaskType(this.code, this.label);
   final String code;

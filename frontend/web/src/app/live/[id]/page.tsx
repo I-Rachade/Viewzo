@@ -5,37 +5,34 @@ import { useParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   formatFcfa,
-  INTENT_LABELS,
-  LEAD_STATUS_LABELS,
   LIVE_STATUS_LABELS,
   LIVE_STATUS_TONES,
   LiveBoard,
-  LiveLead,
-  LiveLeadStatus,
+  LiveCandidate,
+  LiveSession,
   liveApi,
+  PAYOUT_LABELS,
+  SESSION_STATUS_LABELS,
+  SESSION_STATUS_TONES,
 } from "@/lib/api";
+import { countryName } from "../../country-select";
 import { LoadingCard } from "../../loading-card";
 import { useRequireUser } from "../../_shell/session";
+import {
+  Comments,
+  DATE,
+  LeadCard,
+  POLL_MS,
+  Products,
+  Stats,
+} from "../board-parts";
 import { isUnavailable, UNAVAILABLE } from "../unavailable";
 
-// How often the screen reads the live again while it runs.
-const POLL_MS = 3000;
+const DAY = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" });
 
-const TIME = new Intl.DateTimeFormat("fr-FR", { timeStyle: "short" });
-const DATE = new Intl.DateTimeFormat("fr-FR", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
+type Act = (action: () => Promise<unknown>, ask?: string) => Promise<boolean>;
 
-const LEAD_TONES: Record<LiveLeadStatus, string> = {
-  NEW: "pending",
-  CONTACTED: "pending",
-  PAID: "paid",
-  DELIVERED: "paid",
-  CANCELLED: "refused",
-};
-
-// The seller's live screen: start, follow the buyers, then the summary.
+// The seller's offer: payment, the creators selling it, and the buyers.
 export default function LiveScreen() {
   const { id } = useParams<{ id: string }>();
   const user = useRequireUser();
@@ -43,6 +40,7 @@ export default function LiveScreen() {
   const [error, setError] = useState<string | null>(null);
   const [off, setOff] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [only, setOnly] = useState<string | null>(null);
 
   const reload = useCallback(
     () =>
@@ -57,14 +55,14 @@ export default function LiveScreen() {
     if (user) reload();
   }, [user, reload]);
 
-  const running = board?.live.status === "RUNNING";
+  const running = !!board?.sessions.some((s) => s.status === "RUNNING");
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(reload, POLL_MS);
     return () => clearInterval(timer);
   }, [running, reload]);
 
-  async function act(action: () => Promise<unknown>, ask?: string) {
+  const act: Act = async (action, ask) => {
     if (ask && !window.confirm(ask)) return false;
     setBusy(true);
     setError(null);
@@ -78,7 +76,7 @@ export default function LiveScreen() {
     } finally {
       setBusy(false);
     }
-  }
+  };
 
   if (off) {
     return (
@@ -103,10 +101,14 @@ export default function LiveScreen() {
     );
   }
 
-  const { live, stats } = board;
-  const finished = live.status === "ENDED" || live.status === "CANCELLED";
-  // A running live whose connection dropped (server restart, TikTok cut).
-  const detached = running && !board.running;
+  const { live } = board;
+  const self = live.mode === "SELF";
+  const closed = ["COMPLETED", "REJECTED", "CANCELLED"].includes(live.status);
+  const handles = new Map(board.sessions.map((s) => [s.id, s.tiktokUsername]));
+  const several = board.sessions.filter((s) => s.startedAt).length > 1;
+  const leads = only
+    ? board.leads.filter((l) => l.sessionId === only)
+    : board.leads;
 
   return (
     <>
@@ -119,243 +121,331 @@ export default function LiveScreen() {
           <span className={`pill ${LIVE_STATUS_TONES[live.status]}`}>
             {LIVE_STATUS_LABELS[live.status]}
           </span>{" "}
-          @{live.tiktokUsername} · {DATE.format(new Date(live.scheduledAt))}
+          {self
+            ? `Ton live · ${DATE.format(new Date(live.startsAt))}`
+            : `${DAY.format(new Date(live.startsAt))} → ${live.endsAt ? DAY.format(new Date(live.endsAt)) : "?"} · ${live.slots} créateur${live.slots > 1 ? "s" : ""} · ${live.countries.map(countryName).join(", ")}`}
           {live.demo ? " · démo" : ""}
-          {live.viewers != null && running ? ` · ${live.viewers} spectateurs` : ""}
         </p>
-        <p className="hint">
-          Lecture des commentaires :{" "}
-          {board.ai ? "IA (Claude)" : "mots-clés (IA non configurée)"}. Les
-          numéros écrits dans les commentaires sont masqués et jamais gardés.
-        </p>
-        {live.sourceMessage && !finished && (
-          <p className={live.sourceState === "error" ? "error" : "hint"}>
-            {live.sourceMessage}
+        {live.whatsapp && (
+          <p className="hint">
+            Les acheteurs t’écrivent sur WhatsApp au {live.whatsapp} avec leur
+            code. Lecture des commentaires :{" "}
+            {board.ai ? "IA (Claude)" : "mots-clés"}. Les numéros écrits dans
+            les commentaires sont masqués et jamais gardés.
           </p>
         )}
-        {live.cancelReason && <p className="error">{live.cancelReason}</p>}
+        {live.statusReason && <p className="error">{live.statusReason}</p>}
         {error && <p className="error">{error}</p>}
 
-        <div className="actions">
-          {live.status === "SCHEDULED" && (
-            <button
-              className="coral"
-              disabled={busy}
-              onClick={() => act(() => liveApi.start(live.id))}
-            >
-              Commencer le live
-            </button>
-          )}
-          {detached && (
-            <button
-              className="coral"
-              disabled={busy}
-              onClick={() => act(() => liveApi.start(live.id))}
-            >
-              Reprendre la lecture
-            </button>
-          )}
-          {running && (
-            <button
-              disabled={busy}
-              onClick={() =>
-                act(
-                  () => liveApi.stop(live.id),
-                  "Terminer le live ? Viewzo arrête de lire les commentaires.",
-                )
-              }
-            >
-              Terminer le live
-            </button>
-          )}
-          {!finished && (
+        {!self && <Money board={board} busy={busy} act={act} />}
+        {self && board.sessions[0] && (
+          <OwnLive
+            live={board}
+            session={board.sessions[0]}
+            busy={busy}
+            act={act}
+          />
+        )}
+        {!closed && !board.sessions.some((s) => s.status === "RUNNING") && (
+          <div className="actions">
             <button
               className="secondary"
               disabled={busy}
               onClick={() =>
-                act(() => liveApi.cancel(live.id), "Annuler ce live ?")
+                act(
+                  () => liveApi.cancel(live.id),
+                  live.fundedAt
+                    ? "Annuler cette offre ? Le budget non dépensé revient sur ton solde."
+                    : "Annuler cette offre ?",
+                )
               }
             >
-              Annuler
+              Annuler l’offre
             </button>
-          )}
-        </div>
-
-        <div className="stats">
-          <div>
-            <small>Commentaires</small>
-            <strong>{stats.comments}</strong>
           </div>
-          <div>
-            <small>Intéressés</small>
-            <strong>{stats.interested}</strong>
-          </div>
-          <div>
-            <small>Avec panier</small>
-            <strong>{stats.buyers}</strong>
-          </div>
-          <div>
-            <small>Payés</small>
-            <strong>{stats.paid}</strong>
-          </div>
-          <div>
-            <small>Ventes prévues</small>
-            <strong>{formatFcfa(stats.forecast)}</strong>
-          </div>
-        </div>
+        )}
+        <Stats stats={board.stats} />
       </div>
 
+      {!self && <Creators board={board} busy={busy} act={act} />}
+
       <div className="card wide">
-        <h2>{finished ? "Bilan des acheteurs" : "Acheteurs"}</h2>
+        <h2>{closed ? "Bilan des acheteurs" : "Acheteurs"}</h2>
         <p className="hint">
-          Chaque acheteur reçoit un code. Il l’envoie sur WhatsApp pour donner
-          son numéro et payer.
+          Chaque acheteur reçoit un code et t’écrit sur WhatsApp. C’est toi qui
+          livres et encaisses.
         </p>
+        {several && (
+          <div className="chips">
+            <button
+              className={`chip${only === null ? " selected" : ""}`}
+              onClick={() => setOnly(null)}
+            >
+              Tous les lives
+            </button>
+            {board.sessions
+              .filter((s) => s.startedAt)
+              .map((s) => (
+                <button
+                  key={s.id}
+                  className={`chip${only === s.id ? " selected" : ""}`}
+                  onClick={() => setOnly(s.id)}
+                >
+                  @{s.tiktokUsername}
+                </button>
+              ))}
+          </div>
+        )}
         {running && <ManualLead board={board} busy={busy} act={act} />}
-        {board.leads.length === 0 && (
-          <p>{running ? "En attente des premiers acheteurs…" : "Aucun acheteur."}</p>
+        {leads.length === 0 && (
+          <p>
+            {running ? "En attente des premiers acheteurs…" : "Aucun acheteur."}
+          </p>
         )}
         <div className="stagger" style={{ display: "grid", gap: 12 }}>
-          {board.leads.map((l) => (
+          {leads.map((l) => (
             <LeadCard
               key={l.id}
               lead={l}
               busy={busy}
-              onStatus={(status) => act(() => liveApi.setLead(live.id, l.id, status))}
+              via={self ? undefined : handles.get(l.sessionId)}
+              onStatus={(status) =>
+                act(() => liveApi.setLead(live.id, l.id, status))
+              }
             />
           ))}
         </div>
       </div>
 
-      <div className="card wide">
-        <h2>Produits</h2>
-        {board.products.length === 0 && (
-          <p>
-            Aucun produit actif. <Link href="/live">Ajoute ton catalogue</Link>.
-          </p>
-        )}
-        {board.products.map((p) => (
-          <div className="line" key={p.id}>
-            <span>{p.name}</span>
-            <span>
-              <strong>{formatFcfa(p.price)}</strong>
-              <br />
-              <small>
-                {p.left == null ? "stock illimité" : `${p.left} restant${p.left > 1 ? "s" : ""}`}
-              </small>
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {board.comments.length > 0 && (
-        <div className="card wide">
-          <h2>Derniers commentaires</h2>
-          {board.comments.map((c) => (
-            <div className="line" key={c.id}>
-              <span>
-                <b>{c.nickname}</b> <small>@{c.tiktokUser}</small>
-                <br />
-                {c.text}
-              </span>
-              <span>
-                {c.intent && c.intent !== "autre" && (
-                  <span className="pill neutral">{INTENT_LABELS[c.intent]}</span>
-                )}
-                <br />
-                <small>{TIME.format(new Date(c.at))}</small>
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+      <Products products={board.products} />
+      <Comments comments={board.comments} />
     </>
   );
 }
 
-function LeadCard({
-  lead,
+// Escrow of an offer sold by creators: pay it, then follow what was spent.
+function Money({
+  board,
   busy,
-  onStatus,
+  act,
 }: {
-  lead: LiveLead;
+  board: LiveBoard;
   busy: boolean;
-  onStatus: (status: LiveLeadStatus) => void;
+  act: Act;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  function copy() {
-    if (!lead.reply) return;
-    navigator.clipboard?.writeText(lead.reply).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      },
-      () => {},
+  const { live } = board;
+  if (live.status === "PENDING_PAYMENT") {
+    return (
+      <div className="summary">
+        <p>
+          Mets <b>{formatFcfa(live.budget)}</b> en séquestre pour envoyer
+          l’offre à l’équipe. Chaque créateur est payé au plus{" "}
+          {formatFcfa(Math.floor(live.budget / live.slots))} selon son audience
+          ; le reste revient sur ton solde.
+        </p>
+        <div className="actions">
+          <button
+            className="coral"
+            disabled={busy}
+            onClick={() => act(() => liveApi.pay(live.id))}
+          >
+            Payer depuis mon solde
+          </button>
+          <Link className="button secondary" href="/wallet">
+            Recharger mon solde
+          </Link>
+        </div>
+      </div>
     );
+  }
+  return (
+    <p className="hint">
+      {live.status === "PENDING_REVIEW" &&
+        "L’équipe Viewzo vérifie ton offre avant de l’ouvrir aux créateurs. "}
+      Budget {formatFcfa(live.budget)} · {formatFcfa(live.spent)} payés aux
+      créateurs
+      {live.refunded > 0 ? ` · ${formatFcfa(live.refunded)} remboursés` : ""}
+    </p>
+  );
+}
+
+// The advertiser's own live: start it, resume after a cut, end it.
+function OwnLive({
+  live,
+  session,
+  busy,
+  act,
+}: {
+  live: LiveBoard;
+  session: LiveSession;
+  busy: boolean;
+  act: Act;
+}) {
+  const id = live.live.id;
+  const runningHere = session.status === "RUNNING";
+  const detached = runningHere && !session.running;
+  return (
+    <>
+      <p>
+        <span className={`pill ${SESSION_STATUS_TONES[session.status]}`}>
+          {SESSION_STATUS_LABELS[session.status]}
+        </span>{" "}
+        @{session.tiktokUsername}
+        {session.viewers != null && runningHere
+          ? ` · ${session.viewers} spectateurs`
+          : ""}
+      </p>
+      {!!live.live.serviceFee && session.status === "ACCEPTED" && (
+        <p className="hint">
+          La lecture des commentaires coûte {formatFcfa(live.live.serviceFee)},
+          pris sur ton solde quand tu commences.
+        </p>
+      )}
+      {session.sourceMessage && session.status !== "ENDED" && (
+        <p className={session.sourceState === "error" ? "error" : "hint"}>
+          {session.sourceMessage}
+        </p>
+      )}
+      <div className="actions">
+        {(session.status === "ACCEPTED" || detached) && (
+          <button
+            className="coral"
+            disabled={busy}
+            onClick={() => act(() => liveApi.start(id))}
+          >
+            {detached ? "Reprendre la lecture" : "Commencer le live"}
+          </button>
+        )}
+        {runningHere && (
+          <button
+            disabled={busy}
+            onClick={() =>
+              act(
+                () => liveApi.stop(id),
+                "Terminer le live ? Viewzo arrête de lire les commentaires.",
+              )
+            }
+          >
+            Terminer le live
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+// The creators who accepted or were invited, and who else to invite.
+function Creators({
+  board,
+  busy,
+  act,
+}: {
+  board: LiveBoard;
+  busy: boolean;
+  act: Act;
+}) {
+  const { live, sessions } = board;
+  const [candidates, setCandidates] = useState<LiveCandidate[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const taken = sessions.filter((s) =>
+    ["INVITED", "ACCEPTED", "RUNNING", "ENDED"].includes(s.status),
+  ).length;
+  const canInvite = live.status === "ACTIVE" && taken < live.slots;
+
+  function loadCandidates() {
+    setError(null);
+    liveApi
+      .candidates(live.id)
+      .then(setCandidates, (e) => setError((e as Error).message));
   }
 
   return (
-    <article className="campaign">
-      <header>
-        <strong>
-          {lead.nickname} <small>@{lead.tiktokUser}</small>
-        </strong>
-        <span className={`pill ${LEAD_TONES[lead.status]}`}>
-          {LEAD_STATUS_LABELS[lead.status]}
-        </span>
-      </header>
-      <p>
-        Code <b>{lead.code}</b> · {INTENT_LABELS[lead.intent]}
-        {lead.phoneSeen && " · a écrit son numéro (masqué)"}
+    <div className="card wide">
+      <h2>
+        Créateurs · {taken}/{live.slots}
+      </h2>
+      <p className="hint">
+        Les créateurs vérifiés (compétence live, au moins 1 000 abonnés TikTok)
+        acceptent ton offre et choisissent leur heure. Tu peux aussi en inviter
+        : les places restantes vont aux premiers qui acceptent.
       </p>
-      {lead.items.length > 0 ? (
-        <>
-          {lead.items.map((i, n) => (
-            <div className="line" key={n}>
-              <span>
-                {i.quantity} × {i.name}
-                {i.variant ? ` (${i.variant})` : ""}
-              </span>
-              <strong>
-                {i.unitPrice != null ? formatFcfa(i.unitPrice * i.quantity) : "prix ?"}
-              </strong>
-            </div>
-          ))}
-          {lead.total != null && (
-            <div className="line">
-              <span>Total</span>
-              <strong>{formatFcfa(lead.total)}</strong>
-            </div>
-          )}
-        </>
-      ) : (
-        <p className="hint">Pas encore de panier.</p>
-      )}
-      {lead.reply && (
-        <div className="summary">
-          <small>Réponse proposée</small>
-          <p>{lead.reply}</p>
-          <button type="button" className="secondary" onClick={copy}>
-            {copied ? "Copié" : "Copier la réponse"}
-          </button>
+      {sessions.length === 0 && <p>Aucun créateur pour l’instant.</p>}
+      {sessions.map((s) => (
+        <div className="line" key={s.id}>
+          <span>
+            <b>@{s.tiktokUsername}</b>
+            {s.creator?.firstName ? ` · ${s.creator.firstName}` : ""}{" "}
+            <span className={`pill ${SESSION_STATUS_TONES[s.status]}`}>
+              {SESSION_STATUS_LABELS[s.status]}
+            </span>
+            <br />
+            <small>
+              {s.followers != null
+                ? `${s.followers.toLocaleString("fr-FR")} abonnés`
+                : ""}
+              {s.scheduledAt
+                ? ` · prévu ${DATE.format(new Date(s.scheduledAt))}`
+                : ""}
+              {s.status === "RUNNING" && s.viewers != null
+                ? ` · ${s.viewers} spectateurs`
+                : ""}
+              {s.status === "RUNNING" && !s.running ? " · lecture coupée" : ""}
+            </small>
+            {s.status === "ENDED" && (
+              <>
+                <br />
+                <small>
+                  {s.peakViewers.toLocaleString("fr-FR")} spectateurs au plus
+                  fort · {PAYOUT_LABELS[s.payout]}
+                  {s.cost > 0 ? ` · ${formatFcfa(s.cost)}` : ""}
+                </small>
+              </>
+            )}
+          </span>
         </div>
+      ))}
+      {canInvite && (
+        <>
+          {candidates === null ? (
+            <button className="secondary" onClick={loadCandidates}>
+              Inviter des créateurs
+            </button>
+          ) : (
+            <>
+              <h3>Inviter</h3>
+              {candidates.length === 0 && <p>Aucun créateur disponible.</p>}
+              {candidates.map((c) => (
+                <div className="line" key={c.id}>
+                  <span>
+                    <b>@{c.tiktokUsername}</b>
+                    {c.firstName ? ` · ${c.firstName}` : ""}
+                    <br />
+                    <small>
+                      {c.followers.toLocaleString("fr-FR")} abonnés ·{" "}
+                      {countryName(c.country)}
+                    </small>
+                  </span>
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={async () => {
+                      if (await act(() => liveApi.invite(live.id, c.id))) {
+                        setCandidates((list) =>
+                          (list ?? []).filter((x) => x.id !== c.id),
+                        );
+                      }
+                    }}
+                  >
+                    Inviter
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+          {error && <p className="error">{error}</p>}
+        </>
       )}
-      <label>
-        Statut
-        <select
-          value={lead.status}
-          disabled={busy}
-          onChange={(e) => onStatus(e.target.value as LiveLeadStatus)}
-        >
-          {(Object.keys(LEAD_STATUS_LABELS) as LiveLeadStatus[]).map((s) => (
-            <option key={s} value={s}>
-              {LEAD_STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
-      </label>
-    </article>
+    </div>
   );
 }
 
@@ -367,10 +457,12 @@ function ManualLead({
 }: {
   board: LiveBoard;
   busy: boolean;
-  act: (action: () => Promise<unknown>) => Promise<boolean>;
+  act: Act;
 }) {
+  const live = board.sessions.filter((s) => s.status === "RUNNING");
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState("");
+  const [sessionId, setSessionId] = useState("");
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
 
@@ -379,6 +471,7 @@ function ManualLead({
     const ok = await act(() =>
       liveApi.addLead(board.live.id, {
         tiktokUser: user,
+        sessionId: sessionId || live[0]?.id,
         items: productId
           ? [{ productId, quantity: Number(quantity) || 1 }]
           : undefined,
@@ -411,9 +504,29 @@ function ManualLead({
           required
         />
       </label>
+      {live.length > 1 && (
+        <label>
+          Live
+          <select
+            value={sessionId}
+            onChange={(e) => setSessionId(e.target.value)}
+            required
+          >
+            <option value="">Choisir</option>
+            {live.map((s) => (
+              <option key={s.id} value={s.id}>
+                @{s.tiktokUsername}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label>
         Produit
-        <select value={productId} onChange={(e) => setProductId(e.target.value)}>
+        <select
+          value={productId}
+          onChange={(e) => setProductId(e.target.value)}
+        >
           <option value="">Aucun pour l’instant</option>
           {board.products.map((p) => (
             <option key={p.id} value={p.id}>

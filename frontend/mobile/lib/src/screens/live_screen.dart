@@ -10,12 +10,19 @@ import '../ui/widgets.dart';
 import '../wallet_models.dart';
 
 // How often the live screen reads the live again while it runs.
-const _pollEvery = Duration(seconds: 3);
+const livePollEvery = Duration(seconds: 3);
 
-PillTone _liveTone(String status) => switch (status) {
-  'SCHEDULED' => PillTone.pending,
+PillTone liveTone(String status) => switch (status) {
+  'PENDING_PAYMENT' || 'PENDING_REVIEW' => PillTone.pending,
+  'ACTIVE' => PillTone.paid,
+  'REJECTED' || 'CANCELLED' => PillTone.refused,
+  _ => PillTone.neutral,
+};
+
+PillTone sessionTone(String status) => switch (status) {
+  'INVITED' || 'ACCEPTED' => PillTone.pending,
   'RUNNING' => PillTone.paid,
-  'CANCELLED' => PillTone.refused,
+  'WITHDRAWN' || 'MISSED' || 'CANCELLED' => PillTone.refused,
   _ => PillTone.neutral,
 };
 
@@ -25,12 +32,12 @@ PillTone _leadTone(String status) => switch (status) {
   _ => PillTone.pending,
 };
 
-String _date(DateTime d) {
+String liveDate(DateTime d) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(d.day)}/${two(d.month)} à ${two(d.hour)}h${two(d.minute)}';
 }
 
-Widget _errorBox(String message) => Padding(
+Widget liveErrorBox(String message) => Padding(
   padding: const EdgeInsets.all(16),
   child: ShadAlert.destructive(
     icon: const Icon(LucideIcons.circleAlert),
@@ -38,14 +45,15 @@ Widget _errorBox(String message) => Padding(
   ),
 );
 
-String _message(Object e) => switch (e) {
+String liveMessage(Object e) => switch (e) {
   ApiException(code: 'MODULE_OFF') =>
     'La vente en live n’est pas disponible pour le moment.',
   ApiException(:final message) => message,
   _ => 'Serveur injoignable',
 };
 
-/// The seller's lives. The catalogue and the planning are on the web.
+/// The seller's live offers. The catalogue, new offers and invitations are
+/// on the web.
 class LiveListScreen extends StatefulWidget {
   const LiveListScreen({super.key, required this.api});
   final ApiClient api;
@@ -69,7 +77,7 @@ class _LiveListScreenState extends State<LiveListScreen> {
       final lives = await widget.api.liveSales();
       if (mounted) setState(() => _lives = lives);
     } catch (e) {
-      if (mounted) setState(() => _error = _message(e));
+      if (mounted) setState(() => _error = liveMessage(e));
     }
   }
 
@@ -89,15 +97,15 @@ class _LiveListScreenState extends State<LiveListScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Ventes en live')),
       body: lives == null
-          ? (_error == null ? const SkeletonList() : _errorBox(_error!))
+          ? (_error == null ? const SkeletonList() : liveErrorBox(_error!))
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                 children: [
                   Text(
-                    'Ajoute ton catalogue et planifie tes lives sur viewzo.app. '
-                    'Ici, tu commences le live et tu suis tes acheteurs.',
+                    'Annonce tes lives et invite des créateurs sur viewzo.app. '
+                    'Ici, tu suis les créateurs et tes acheteurs.',
                     style: theme.textTheme.muted,
                   ),
                   const SizedBox(height: 16),
@@ -105,7 +113,7 @@ class _LiveListScreenState extends State<LiveListScreen> {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 48),
                       child: Text(
-                        'Aucun live pour l’instant.',
+                        'Aucune offre pour l’instant.',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.muted,
                       ),
@@ -136,12 +144,12 @@ class _LiveListScreenState extends State<LiveListScreen> {
                                     Pill(
                                       liveStatusLabels[live.status] ??
                                           live.status,
-                                      tone: _liveTone(live.status),
+                                      tone: liveTone(live.status),
                                     ),
                                   ],
                                 ),
                                 Text(
-                                  '@${live.tiktokUsername} · ${_date(live.scheduledAt)}'
+                                  '${_who(live)}'
                                   '${live.demo ? ' · démo' : ''} · '
                                   '${live.leads} intéressé${live.leads > 1 ? 's' : ''}',
                                   style: theme.textTheme.muted,
@@ -159,7 +167,20 @@ class _LiveListScreenState extends State<LiveListScreen> {
   }
 }
 
-/// One live: start it, follow the buyers and their carts, then the summary.
+/// Who sells an offer, and when.
+String _who(LiveSale live) {
+  if (live.self) {
+    final own = live.sessions.firstOrNull;
+    return 'Ton live @${own?.tiktokUsername ?? '?'} · ${liveDate(live.startsAt)}';
+  }
+  const taken = {'INVITED', 'ACCEPTED', 'RUNNING', 'ENDED'};
+  final n = live.sessions.where((s) => taken.contains(s.status)).length;
+  return '$n/${live.slots} créateur${live.slots > 1 ? 's' : ''} · '
+      'jusqu’au ${live.endsAt != null ? liveDate(live.endsAt!) : '?'}';
+}
+
+/// One offer: pay it, follow the creators' lives or start your own, and
+/// follow the buyers.
 class LiveBoardScreen extends StatefulWidget {
   const LiveBoardScreen({super.key, required this.api, required this.liveId});
   final ApiClient api;
@@ -195,15 +216,15 @@ class _LiveBoardScreenState extends State<LiveBoardScreen> {
         _board = board;
         _error = null;
       });
-      _poll(board.live.running);
+      _poll(board.sessions.any((s) => s.running));
     } catch (e) {
-      if (mounted) setState(() => _error = _message(e));
+      if (mounted) setState(() => _error = liveMessage(e));
     }
   }
 
   void _poll(bool on) {
     if (on && _timer == null) {
-      _timer = Timer.periodic(_pollEvery, (_) => _load());
+      _timer = Timer.periodic(livePollEvery, (_) => _load());
     } else if (!on) {
       _timer?.cancel();
       _timer = null;
@@ -216,7 +237,7 @@ class _LiveBoardScreenState extends State<LiveBoardScreen> {
       await action();
       await _load();
     } catch (e) {
-      if (mounted) setState(() => _error = _message(e));
+      if (mounted) setState(() => _error = liveMessage(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -277,26 +298,19 @@ class _LiveBoardScreenState extends State<LiveBoardScreen> {
     if (board == null) {
       return Scaffold(
         appBar: AppBar(),
-        body: _error == null ? const SkeletonList() : _errorBox(_error!),
+        body: _error == null ? const SkeletonList() : liveErrorBox(_error!),
       );
     }
     final theme = ShadTheme.of(context);
     final live = board.live;
+    final own = live.self ? board.sessions.firstOrNull : null;
+    final running = board.sessions.any((s) => s.running);
     // Running, but nothing reads it any more (server restart, TikTok cut).
-    final detached = live.running && !board.running;
-
-    Widget stat(String label, String value) => Expanded(
-      child: ShadCard(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          spacing: 4,
-          children: [
-            Text(label, style: theme.textTheme.muted.copyWith(fontSize: 12)),
-            Text(value, style: theme.textTheme.large),
-          ],
-        ),
-      ),
+    final detached = own != null && own.running && own.reading != true;
+    final handles = {for (final s in board.sessions) s.id: s.tiktokUsername};
+    final muted = theme.textTheme.muted.copyWith(fontSize: 13);
+    final danger = theme.textTheme.p.copyWith(
+      color: theme.colorScheme.destructive,
     );
 
     return Scaffold(
@@ -311,12 +325,14 @@ class _LiveBoardScreenState extends State<LiveBoardScreen> {
               children: [
                 Pill(
                   liveStatusLabels[live.status] ?? live.status,
-                  tone: _liveTone(live.status),
+                  tone: liveTone(live.status),
                 ),
                 Expanded(
                   child: Text(
-                    '@${live.tiktokUsername}'
-                    '${live.viewers != null && live.running ? ' · ${live.viewers} spectateurs' : ''}',
+                    live.self
+                        ? 'Ton live · ${liveDate(live.startsAt)}'
+                        : '${liveDate(live.startsAt)} → '
+                              '${live.endsAt != null ? liveDate(live.endsAt!) : '?'}',
                     style: theme.textTheme.muted,
                   ),
                 ),
@@ -324,83 +340,145 @@ class _LiveBoardScreenState extends State<LiveBoardScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Lecture : ${board.ai ? 'IA (Claude)' : 'mots-clés'}. Les numéros '
-              'écrits en commentaire sont masqués et jamais gardés.',
-              style: theme.textTheme.muted.copyWith(fontSize: 13),
+              'Les acheteurs t’écrivent sur WhatsApp${live.whatsapp != null ? ' au ${live.whatsapp}' : ''} '
+              'avec leur code. Lecture : ${board.ai ? 'IA (Claude)' : 'mots-clés'}. '
+              'Les numéros écrits en commentaire sont masqués et jamais gardés.',
+              style: muted,
             ),
-            if (live.sourceMessage != null && !live.finished) ...[
+            if (live.statusReason != null) ...[
               const SizedBox(height: 8),
-              Text(
-                live.sourceMessage!,
-                style: live.sourceState == 'error'
-                    ? theme.textTheme.p.copyWith(
-                        color: theme.colorScheme.destructive,
-                      )
-                    : theme.textTheme.muted,
-              ),
+              Text(live.statusReason!, style: danger),
             ],
-            if (live.cancelReason != null) ...[
+            if (_error != null) liveErrorBox(_error!),
+            const SizedBox(height: 16),
+            if (!live.self) ...[
+              if (live.status == 'PENDING_PAYMENT') ...[
+                Text(
+                  'Mets ${formatFcfa(live.budget)} en séquestre pour envoyer '
+                  'l’offre à l’équipe. Ce qui n’est pas dépensé revient sur ton solde.',
+                  style: muted,
+                ),
+                const SizedBox(height: 8),
+                ShadButton(
+                  width: double.infinity,
+                  enabled: !_busy,
+                  onPressed: () => _act(() => widget.api.payLive(live.id)),
+                  child: const Text('Payer depuis mon solde'),
+                ),
+              ] else
+                Text(
+                  '${live.status == 'PENDING_REVIEW' ? 'L’équipe vérifie ton offre. ' : ''}'
+                  'Budget ${formatFcfa(live.budget)} · ${formatFcfa(live.spent)} payés'
+                  '${live.refunded > 0 ? ' · ${formatFcfa(live.refunded)} remboursés' : ''}',
+                  style: muted,
+                ),
+              const SizedBox(height: 16),
+              Text('Créateurs', style: theme.textTheme.h4),
               const SizedBox(height: 8),
-              Text(
-                live.cancelReason!,
-                style: theme.textTheme.p.copyWith(
-                  color: theme.colorScheme.destructive,
+              if (board.sessions.isEmpty)
+                Text('Aucun créateur pour l’instant.', style: muted),
+              for (final s in board.sessions)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: ShadCard(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      spacing: 4,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '@${s.tiktokUsername}'
+                                '${s.creatorName != null ? ' · ${s.creatorName}' : ''}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            Pill(
+                              sessionStatusLabels[s.status] ?? s.status,
+                              tone: sessionTone(s.status),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          [
+                            if (s.scheduledAt != null)
+                              'prévu ${liveDate(s.scheduledAt!)}',
+                            if (s.running && s.viewers != null)
+                              '${s.viewers} spectateurs',
+                            if (s.status == 'ENDED')
+                              '${s.peakViewers} spectateurs au plus fort · '
+                                  '${payoutLabels[s.payout]}'
+                                  '${s.cost > 0 ? ' · ${formatFcfa(s.cost)}' : ''}',
+                          ].join(' · '),
+                          style: muted,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
             ],
-            if (_error != null) _errorBox(_error!),
-            const SizedBox(height: 16),
-            if (live.status == 'SCHEDULED' || detached)
-              ShadButton(
-                width: double.infinity,
-                enabled: !_busy,
-                onPressed: () =>
-                    _act(() => widget.api.startLive(widget.liveId)),
-                leading: const Icon(LucideIcons.radio, size: 18),
-                child: Text(
-                  detached ? 'Reprendre la lecture' : 'Commencer le live',
+            if (own != null) ...[
+              Text(
+                '@${own.tiktokUsername}'
+                '${own.viewers != null && own.running ? ' · ${own.viewers} spectateurs' : ''}',
+                style: theme.textTheme.muted,
+              ),
+              if (live.serviceFee case final fee?
+                  when fee > 0 && own.status == 'ACCEPTED')
+                Text(
+                  'La lecture des commentaires coûte ${formatFcfa(fee)}, pris '
+                  'sur ton solde quand tu commences.',
+                  style: muted,
                 ),
-              ),
-            if (live.running && !detached)
-              ShadButton.outline(
-                width: double.infinity,
-                enabled: !_busy,
-                onPressed: _stop,
-                child: const Text('Terminer le live'),
-              ),
+              if (own.sourceMessage != null && own.status != 'ENDED') ...[
+                const SizedBox(height: 8),
+                Text(
+                  own.sourceMessage!,
+                  style: own.sourceState == 'error' ? danger : muted,
+                ),
+              ],
+              const SizedBox(height: 12),
+              if (own.status == 'ACCEPTED' || detached)
+                ShadButton(
+                  width: double.infinity,
+                  enabled: !_busy,
+                  onPressed: () => _act(() => widget.api.startLive(live.id)),
+                  leading: const Icon(LucideIcons.radio, size: 18),
+                  child: Text(
+                    detached ? 'Reprendre la lecture' : 'Commencer le live',
+                  ),
+                ),
+              if (own.running && !detached)
+                ShadButton.outline(
+                  width: double.infinity,
+                  enabled: !_busy,
+                  onPressed: _stop,
+                  child: const Text('Terminer le live'),
+                ),
+            ],
             const SizedBox(height: 16),
-            Row(
-              spacing: 8,
-              children: [
-                stat('Commentaires', '${board.comments}'),
-                stat('Intéressés', '${board.interested}'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              spacing: 8,
-              children: [
-                stat('Payés', '${board.paid}'),
-                stat('Ventes prévues', formatFcfa(board.forecast)),
-              ],
-            ),
+            LiveStatsGrid(stats: board.stats),
             const SizedBox(height: 24),
             Text(
-              live.finished ? 'Bilan des acheteurs' : 'Acheteurs',
+              live.closed ? 'Bilan des acheteurs' : 'Acheteurs',
               style: theme.textTheme.h4,
             ),
             const SizedBox(height: 4),
             Text(
-              'Chaque acheteur reçoit un code à envoyer sur WhatsApp pour '
-              'donner son numéro et payer.',
-              style: theme.textTheme.muted.copyWith(fontSize: 13),
+              'Chaque acheteur reçoit un code et t’écrit sur WhatsApp. C’est '
+              'toi qui livres et encaisses.',
+              style: muted,
             ),
             const SizedBox(height: 12),
             if (board.leads.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 32),
                 child: Text(
-                  live.running
+                  running
                       ? 'En attente des premiers acheteurs…'
                       : 'Aucun acheteur.',
                   textAlign: TextAlign.center,
@@ -410,8 +488,9 @@ class _LiveBoardScreenState extends State<LiveBoardScreen> {
             for (final lead in board.leads)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: _LeadCard(
+                child: LeadCard(
                   lead: lead,
+                  via: live.self ? null : handles[lead.sessionId],
                   onStatus: _busy ? null : () => _changeStatus(lead),
                 ),
               ),
@@ -422,9 +501,57 @@ class _LiveBoardScreenState extends State<LiveBoardScreen> {
   }
 }
 
-class _LeadCard extends StatelessWidget {
-  const _LeadCard({required this.lead, required this.onStatus});
+/// Comments, buyers, payments and expected sales of a live.
+class LiveStatsGrid extends StatelessWidget {
+  const LiveStatsGrid({super.key, required this.stats});
+  final LiveStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    Widget stat(String label, String value) => Expanded(
+      child: ShadCard(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: 4,
+          children: [
+            Text(label, style: theme.textTheme.muted.copyWith(fontSize: 12)),
+            Text(value, style: theme.textTheme.large),
+          ],
+        ),
+      ),
+    );
+    return Column(
+      spacing: 8,
+      children: [
+        Row(
+          spacing: 8,
+          children: [
+            stat('Commentaires', '${stats.comments}'),
+            stat('Intéressés', '${stats.interested}'),
+          ],
+        ),
+        Row(
+          spacing: 8,
+          children: [
+            stat('Payés', '${stats.paid}'),
+            stat('Ventes prévues', formatFcfa(stats.forecast)),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// A buyer and their cart. Without [onStatus] the card is read-only, as on
+/// the creator's screen.
+class LeadCard extends StatelessWidget {
+  const LeadCard({super.key, required this.lead, this.via, this.onStatus});
   final LiveLead lead;
+
+  /// TikTok account of the live the buyer came from.
+  final String? via;
   final VoidCallback? onStatus;
 
   @override
@@ -454,6 +581,7 @@ class _LeadCard extends StatelessWidget {
           ),
           Text(
             'Code ${lead.code} · ${intentLabels[lead.intent] ?? lead.intent}'
+            '${via != null ? ' · live de @$via' : ''}'
             '${lead.phoneSeen ? ' · numéro écrit (masqué)' : ''}',
             style: theme.textTheme.muted,
           ),
@@ -506,12 +634,12 @@ class _LeadCard extends StatelessWidget {
                   },
                   child: const Text('Copier la réponse'),
                 ),
-              ShadButton.secondary(
-                size: ShadButtonSize.sm,
-                enabled: onStatus != null,
-                onPressed: onStatus,
-                child: const Text('Changer le statut'),
-              ),
+              if (onStatus != null)
+                ShadButton.secondary(
+                  size: ShadButtonSize.sm,
+                  onPressed: onStatus,
+                  child: const Text('Changer le statut'),
+                ),
             ],
           ),
         ],

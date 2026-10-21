@@ -12,6 +12,7 @@ import 'accounts_screen.dart';
 import 'auth_widgets.dart';
 import 'connections_screen.dart';
 import 'identity_screen.dart';
+import 'creator_lives_screen.dart';
 import 'live_screen.dart';
 import 'login_screen.dart';
 import 'notifications_screen.dart';
@@ -91,6 +92,8 @@ class _HomeScreenState extends State<HomeScreen>
                 _open(AccountsScreen(api: api, phone: _user?.phone ?? ''));
               case '/identite':
                 _open(IdentityScreen(api: api));
+              case '/lives':
+                _open(CreatorLivesScreen(api: api));
             }
           },
         ),
@@ -251,6 +254,11 @@ class _HomeScreenState extends State<HomeScreen>
                           (p) => p.type == ProfileType.advertiser,
                         )
                     ? () => _open(LiveListScreen(api: api))
+                    : null,
+                onCreatorLives:
+                    _modules.contains('LIVE_SALES') &&
+                        user.profiles.any((p) => p.type == ProfileType.creator)
+                    ? () => _open(CreatorLivesScreen(api: api))
                     : null,
                 onAddContact: _addContact,
                 onLogout: _logout,
@@ -970,6 +978,7 @@ class _ProfileTab extends StatelessWidget {
     required this.onConnections,
     required this.onIdentity,
     this.onLive,
+    this.onCreatorLives,
     required this.onAddContact,
     required this.onLogout,
   });
@@ -981,6 +990,9 @@ class _ProfileTab extends StatelessWidget {
 
   /// Null while the live module is off or the user isn't an advertiser.
   final VoidCallback? onLive;
+
+  /// Null while the live module is off or the user isn't a creator.
+  final VoidCallback? onCreatorLives;
   final ValueChanged<IdentifierKind> onAddContact;
   final VoidCallback onLogout;
 
@@ -1106,16 +1118,25 @@ class _ProfileTab extends StatelessWidget {
             ),
             const SizedBox(height: 24),
           ],
-          if (onLive case final onLive?) ...[
+          if (onCreatorLives != null || onLive != null) ...[
             _Group(
               children: [
-                tile(
-                  4,
-                  LucideIcons.radio,
-                  'Ventes en live',
-                  'Tes lives TikTok et tes acheteurs',
-                  onLive,
-                ),
+                if (onCreatorLives case final onCreatorLives?)
+                  tile(
+                    4,
+                    LucideIcons.radio,
+                    'Lives de vente',
+                    'Vends en live TikTok et sois payé à l’audience',
+                    onCreatorLives,
+                  ),
+                if (onLive case final onLive?)
+                  tile(
+                    4,
+                    LucideIcons.store,
+                    'Ventes en live',
+                    'Tes offres, les créateurs et tes acheteurs',
+                    onLive,
+                  ),
               ],
             ),
             const SizedBox(height: 24),

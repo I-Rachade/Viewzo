@@ -8,16 +8,11 @@ import {
 import {
   LiveLeadStatus,
   LiveSaleStatus,
+  LiveSessionStatus,
   Prisma,
   ProfileType,
 } from '@prisma/client';
-import { AuditService } from '../audit/audit.service';
-import {
-  assertCountry,
-  assertNotSelf,
-  countryScope,
-  type StaffActor,
-} from '../auth/staff';
+import { countryScope, type StaffActor } from '../auth/staff';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CartItem,
@@ -27,7 +22,7 @@ import {
   newLeadCode,
   toItems,
 } from './cart';
-import type { CreateLiveDto, UpdateLiveDto } from './dto/live.dto';
+import { contactLine, whatsappLink } from './billing';
 import type { ManualLeadDto } from './dto/lead.dto';
 import type { ProductDto, UpdateProductDto } from './dto/product.dto';
 import {
@@ -50,22 +45,57 @@ const PRODUCT_SELECT = {
 const LIVE_SELECT = {
   id: true,
   title: true,
-  tiktokUsername: true,
-  scheduledAt: true,
+  mode: true,
+  whatsapp: true,
+  startsAt: true,
+  endsAt: true,
+  slots: true,
+  countries: true,
   demo: true,
   productIds: true,
+  budget: true,
+  fundedAt: true,
+  spent: true,
+  refunded: true,
+  serviceFee: true,
   status: true,
+  statusReason: true,
+  completedAt: true,
+  createdAt: true,
+} as const;
+
+export const SESSION_SELECT = {
+  id: true,
+  liveId: true,
+  creatorId: true,
+  tiktokUsername: true,
+  followers: true,
+  status: true,
+  scheduledAt: true,
+  invitedAt: true,
+  acceptedAt: true,
   startedAt: true,
   endedAt: true,
   viewers: true,
+  peakViewers: true,
   sourceState: true,
   sourceMessage: true,
-  cancelReason: true,
-  createdAt: true,
+  flag: true,
+  payout: true,
+  earned: true,
+  cost: true,
+  payoutReason: true,
+  creator: { select: { firstName: true } },
+} as const;
+
+const STAFF_SESSION_SELECT = {
+  ...SESSION_SELECT,
+  creator: { select: { id: true, firstName: true, country: true } },
 } as const;
 
 const LEAD_SELECT = {
   id: true,
+  sessionId: true,
   code: true,
   tiktokUser: true,
   nickname: true,
@@ -94,13 +124,15 @@ const isUniqueError = (e: unknown) =>
 const asItems = (json: Prisma.JsonValue): CartItem[] =>
   Array.isArray(json) ? (json as unknown as CartItem[]) : [];
 
-// Sellers' products, lives, and the customers the AI finds in the comments.
+export interface SessionRef {
+  id: string;
+  liveId: string;
+}
+
+// Sellers' products, offers, and the customers the AI finds in the comments.
 @Injectable()
 export class LiveService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly audit: AuditService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /** Selling in a live uses the advertiser profile. */
   async assertSeller(userId: string) {
@@ -164,45 +196,18 @@ export class LiveService {
     if (!product) throw new NotFoundException('Produit introuvable');
   }
 
-  // --- Lives ---------------------------------------------------------------
+  // --- Offers (advertiser) ------------------------------------------------
 
-  async createLive(sellerId: string, dto: CreateLiveDto) {
-    await this.assertSeller(sellerId);
-    const productIds = await this.checkProducts(sellerId, dto.productIds);
-    return this.prisma.liveSale.create({
-      data: {
-        sellerId,
-        title: dto.title.trim(),
-        tiktokUsername: dto.tiktokUsername.replace(/^@/, '').trim(),
-        scheduledAt: new Date(dto.scheduledAt),
-        demo: dto.demo ?? false,
-        productIds,
-      },
-      select: LIVE_SELECT,
+  async ownLive(sellerId: string, id: string) {
+    const live = await this.prisma.liveSale.findFirst({
+      where: { id, sellerId },
+      select: { ...LIVE_SELECT, sellerId: true },
     });
+    if (!live) throw new NotFoundException('Live introuvable');
+    return live;
   }
 
-  async updateLive(sellerId: string, id: string, dto: UpdateLiveDto) {
-    const live = await this.ownLive(sellerId, id);
-    if (live.status !== LiveSaleStatus.SCHEDULED) {
-      throw new ConflictException('Seul un live pas encore commencé change');
-    }
-    return this.prisma.liveSale.update({
-      where: { id },
-      data: {
-        title: dto.title?.trim(),
-        tiktokUsername: dto.tiktokUsername?.replace(/^@/, '').trim(),
-        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : undefined,
-        demo: dto.demo,
-        productIds: dto.productIds
-          ? await this.checkProducts(sellerId, dto.productIds)
-          : undefined,
-      },
-      select: LIVE_SELECT,
-    });
-  }
-
-  private async checkProducts(sellerId: string, ids: string[] = []) {
+  async checkProducts(sellerId: string, ids: string[] = []) {
     const unique = [...new Set(ids)];
     if (!unique.length) return [];
     const found = await this.prisma.liveProduct.count({
@@ -217,51 +222,66 @@ export class LiveService {
   listLives(sellerId: string) {
     return this.prisma.liveSale.findMany({
       where: { sellerId },
-      select: { ...LIVE_SELECT, _count: { select: { leads: true } } },
-      orderBy: { scheduledAt: 'desc' },
+      select: {
+        ...LIVE_SELECT,
+        sessions: {
+          select: { status: true, tiktokUsername: true, scheduledAt: true },
+          orderBy: { createdAt: 'asc' },
+        },
+        _count: { select: { leads: true } },
+      },
+      orderBy: { startsAt: 'desc' },
       take: 100,
     });
   }
 
-  async ownLive(sellerId: string, id: string) {
-    const live = await this.prisma.liveSale.findFirst({
-      where: { id, sellerId },
-      select: { ...LIVE_SELECT, sellerId: true },
-    });
-    if (!live) throw new NotFoundException('Live introuvable');
-    return live;
-  }
-
-  /** Everything the live screen shows, read again every few seconds. */
+  /** Everything the offer screen shows, read again every few seconds. */
   async dashboard(sellerId: string, id: string) {
     const live = await this.ownLive(sellerId, id);
-    const [leads, comments, commentCount, catalog] = await Promise.all([
-      this.prisma.liveLead.findMany({
-        where: { liveId: id },
-        select: LEAD_SELECT,
-        orderBy: { lastAt: 'desc' },
-      }),
-      this.prisma.liveComment.findMany({
-        where: { liveId: id },
-        select: {
-          id: true,
-          tiktokUser: true,
-          nickname: true,
-          text: true,
-          intent: true,
-          by: true,
-          at: true,
-        },
-        orderBy: { at: 'desc' },
-        take: 40,
-      }),
-      this.prisma.liveComment.count({ where: { liveId: id } }),
-      this.catalog(live.id),
-    ]);
+    const board = await this.board(live.id, live.whatsapp);
+    return { live, ...board };
+  }
+
+  /**
+   * Sessions, buyers, comments and stock of an offer, or of one session when
+   * a creator looks at their own live.
+   */
+  async board(liveId: string, whatsapp: string | null, sessionId?: string) {
+    const where = sessionId ? { sessionId } : { liveId };
+    const [sessions, leads, comments, commentCount, catalog] =
+      await Promise.all([
+        this.prisma.liveSession.findMany({
+          where: sessionId ? { id: sessionId } : { liveId },
+          select: SESSION_SELECT,
+          orderBy: { createdAt: 'asc' },
+        }),
+        this.prisma.liveLead.findMany({
+          where,
+          select: LEAD_SELECT,
+          orderBy: { lastAt: 'desc' },
+        }),
+        this.prisma.liveComment.findMany({
+          where,
+          select: {
+            id: true,
+            sessionId: true,
+            tiktokUser: true,
+            nickname: true,
+            text: true,
+            intent: true,
+            by: true,
+            at: true,
+          },
+          orderBy: { at: 'desc' },
+          take: 40,
+        }),
+        this.prisma.liveComment.count({ where }),
+        this.catalog(liveId),
+      ]);
     const open = leads.filter((l) => l.status !== LiveLeadStatus.CANCELLED);
     const buyers = open.filter((l) => asItems(l.items).length > 0);
     return {
-      live,
+      sessions,
       stats: {
         comments: commentCount,
         interested: open.length,
@@ -275,7 +295,15 @@ export class LiveService {
         // "Ventes prévues": what the open carts are worth.
         forecast: buyers.reduce((sum, l) => sum + (l.total ?? 0), 0),
       },
-      leads,
+      // The answer read out in the live sends the buyer to the shop's
+      // WhatsApp with their code; Viewzo never contacts them itself.
+      leads: leads.map((l) => ({
+        ...l,
+        reply: whatsapp
+          ? [l.reply, contactLine(whatsapp, l.code)].filter(Boolean).join(' ')
+          : l.reply,
+        whatsappLink: whatsapp ? whatsappLink(whatsapp, l.code) : null,
+      })),
       comments,
       products: catalog.map((p) => ({
         id: p.id,
@@ -338,11 +366,11 @@ export class LiveService {
   }
 
   async customersForAi(
-    liveId: string,
+    sessionId: string,
     users: string[],
   ): Promise<CustomerContext[]> {
     const leads = await this.prisma.liveLead.findMany({
-      where: { liveId, tiktokUser: { in: users } },
+      where: { sessionId, tiktokUser: { in: users } },
       select: {
         tiktokUser: true,
         items: true,
@@ -368,18 +396,19 @@ export class LiveService {
     });
   }
 
-  // --- While the live runs -------------------------------------------------
+  // --- While a session runs ------------------------------------------------
 
   /**
    * Saves a comment with its phone numbers masked. Returns the masked comment,
    * or null when TikTok sent the same message twice.
    */
-  async recordComment(liveId: string, c: LiveCommentIn) {
+  async recordComment(session: SessionRef, c: LiveCommentIn) {
     const { text, found } = maskPhones(c.text.slice(0, 500));
     try {
       await this.prisma.liveComment.create({
         data: {
-          liveId,
+          liveId: session.liveId,
+          sessionId: session.id,
           externalId: c.id.slice(0, 100),
           tiktokUser: c.user.slice(0, 100),
           nickname: c.nickname.slice(0, 100),
@@ -394,26 +423,27 @@ export class LiveService {
     return { comment: { ...c, text }, phoneSeen: found };
   }
 
-  /** One lead per customer and live; each new buying comment updates it. */
+  /** One lead per customer and session; each new buying comment updates it. */
   async recordIntent(
-    liveId: string,
+    session: SessionRef,
     c: LiveCommentIn,
     result: IntentResult,
     phoneSeen = false,
   ) {
+    const sessionId = session.id;
     const externalId = c.id.slice(0, 100);
     const comment = await this.prisma.liveComment.update({
-      where: { liveId_externalId: { liveId, externalId } },
+      where: { sessionId_externalId: { sessionId, externalId } },
       data: { intent: result.intent, by: result.by },
       select: { id: true },
     });
     const existing = await this.prisma.liveLead.findUnique({
-      where: { liveId_tiktokUser: { liveId, tiktokUser: c.user } },
+      where: { sessionId_tiktokUser: { sessionId, tiktokUser: c.user } },
       select: { id: true, intent: true, items: true, status: true },
     });
     if (!existing && !isInterested(result.intent)) return null;
 
-    const products = (await this.catalog(liveId)).filter(
+    const products = (await this.catalog(session.liveId)).filter(
       (p) => p.left == null || p.left > 0,
     );
     let items = asItems(existing?.items ?? []);
@@ -467,7 +497,7 @@ export class LiveService {
       leadId = existing.id;
       await this.prisma.liveLead.update({ where: { id: leadId }, data });
     } else {
-      leadId = await this.createLead(liveId, {
+      leadId = await this.createLead(session, {
         ...data,
         tiktokUser: c.user.slice(0, 100),
         nickname: c.nickname.slice(0, 100),
@@ -483,13 +513,21 @@ export class LiveService {
 
   /** Creates a lead with a fresh code, trying again on the rare collision. */
   private async createLead(
-    liveId: string,
-    data: Omit<Prisma.LiveLeadUncheckedCreateInput, 'liveId' | 'code'>,
+    session: SessionRef,
+    data: Omit<
+      Prisma.LiveLeadUncheckedCreateInput,
+      'liveId' | 'sessionId' | 'code'
+    >,
   ) {
     for (let attempt = 0; ; attempt++) {
       try {
         const lead = await this.prisma.liveLead.create({
-          data: { ...data, liveId, code: newLeadCode() },
+          data: {
+            ...data,
+            liveId: session.liveId,
+            sessionId: session.id,
+            code: newLeadCode(),
+          },
           select: { id: true },
         });
         return lead.id;
@@ -497,7 +535,10 @@ export class LiveService {
         if (!isUniqueError(e) || attempt >= 5) throw e;
         const taken = await this.prisma.liveLead.findUnique({
           where: {
-            liveId_tiktokUser: { liveId, tiktokUser: String(data.tiktokUser) },
+            sessionId_tiktokUser: {
+              sessionId: session.id,
+              tiktokUser: String(data.tiktokUser),
+            },
           },
           select: { id: true },
         });
@@ -508,13 +549,27 @@ export class LiveService {
 
   /** Manual mode: the seller adds a customer the AI missed. */
   async addManualLead(sellerId: string, liveId: string, dto: ManualLeadDto) {
-    const live = await this.ownLive(sellerId, liveId);
-    if (live.status !== LiveSaleStatus.RUNNING) {
-      throw new ConflictException('Le live doit être en cours');
+    await this.ownLive(sellerId, liveId);
+    const running = await this.prisma.liveSession.findMany({
+      where: {
+        liveId,
+        status: LiveSessionStatus.RUNNING,
+        ...(dto.sessionId ? { id: dto.sessionId } : {}),
+      },
+      select: { id: true, liveId: true },
+    });
+    if (running.length === 0) {
+      throw new ConflictException('Aucun live de cette offre n’est en cours');
     }
+    if (running.length > 1) {
+      throw new BadRequestException('Choisis le live du client');
+    }
+    const session = running[0];
     const user = dto.tiktokUser.replace(/^@/, '').trim();
     const exists = await this.prisma.liveLead.findUnique({
-      where: { liveId_tiktokUser: { liveId, tiktokUser: user } },
+      where: {
+        sessionId_tiktokUser: { sessionId: session.id, tiktokUser: user },
+      },
       select: { id: true },
     });
     if (exists) throw new ConflictException('Ce client a déjà une carte');
@@ -531,7 +586,7 @@ export class LiveService {
         unitPrice: p.price,
       });
     }
-    const id = await this.createLead(liveId, {
+    const id = await this.createLead(session, {
       tiktokUser: user,
       nickname: user,
       intent: 'achat',
@@ -566,59 +621,51 @@ export class LiveService {
     });
   }
 
-  markStarted(id: string) {
-    return this.prisma.liveSale.update({
-      where: { id },
+  markStarted(sessionId: string) {
+    return this.prisma.liveSession.update({
+      where: { id: sessionId },
       data: {
-        status: LiveSaleStatus.RUNNING,
+        status: LiveSessionStatus.RUNNING,
         startedAt: new Date(),
         sourceState: 'connecting',
         sourceMessage: 'Connexion au live…',
       },
-      select: LIVE_SELECT,
+      select: SESSION_SELECT,
     });
   }
 
-  setSource(id: string, state: string, message: string) {
-    return this.prisma.liveSale.update({
-      where: { id },
+  setSource(sessionId: string, state: string, message: string) {
+    return this.prisma.liveSession.update({
+      where: { id: sessionId },
       data: { sourceState: state, sourceMessage: message.slice(0, 300) },
     });
   }
 
-  setViewers(id: string, viewers: number) {
-    return this.prisma.liveSale.update({ where: { id }, data: { viewers } });
+  /** Current viewers, the peak so far, and a flag when the jump looks bought. */
+  setViewers(sessionId: string, viewers: number, peak: number, flag?: string) {
+    return this.prisma.liveSession.update({
+      where: { id: sessionId },
+      data: { viewers, peakViewers: peak, ...(flag ? { flag } : {}) },
+    });
   }
 
-  markEnded(id: string) {
-    return this.prisma.liveSale.update({
-      where: { id },
+  markEnded(sessionId: string) {
+    return this.prisma.liveSession.update({
+      where: { id: sessionId },
       data: {
-        status: LiveSaleStatus.ENDED,
+        status: LiveSessionStatus.ENDED,
         endedAt: new Date(),
         sourceState: 'stopped',
         sourceMessage: 'Live terminé.',
       },
-      select: LIVE_SELECT,
-    });
-  }
-
-  async cancelOwn(sellerId: string, id: string) {
-    const live = await this.ownLive(sellerId, id);
-    if (live.status !== LiveSaleStatus.SCHEDULED) {
-      throw new ConflictException('Seul un live pas encore commencé s’annule');
-    }
-    return this.prisma.liveSale.update({
-      where: { id },
-      data: { status: LiveSaleStatus.CANCELLED },
-      select: LIVE_SELECT,
+      select: SESSION_SELECT,
     });
   }
 
   /** After a restart no connection runs: the seller presses "Reprendre". */
   markInterrupted() {
-    return this.prisma.liveSale.updateMany({
-      where: { status: LiveSaleStatus.RUNNING },
+    return this.prisma.liveSession.updateMany({
+      where: { status: LiveSessionStatus.RUNNING },
       data: {
         sourceState: 'disconnected',
         sourceMessage: 'Serveur redémarré : clique sur « Reprendre ».',
@@ -638,56 +685,22 @@ export class LiveService {
       select: {
         ...LIVE_SELECT,
         seller: {
-          select: { id: true, phone: true, email: true, country: true },
+          select: {
+            id: true,
+            firstName: true,
+            phone: true,
+            email: true,
+            country: true,
+          },
+        },
+        sessions: {
+          select: STAFF_SESSION_SELECT,
+          orderBy: { createdAt: 'asc' },
         },
         _count: { select: { leads: true, comments: true } },
       },
-      orderBy: { scheduledAt: 'desc' },
+      orderBy: { startsAt: 'desc' },
       take: 200,
-    });
-  }
-
-  /** The team stops a live (fraud, complaint); its reading ends at once. */
-  async staffCancel(actor: StaffActor, id: string, reason: string) {
-    const live = await this.prisma.liveSale.findUnique({
-      where: { id },
-      select: {
-        ...LIVE_SELECT,
-        sellerId: true,
-        seller: { select: { country: true } },
-      },
-    });
-    if (!live) throw new NotFoundException('Live introuvable');
-    assertCountry(actor, live.seller.country);
-    assertNotSelf(actor, live.sellerId);
-    if (
-      live.status === LiveSaleStatus.ENDED ||
-      live.status === LiveSaleStatus.CANCELLED
-    ) {
-      throw new ConflictException('Ce live est déjà fini');
-    }
-    return this.prisma.$transaction(async (tx) => {
-      const after = await tx.liveSale.update({
-        where: { id },
-        data: {
-          status: LiveSaleStatus.CANCELLED,
-          endedAt: live.startedAt ? new Date() : null,
-          cancelReason: reason,
-          sourceState: 'stopped',
-          sourceMessage: 'Live arrêté par l’équipe Viewzo.',
-        },
-        select: LIVE_SELECT,
-      });
-      await this.audit.record(tx, {
-        actor,
-        action: 'live.cancel',
-        entity: 'LiveSale',
-        entityId: id,
-        before: { status: live.status },
-        after: { status: after.status },
-        reason,
-      });
-      return after;
     });
   }
 }

@@ -1202,6 +1202,19 @@ export class WalletService {
    * Withdrawable balance: completed entries already available, minus
    * withdrawals still pending.
    */
+  /** What the user can spend now, for escrows taken by other modules. */
+  spendable(tx: Tx, userId: string) {
+    return this.balance(tx, userId, new Date());
+  }
+
+  /** Earnings credited so far, for the level 1 cap. */
+  earningsSoFar(tx: Tx, userId: string) {
+    return this.sumWith(tx, userId, {
+      type: TransactionType.EARNING,
+      status: TransactionStatus.COMPLETED,
+    });
+  }
+
   private async balance(tx: Tx, userId: string, now: Date) {
     const [available, pending] = await Promise.all([
       this.sumWith(tx, userId, {
