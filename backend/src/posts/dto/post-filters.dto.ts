@@ -10,8 +10,9 @@ import {
 
 export class PostFiltersDto {
   @IsOptional()
-  @IsIn([...Object.values(PostReviewStatus), 'ALL'])
-  status?: PostReviewStatus | 'ALL';
+  // ONLINE_CHECK: validated posts due for their 30-day check.
+  @IsIn([...Object.values(PostReviewStatus), 'ALL', 'ONLINE_CHECK'])
+  status?: PostReviewStatus | 'ALL' | 'ONLINE_CHECK';
 
   @IsOptional()
   @IsEnum(SocialNetwork)

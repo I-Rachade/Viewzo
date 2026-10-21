@@ -377,6 +377,12 @@ class _BalanceCard extends StatelessWidget {
                 formatFcfa(summary.held),
                 color: const Color(0xFFFFD27A),
               ),
+              if (summary.frozen > 0)
+                _DarkBadge(
+                  'Gelé (litige)',
+                  formatFcfa(summary.frozen),
+                  color: const Color(0xFFFF9C8A),
+                ),
               if (summary.escrow > 0)
                 _DarkBadge(
                   'Séquestre',

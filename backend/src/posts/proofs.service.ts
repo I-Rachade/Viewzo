@@ -17,6 +17,7 @@ import {
   ViewSource,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CAPTURE_WINDOW, capturePlan } from './captures';
 import { ProofStorage, UploadedImage } from './proof-storage';
 import { assessRisk } from './risk';
 
@@ -198,6 +199,7 @@ export class ProofsService {
     network: SocialNetwork,
     proofs: PostProof[],
     snapshots: { views: number; takenAt: Date }[],
+    submittedAt: Date | null = null,
   ) {
     const screenshots = proofs.filter((p) => p.kind === ProofKind.SCREENSHOT);
     const latest = [...snapshots].sort(
@@ -210,6 +212,11 @@ export class ProofsService {
         network === SocialNetwork.WHATSAPP_STATUS
           ? proofPlan(screenshots)
           : null,
+      // Dated screenshots (H+1 to J+30) for every other network.
+      capturePlan:
+        network === SocialNetwork.WHATSAPP_STATUS
+          ? null
+          : capturePlan(submittedAt, screenshots),
     };
   }
 
@@ -360,10 +367,18 @@ export class ProofsService {
       throw new NotFoundException();
     }
     this.assertOpen(assignment);
-    // Proofs of a statut can still come in up to a day after the campaign.
+    // Proofs of a statut can still come in up to a day after the campaign,
+    // the dated screenshots of a post until its J+30 step closes.
     const grace =
       assignment.task.network === SocialNetwork.WHATSAPP_STATUS ? 26 * HOUR : 0;
-    if (assignment.task.campaign.endsAt.getTime() + grace <= Date.now()) {
+    const datedUntil =
+      assignment.submittedAt && !grace
+        ? assignment.submittedAt.getTime() + CAPTURE_WINDOW
+        : 0;
+    if (
+      Math.max(assignment.task.campaign.endsAt.getTime() + grace, datedUntil) <=
+      Date.now()
+    ) {
       throw new BadRequestException('Échéance dépassée');
     }
     return assignment;

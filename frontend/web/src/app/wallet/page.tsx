@@ -120,6 +120,11 @@ export default function WalletPage() {
           <span className="pill pending">
             En attente : {formatFcfa(summary.held)}
           </span>
+          {summary.frozen > 0 && (
+            <span className="pill refused">
+              Gelé (litige) : {formatFcfa(summary.frozen)}
+            </span>
+          )}
           {summary.escrow > 0 && (
             <span className="pill">
               En séquestre : {formatFcfa(summary.escrow)}

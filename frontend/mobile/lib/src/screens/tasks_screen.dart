@@ -134,6 +134,27 @@ class _TasksScreenState extends State<TasksScreen> {
     }
   }
 
+  /// Contests a refusal or a views count; the team decides with a reason.
+  Future<void> _dispute(Assignment assignment) async {
+    final refused = assignment.reviewStatus == ReviewStatus.rejected;
+    final reason = await showShadDialog<String>(
+      context: context,
+      builder: (_) => _DisputeDialog(
+        prompt: refused
+            ? 'Pourquoi le refus n’est-il pas juste ?'
+            : 'Combien de vues as-tu, et où le voit-on ?',
+      ),
+    );
+    if (reason == null) return;
+    await _run(() async {
+      await widget.api.openDispute(assignment.id, reason);
+      await _load();
+    });
+    if (_error == null && mounted) {
+      showVzToast(context, 'Litige envoyé, l’équipe tranche');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -286,7 +307,14 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   Widget? _actions(Assignment a) {
-    if (a.reviewStatus == ReviewStatus.rejected) return null;
+    final contest = a.canDispute
+        ? ShadButton.outline(
+            leading: const Icon(LucideIcons.scale, size: 18),
+            onPressed: () => _dispute(a),
+            child: const Text('Contester'),
+          )
+        : null;
+    if (a.reviewStatus == ReviewStatus.rejected) return contest;
     final statut = a.task.network == SocialNetwork.whatsappStatus;
     final screenshot = ShadButton.secondary(
       leading: const Icon(LucideIcons.imagePlus, size: 18),
@@ -298,7 +326,7 @@ class _TasksScreenState extends State<TasksScreen> {
         ),
       ),
     );
-    if (statut) return screenshot;
+    if (statut && contest == null) return screenshot;
     if (!a.submitted) {
       return _MorphButton(
         label: 'J’ai publié',
@@ -312,11 +340,12 @@ class _TasksScreenState extends State<TasksScreen> {
       runSpacing: 8,
       alignment: WrapAlignment.end,
       children: [
-        if (a.reviewStatus != ReviewStatus.validated)
+        if (!statut && a.reviewStatus != ReviewStatus.validated)
           ShadButton.outline(
             onPressed: () => _submit(a, () {}),
             child: const Text('Modifier le lien'),
           ),
+        ?contest,
         screenshot,
       ],
     );
@@ -532,6 +561,32 @@ class _AssignmentDetails extends StatelessWidget {
               ].join(' · '),
               style: theme.textTheme.small.copyWith(height: 1.35),
             ),
+          if (a.submitted &&
+              a.reviewStatus != ReviewStatus.rejected &&
+              a.validViews < a.minPaidViews)
+            Text(
+              'Le paiement commence à ${_views(a.minPaidViews)} vues validées.',
+              style: theme.textTheme.muted.copyWith(fontSize: 13, height: 1.35),
+            ),
+          if (a.dispute case final d?)
+            Text(
+              d.open
+                  ? 'Litige en cours : les gains de cette publication sont '
+                        'gelés jusqu’à la décision de l’équipe.'
+                  : 'Litige tranché : ${d.outcomeLabel}. '
+                        '${d.decisionReason ?? ''}',
+              style: theme.textTheme.small.copyWith(
+                color: d.open ? VzColors.amber : null,
+                height: 1.35,
+              ),
+            ),
+          if (a.dated && a.proofSteps.isNotEmpty)
+            Text(
+              'Envoie une capture à chaque étape : elle prouve que ta '
+              'publication est toujours en ligne. Supprimée avant 30 jours, '
+              'elle perd ses gains encore retenus.',
+              style: theme.textTheme.muted.copyWith(fontSize: 13, height: 1.35),
+            ),
           for (final (i, step) in a.proofSteps.indexed)
             Row(
               spacing: 10,
@@ -579,6 +634,63 @@ class _AssignmentDetails extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Asks why the creator contests the team's decision.
+class _DisputeDialog extends StatefulWidget {
+  const _DisputeDialog({required this.prompt});
+  final String prompt;
+
+  @override
+  State<_DisputeDialog> createState() => _DisputeDialogState();
+}
+
+class _DisputeDialogState extends State<_DisputeDialog> {
+  final _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final reason = _controller.text.trim();
+    if (reason.length < 5) {
+      setState(() => _error = 'Explique en quelques mots');
+      return;
+    }
+    Navigator.pop(context, reason);
+  }
+
+  @override
+  Widget build(BuildContext context) => ShadDialog(
+    title: const Text('Contester'),
+    description: const Text(
+      'Les gains de cette publication sont gelés jusqu’à la décision.',
+    ),
+    actions: [
+      ShadButton.outline(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Annuler'),
+      ),
+      ShadButton(onPressed: _send, child: const Text('Envoyer')),
+    ],
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: ShadInputFormField(
+        key: const Key('disputeReason'),
+        controller: _controller,
+        autofocus: true,
+        placeholder: Text(widget.prompt),
+        maxLength: 500,
+        minLines: 3,
+        maxLines: 5,
+        forceErrorText: _error,
+      ),
+    ),
+  );
 }
 
 /// Asks how many views the screenshot shows.

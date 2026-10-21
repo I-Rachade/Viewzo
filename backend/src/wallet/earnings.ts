@@ -4,6 +4,14 @@ import { ADVERTISER_PRICE_PER_1000, CONTENT_TYPES } from '../campaigns/pricing';
 // Level 1 creators earn at most this much in total until verified.
 export const LEVEL1_EARNINGS_CAP = 10_000;
 
+// A post is paid, and billed to the advertiser, from this many validated views.
+export const MIN_PAID_VIEWS = 500;
+
+/** Validated views that count for money: none below the threshold. */
+export function billableViews(views: number) {
+  return views >= MIN_PAID_VIEWS ? views : 0;
+}
+
 /** What validated views cost the advertiser, taken from the escrow. */
 export function advertiserCost(views: number, contentType: ContentType) {
   return Math.round(

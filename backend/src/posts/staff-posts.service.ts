@@ -24,6 +24,8 @@ import { creatorEarning } from '../wallet/earnings';
 import { WalletService } from '../wallet/wallet.service';
 import { PostFiltersDto } from './dto/post-filters.dto';
 import { ReviewPostDto } from './dto/review-post.dto';
+import { onlineCheckDue } from './captures';
+import { DISPUTE_OUTCOME_LABELS } from './disputes.service';
 import { ProofsService } from './proofs.service';
 
 const CONTACT = { id: true, phone: true, email: true, country: true } as const;
@@ -47,10 +49,15 @@ export class StaffPostsService {
       ? { creator: { country: { in: scope } } }
       : {};
     const where: Prisma.TaskAssignmentWhereInput = {
-      AND: [inScope],
+      AND: [
+        inScope,
+        status === 'ONLINE_CHECK' ? onlineCheckDue() : {},
+        f.network ? { task: { network: f.network } } : {},
+      ],
       status: AssignmentStatus.SUBMITTED,
-      ...(status !== 'ALL' ? { reviewStatus: status } : {}),
-      ...(f.network ? { task: { network: f.network } } : {}),
+      ...(status !== 'ALL' && status !== 'ONLINE_CHECK'
+        ? { reviewStatus: status }
+        : {}),
       ...(f.country ? { creator: { country: f.country.toUpperCase() } } : {}),
       ...(q
         ? {
@@ -84,18 +91,29 @@ export class StaffPostsService {
         _count: { select: { proofs: true } },
       },
     });
-    const counts = await this.prisma.taskAssignment.groupBy({
-      by: ['reviewStatus'],
-      where: { status: AssignmentStatus.SUBMITTED, ...inScope },
-      _count: true,
-    });
+    const [counts, onlineChecks] = await Promise.all([
+      this.prisma.taskAssignment.groupBy({
+        by: ['reviewStatus'],
+        where: { status: AssignmentStatus.SUBMITTED, ...inScope },
+        _count: true,
+      }),
+      this.prisma.taskAssignment.count({
+        where: {
+          AND: [inScope, onlineCheckDue()],
+          status: AssignmentStatus.SUBMITTED,
+        },
+      }),
+    ]);
     return {
-      counts: Object.fromEntries(
-        Object.values(PostReviewStatus).map((s) => [
-          s,
-          counts.find((c) => c.reviewStatus === s)?._count ?? 0,
-        ]),
-      ),
+      counts: {
+        ...Object.fromEntries(
+          Object.values(PostReviewStatus).map((s) => [
+            s,
+            counts.find((c) => c.reviewStatus === s)?._count ?? 0,
+          ]),
+        ),
+        ONLINE_CHECK: onlineChecks,
+      },
       items: rows.map((a) => ({
         id: a.id,
         network: a.task.network,
@@ -125,6 +143,7 @@ export class StaffPostsService {
         proofs: { orderBy: { uploadedAt: 'asc' } },
         snapshots: { orderBy: { takenAt: 'asc' } },
         reviews: { orderBy: { createdAt: 'asc' } },
+        disputes: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!a) throw new NotFoundException();
@@ -145,6 +164,9 @@ export class StaffPostsService {
       }),
       this.contacts([
         ...a.reviews.map((r) => r.reviewerId),
+        ...a.disputes.flatMap((d) =>
+          d.decidedById ? [d.openedById, d.decidedById] : [d.openedById],
+        ),
         ...a.snapshots
           .map((s) => s.recordedById)
           .filter((x): x is string => !!x),
@@ -175,6 +197,22 @@ export class StaffPostsService {
           at: s.takenAt,
           label: `Relevé automatique : ${s.views.toLocaleString('fr-FR')} vues`,
         })),
+      ...a.disputes.flatMap((d) => [
+        {
+          at: d.createdAt,
+          label: `Litige ouvert par ${d.side === 'CREATOR' ? 'le créateur' : 'l’annonceur'} · ${d.reason}`,
+          by: reviewers.get(d.openedById) ?? null,
+        },
+        ...(d.decidedAt
+          ? [
+              {
+                at: d.decidedAt,
+                label: `Litige tranché : ${DISPUTE_OUTCOME_LABELS[d.outcome!]} · ${d.decisionReason}`,
+                by: reviewers.get(d.decidedById!) ?? null,
+              },
+            ]
+          : []),
+      ]),
       ...a.reviews.map((r) => ({
         at: r.createdAt,
         label: `${REVIEW_LABELS[r.action]}${r.views !== null ? ` · ${r.views.toLocaleString('fr-FR')} vues` : ''}${r.reason ? ` · ${r.reason}` : ''}`,
@@ -196,6 +234,15 @@ export class StaffPostsService {
       submittedAt: a.submittedAt,
       validViews: a.validViews,
       earned: a.earned,
+      onlineCheckedAt: a.onlineCheckedAt,
+      stillOnline: a.stillOnline,
+      onlineCheckDue:
+        a.reviewStatus === PostReviewStatus.VALIDATED &&
+        !a.onlineCheckedAt &&
+        (await this.prisma.taskAssignment.count({
+          where: { id: a.id, ...onlineCheckDue() },
+        })) > 0,
+      disputes: a.disputes,
       latestViews: latest,
       // What the creator would earn if every declared view were validated.
       expectedEarning: creatorEarning(latest, task.creatorRatePer1000),
@@ -350,6 +397,61 @@ export class StaffPostsService {
           link: '/resultats',
         });
         break;
+      case 'STILL_ONLINE':
+      case 'REMOVED': {
+        if (
+          a.reviewStatus !== PostReviewStatus.VALIDATED ||
+          a.onlineCheckedAt
+        ) {
+          throw new BadRequestException(
+            'Seule une publication validée et pas encore contrôlée peut l’être',
+          );
+        }
+        const removed = dto.decision === 'REMOVED';
+        if (removed) this.requireReason(reason);
+        const taken = await this.prisma.$transaction(async (tx) => {
+          const claimed = await tx.taskAssignment.updateMany({
+            where: { id, onlineCheckedAt: null },
+            data: { onlineCheckedAt: new Date(), stillOnline: !removed },
+          });
+          if (!claimed.count) {
+            throw new BadRequestException('Contrôle déjà fait');
+          }
+          // Deleted early: what is still held goes back, what was already
+          // free to withdraw stays with the creator.
+          const back = removed ? await this.wallet.takeBackHeld(tx, id) : 0;
+          if (removed) {
+            await tx.taskAssignment.update({
+              where: { id },
+              data: {
+                reviewStatus: PostReviewStatus.REJECTED,
+                reviewReason: reason,
+                reviewedAt: new Date(),
+              },
+            });
+          }
+          await this.log(
+            tx,
+            actor,
+            id,
+            removed ? PostReviewAction.REMOVED : PostReviewAction.STILL_ONLINE,
+            { before, reason },
+          );
+          return back;
+        });
+        if (removed) {
+          await this.notifications.notify(a.creatorId, {
+            type: NotificationType.POST_REJECTED,
+            title: `Publication supprimée · ${code}`,
+            body:
+              taken > 0
+                ? `${reason} ${taken.toLocaleString('fr-FR')} FCFA encore retenus ont été repris.`
+                : reason!,
+            link: '/resultats',
+          });
+        }
+        break;
+      }
       case 'SUSPEND_ACCOUNT': {
         this.requireReason(reason);
         const account = await this.prisma.socialAccount.findUnique({
@@ -550,4 +652,6 @@ const REVIEW_LABELS: Record<PostReviewAction, string> = {
   NEEDS_FIX: 'Correction demandée',
   REJECT: 'Publication refusée',
   SUSPEND_ACCOUNT: 'Compte suspendu',
+  STILL_ONLINE: 'Toujours en ligne à J+30',
+  REMOVED: 'Supprimée avant J+30',
 };

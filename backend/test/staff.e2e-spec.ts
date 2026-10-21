@@ -81,6 +81,8 @@ describe('Back-office (e2e)', () => {
       withdrawals: 0,
       assignments: 0,
       alerts: 0,
+      disputes: 0,
+      overdueDisputes: 0,
       me: { staffRole: 'SUPER_ADMIN', countries: [] },
     });
 
@@ -146,6 +148,8 @@ describe('Back-office (e2e)', () => {
       withdrawals: 0,
       assignments: 1,
       alerts: 0,
+      disputes: 0,
+      overdueDisputes: 0,
       me: { staffRole: 'SUPER_ADMIN', countries: [] },
     });
     const list = await http()

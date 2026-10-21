@@ -7,6 +7,7 @@ import { CAN_MODERATE, CAN_PAY, ModuleKey, StaffRole } from "@/lib/api";
 import { AccountsSection } from "./_sections/accounts";
 import { CampaignsSection } from "./_sections/campaigns";
 import { CountriesSection } from "./_sections/countries";
+import { DisputesSection } from "./_sections/disputes";
 import { IdentitySection } from "./_sections/identity";
 import { LivesSection } from "./_sections/lives";
 import { ModulesSection } from "./_sections/modules";
@@ -20,6 +21,7 @@ type Tab =
   | "accounts"
   | "identity"
   | "campaigns"
+  | "disputes"
   | "withdrawals"
   | "lives"
   | "team"
@@ -39,6 +41,7 @@ const TABS: {
   { key: "accounts", label: "Comptes" },
   { key: "identity", label: "Identités" },
   { key: "campaigns", label: "Campagnes" },
+  { key: "disputes", label: "Litiges" },
   { key: "withdrawals", label: "Retraits", roles: CAN_PAY },
   { key: "lives", label: "Lives TikTok", module: "LIVE_SALES" },
   { key: "team", label: "Équipe", roles: ["SUPER_ADMIN"] },
@@ -92,11 +95,19 @@ function Staff() {
             onClick={() => router.replace(`/staff?tab=${t.key}`)}
           >
             {t.label}
-            {!UNCOUNTED.includes(t.key) && staff && (
-              <small>
-                {staff[t.key as "accounts" | "identity" | "campaigns" | "withdrawals"]} en
-                attente
+            {t.key === "disputes" && staff ? (
+              <small className={staff.overdueDisputes ? "error" : undefined}>
+                {staff.disputes} ouvert{staff.disputes > 1 ? "s" : ""}
+                {staff.overdueDisputes ? ` · ${staff.overdueDisputes} en retard` : ""}
               </small>
+            ) : (
+              !UNCOUNTED.includes(t.key) &&
+              staff && (
+                <small>
+                  {staff[t.key as "accounts" | "identity" | "campaigns" | "withdrawals"]} en
+                  attente
+                </small>
+              )
             )}
           </button>
         ))}
@@ -110,6 +121,12 @@ function Staff() {
         />
       )}
       {tab === "campaigns" && <CampaignsSection onChange={refreshStaff} />}
+      {tab === "disputes" && (
+        <DisputesSection
+          onChange={refreshStaff}
+          canDecide={Boolean(role && CAN_MODERATE.includes(role))}
+        />
+      )}
       {tab === "withdrawals" && (
         <WithdrawalsSection selfId={user.id} onChange={refreshStaff} />
       )}

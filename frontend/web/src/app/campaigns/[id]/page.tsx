@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   CampaignReport,
   formatFcfa,
@@ -10,7 +10,9 @@ import {
   reportApi,
   STATUS_LABELS,
 } from "@/lib/api";
+import { DisputeBox } from "../../dispute-box";
 import { LoadingCard } from "../../loading-card";
+import { Toast } from "../../toast";
 import { ViewsChart } from "../../views-chart";
 import { useRequireUser } from "../../_shell/session";
 
@@ -54,11 +56,16 @@ export default function CampaignReportPage() {
   const user = useRequireUser();
   const [report, setReport] = useState<CampaignReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const load = useCallback(
+    () => reportApi.campaign(id).then(setReport, (e) => setError((e as Error).message)),
+    [id],
+  );
 
   useEffect(() => {
-    if (!user) return;
-    reportApi.campaign(id).then(setReport, (e) => setError((e as Error).message));
-  }, [user, id]);
+    if (user) load();
+  }, [user, load]);
 
   if (!report) return error ? <p className="error">{error}</p> : <LoadingCard />;
 
@@ -66,6 +73,7 @@ export default function CampaignReportPage() {
 
   return (
     <div className="card full">
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
       <Link href="/campaigns" className="hint">
         ← Mes campagnes
       </Link>
@@ -182,6 +190,35 @@ export default function CampaignReportPage() {
               </a>
             ))}
           </div>
+
+          <h2>Contester une publication</h2>
+          <p className="hint">
+            Une publication validée ne respecte pas ton brief ? Explique pourquoi :
+            l’équipe tranche, et une publication refusée ne t’est pas facturée.
+          </p>
+          {report.gallery.map((p) => (
+            <div key={p.id} className="line">
+              <span>
+                {NETWORK_LABELS[p.network]} · {p.handle ?? p.country} ·{" "}
+                {p.views.toLocaleString("fr-FR")} vues
+              </span>
+              <span>
+                <DisputeBox
+                  postId={p.id}
+                  dispute={p.dispute}
+                  canOpen={
+                    !p.dispute ||
+                    (p.dispute.status === "RESOLVED" && p.dispute.side !== "ADVERTISER")
+                  }
+                  prompt="Qu’est-ce qui ne respecte pas le brief ?"
+                  onOpened={(message) => {
+                    setToast(message);
+                    load();
+                  }}
+                />
+              </span>
+            </div>
+          ))}
         </>
       )}
     </div>

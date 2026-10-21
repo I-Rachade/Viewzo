@@ -13,6 +13,9 @@ export const POST_DECISIONS = [
   'NEEDS_FIX',
   'REJECT',
   'SUSPEND_ACCOUNT',
+  // The 30-day check: still online, or deleted.
+  'STILL_ONLINE',
+  'REMOVED',
 ] as const;
 export type PostDecision = (typeof POST_DECISIONS)[number];
 
@@ -28,7 +31,10 @@ export class ReviewPostDto {
   views?: number;
 
   // Shown to the creator; required for everything but a validation.
-  @ValidateIf((o: ReviewPostDto) => o.decision !== 'VALIDATE')
+  @ValidateIf(
+    (o: ReviewPostDto) =>
+      o.decision !== 'VALIDATE' && o.decision !== 'STILL_ONLINE',
+  )
   @IsString()
   @MaxLength(500)
   reason?: string;

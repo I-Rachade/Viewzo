@@ -513,6 +513,8 @@ export interface WalletSummary {
   currency: string;
   available: number;
   held: number;
+  // Earnings of posts under dispute.
+  frozen: number;
   pendingWithdrawals: number;
   escrow: number;
   minWithdrawal: number;
@@ -730,6 +732,9 @@ export interface StaffOverview {
   // Posts waiting for review, and those the fraud rules flag.
   assignments: number;
   alerts: number;
+  // Open disputes, and those open for more than 72 h.
+  disputes: number;
+  overdueDisputes: number;
 }
 
 export interface StaffAccount {
@@ -905,6 +910,38 @@ export interface ProofView {
   uploadedAt: string;
 }
 
+// A post is paid, and billed, from this many validated views.
+export const MIN_PAID_VIEWS = 500;
+
+export type DisputeSide = "CREATOR" | "ADVERTISER";
+export type DisputeOutcome = "KEEP" | "SET_VIEWS" | "REJECT_POST";
+
+export const DISPUTE_OUTCOME_LABELS: Record<DisputeOutcome, string> = {
+  KEEP: "Décision maintenue",
+  SET_VIEWS: "Vues corrigées",
+  REJECT_POST: "Publication refusée",
+};
+
+export interface DisputeView {
+  id: string;
+  side: DisputeSide;
+  reason: string;
+  status: "OPEN" | "RESOLVED";
+  outcome: DisputeOutcome | null;
+  decisionReason: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+export const disputesApi = {
+  // The post's creator or the campaign's advertiser.
+  open: (postId: string, reason: string) =>
+    call<DisputeView>(`/me/posts/${postId}/disputes`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+};
+
 export interface CreatorAssignment {
   id: string;
   status: "ACCEPTED" | "SUBMITTED";
@@ -915,12 +952,13 @@ export interface CreatorAssignment {
   reviewReason: string | null;
   validViews: number;
   earned: number;
+  minPaidViews: number;
+  dispute: DisputeView | null;
   declaredViews: number | null;
   proofs: ProofView[];
-  proofPlan: {
-    steps: { label: string; dueAt: string | null; doneAt: string | null }[];
-    nextDueAt: string | null;
-  } | null;
+  proofPlan: ProofPlan | null;
+  // Dated screenshots (H+1 to J+30) on every network but statuts.
+  capturePlan: ProofPlan | null;
   task: {
     id: string;
     network: SocialNetwork;
@@ -928,6 +966,11 @@ export interface CreatorAssignment {
     creatorRatePer1000: number;
     campaign: { title: string; hashtag: string; endsAt: string };
   };
+}
+
+export interface ProofPlan {
+  steps: { label: string; dueAt: string | null; doneAt: string | null }[];
+  nextDueAt: string | null;
 }
 
 export interface CreatorResults {
@@ -1036,6 +1079,7 @@ export interface CampaignReport {
     views: number;
     imageUrl: string | null;
     submittedAt: string | null;
+    dispute: DisputeView | null;
   }[];
 }
 
@@ -1080,6 +1124,10 @@ export interface PostDossier {
   submittedAt: string | null;
   validViews: number;
   earned: number;
+  onlineCheckedAt: string | null;
+  stillOnline: boolean | null;
+  onlineCheckDue: boolean;
+  disputes: (DisputeView & { openedById: string })[];
   latestViews: number;
   expectedEarning: number;
   creatorRatePer1000: number;
@@ -1185,11 +1233,49 @@ export interface CreatorFile {
   }[];
 }
 
-export type PostDecision = "VALIDATE" | "NEEDS_FIX" | "REJECT" | "SUSPEND_ACCOUNT";
+export type PostDecision =
+  | "VALIDATE"
+  | "NEEDS_FIX"
+  | "REJECT"
+  | "SUSPEND_ACCOUNT"
+  | "STILL_ONLINE"
+  | "REMOVED";
+
+// Validated posts due for their 30-day online check.
+export type PostQueue = PostReviewStatus | "ALL" | "ONLINE_CHECK";
+
+export interface StaffDispute extends DisputeView {
+  overdue: boolean;
+  post: {
+    id: string;
+    network: SocialNetwork;
+    campaign: { id: string; code: string; title: string };
+    creator: { id: string; phone: string | null; email: string | null; country: string };
+    postUrl: string | null;
+    reviewStatus: PostReviewStatus;
+    validViews: number;
+    earned: number;
+  };
+}
+
+export const staffDisputesApi = {
+  list: (status: "OPEN" | "RESOLVED" = "OPEN") =>
+    call<{ open: number; overdue: number; items: StaffDispute[] }>(
+      `/staff/disputes?status=${status}`,
+    ),
+  decide: (
+    id: string,
+    input: { outcome: DisputeOutcome; reason: string; views?: number },
+  ) =>
+    call<DisputeView>(`/staff/disputes/${id}/decide`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+};
 
 export const staffPostsApi = {
   list: (filters: {
-    status?: PostReviewStatus | "ALL";
+    status?: PostQueue;
     network?: SocialNetwork;
     country?: string;
     q?: string;
@@ -1199,7 +1285,7 @@ export const staffPostsApi = {
       Object.entries(filters).filter(([, v]) => v) as [string, string][],
     );
     return call<{
-      counts: Record<PostReviewStatus, number>;
+      counts: Record<PostReviewStatus | "ONLINE_CHECK", number>;
       items: StaffPostRow[];
     }>(`/staff/posts?${params}`);
   },

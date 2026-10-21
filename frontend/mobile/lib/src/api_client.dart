@@ -353,6 +353,12 @@ class ApiClient {
     );
   }
 
+  /// Contests the team's decision on a post: its earnings are frozen until
+  /// the team decides.
+  Future<void> openDispute(String assignmentId, String reason) async {
+    await _post('/me/posts/$assignmentId/disputes', {'reason': reason});
+  }
+
   Future<CreatorResults> results() async {
     final res = await _client.get(
       Uri.parse('$baseUrl/me/results'),

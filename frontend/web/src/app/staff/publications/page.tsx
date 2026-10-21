@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 import {
   contactOf,
   NETWORK_LABELS,
+  PostQueue,
   PostReviewStatus,
   REVIEW_STATUS_LABELS,
   REVIEW_STATUS_TONES,
@@ -19,13 +20,20 @@ import { RiskBadge } from "../_sections/risk-badge";
 import { useStaffOnly } from "../_sections/use-staff";
 import { DATE } from "../_sections/use-queue";
 
-const STATUSES: (PostReviewStatus | "ALL")[] = [
+const STATUSES: PostQueue[] = [
   "TO_REVIEW",
   "NEEDS_FIX",
   "VALIDATED",
   "REJECTED",
+  "ONLINE_CHECK",
   "ALL",
 ];
+
+const QUEUE_LABELS: Record<PostQueue, string> = {
+  ...REVIEW_STATUS_LABELS,
+  ONLINE_CHECK: "Contrôle J+30",
+  ALL: "Toutes",
+};
 
 export default function PublicationsPage() {
   return (
@@ -41,13 +49,13 @@ function Publications() {
   const params = useSearchParams();
   const allowed = useStaffOnly();
   const alertsOnly = params.get("alertes") === "1";
-  const [status, setStatus] = useState<PostReviewStatus | "ALL">("TO_REVIEW");
+  const [status, setStatus] = useState<PostQueue>("TO_REVIEW");
   const [network, setNetwork] = useState<SocialNetwork | "">("");
   const [country, setCountry] = useState("");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<"risk" | "date">("risk");
   const [data, setData] = useState<{
-    counts: Record<PostReviewStatus, number>;
+    counts: Record<PostReviewStatus | "ONLINE_CHECK", number>;
     items: StaffPostRow[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +98,7 @@ function Publications() {
             className={status === s ? "selected" : ""}
             onClick={() => setStatus(s)}
           >
-            {s === "ALL" ? "Toutes" : REVIEW_STATUS_LABELS[s]}{" "}
+            {QUEUE_LABELS[s]}{" "}
             {s !== "ALL" && data && <small>{data.counts[s]}</small>}
           </button>
         ))}

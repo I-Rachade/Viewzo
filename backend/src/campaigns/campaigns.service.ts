@@ -17,6 +17,7 @@ import {
   PostReviewStatus,
   CreatorSkills,
   CreatorTaskType,
+  Dispute,
   NotificationType,
   PostProof,
   Prisma,
@@ -30,9 +31,11 @@ import type { StaffActor } from '../auth/staff';
 import { CountriesService } from '../countries/countries.service';
 import { CampaignFilesService } from '../files/campaign-files.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { disputeView } from '../posts/disputes.service';
 import { ProofSource, ProofsService } from '../posts/proofs.service';
 import { linkMatchesNetwork } from '../posts/risk';
 import { PrismaService } from '../prisma/prisma.service';
+import { MIN_PAID_VIEWS } from '../wallet/earnings';
 import { WalletService } from '../wallet/wallet.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { ReviewCampaignDto } from './dto/review-campaign.dto';
@@ -571,6 +574,7 @@ export class CampaignsService {
         task: { include: { campaign: true } },
         proofs: { orderBy: { uploadedAt: 'asc' } },
         snapshots: { select: { views: true, takenAt: true } },
+        disputes: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
     const files = await this.files.forCampaigns([
@@ -584,6 +588,7 @@ export class CampaignsService {
         a.proofs,
         a.snapshots,
         files.get(a.task.campaignId),
+        a.disputes[0],
       ),
     );
   }
@@ -958,6 +963,7 @@ export class CampaignsService {
     proofs: PostProof[] = [],
     snapshots: { views: number; takenAt: Date }[] = [],
     files: FileView[] = [],
+    dispute?: Dispute,
   ) {
     return {
       id: a.id,
@@ -970,7 +976,10 @@ export class CampaignsService {
       reviewReason: a.reviewReason,
       validViews: a.validViews,
       earned: a.earned,
-      ...this.proofs.creatorView(t.network, proofs, snapshots),
+      // Paid from this many validated views.
+      minPaidViews: MIN_PAID_VIEWS,
+      dispute: disputeView(dispute),
+      ...this.proofs.creatorView(t.network, proofs, snapshots, a.submittedAt),
       task: this.toTaskView(t, c, files),
     };
   }

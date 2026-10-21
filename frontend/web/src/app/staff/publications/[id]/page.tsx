@@ -8,6 +8,7 @@ import {
   CONTENT_TYPE_LABELS,
   contactOf,
   formatFcfa,
+  MIN_PAID_VIEWS,
   NETWORK_LABELS,
   PostDecision,
   PostDossier,
@@ -38,7 +39,12 @@ const CONFIRM: Partial<Record<PostDecision, (views: number) => string>> = {
     "Refuser cette publication ? Les gains encore bloqués sont repris et le créateur ne pourra plus rien envoyer.",
   SUSPEND_ACCOUNT: () =>
     "Suspendre ce compte réseau ? Le créateur ne recevra plus de tâches sur ce réseau.",
+  REMOVED: () =>
+    "Publication supprimée ? Elle est refusée et ses gains encore retenus sont repris.",
 };
+
+// Decisions the creator gets no reason for.
+const NO_REASON: PostDecision[] = ["VALIDATE", "STILL_ONLINE"];
 
 // Everything about one post, and the decisions the team can take on it.
 export default function PostDossierPage() {
@@ -71,7 +77,7 @@ export default function PostDossierPage() {
   }, [allowed, load]);
 
   async function decide(decision: PostDecision, done: string) {
-    if (decision !== "VALIDATE" && !reason.trim()) {
+    if (!NO_REASON.includes(decision) && !reason.trim()) {
       setError("Écris la raison, le créateur la verra.");
       return;
     }
@@ -84,7 +90,7 @@ export default function PostDossierPage() {
         await staffPostsApi.review(id, {
           decision,
           views: decision === "VALIDATE" ? views : undefined,
-          reason: decision === "VALIDATE" ? undefined : reason.trim(),
+          reason: NO_REASON.includes(decision) ? undefined : reason.trim(),
         }),
       );
       setReason("");
@@ -297,7 +303,8 @@ export default function PostDossierPage() {
               Gain prévu pour {post.latestViews.toLocaleString("fr-FR")} vues
               déclarées : {formatFcfa(post.expectedEarning)} ({post.creatorRatePer1000}{" "}
               FCFA / 1 000). Déjà validé : {post.validViews.toLocaleString("fr-FR")} vues,{" "}
-              {formatFcfa(post.earned)}.
+              {formatFcfa(post.earned)}. Rien n’est payé sous{" "}
+              {MIN_PAID_VIEWS.toLocaleString("fr-FR")} vues validées.
             </p>
             <button
               disabled={busy || views < post.validViews}
@@ -340,6 +347,41 @@ export default function PostDossierPage() {
             </div>
             {error && <p className="error">{error}</p>}
           </section>
+
+          {(post.onlineCheckDue || post.onlineCheckedAt) && (
+            <section className="panel">
+              <h2>Contrôle à J+30</h2>
+              {post.onlineCheckedAt ? (
+                <p>
+                  {post.stillOnline ? "Toujours en ligne" : "Supprimée"}, contrôlé le{" "}
+                  {DATE.format(new Date(post.onlineCheckedAt))}.
+                </p>
+              ) : (
+                <>
+                  <p className="hint">
+                    Ouvre le lien et vérifie que la publication est encore en ligne. Si
+                    elle a été supprimée, écris la raison ci-dessus : les gains encore
+                    retenus sont repris, ceux déjà disponibles restent au créateur.
+                  </p>
+                  <div className="actions">
+                    <button
+                      disabled={busy}
+                      onClick={() => decide("STILL_ONLINE", "Contrôle enregistré")}
+                    >
+                      Toujours en ligne
+                    </button>
+                    <button
+                      className="coral"
+                      disabled={busy}
+                      onClick={() => decide("REMOVED", "Publication supprimée")}
+                    >
+                      Supprimée
+                    </button>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
 
           <section className="panel">
             <h2>Signaux de fraude</h2>

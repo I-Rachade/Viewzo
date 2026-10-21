@@ -505,29 +505,35 @@ enum PostReviewStatus {
 }
 
 model TaskAssignment {
-  id             String           @id @default(uuid())
-  taskId         String
-  creatorId      String
-  status         AssignmentStatus @default(ACCEPTED)
-  postUrl        String?
-  acceptedAt     DateTime         @default(now())
-  submittedAt    DateTime?
-  validViews     Int              @default(0)
-  earned         Int              @default(0)
-  reviewStatus   PostReviewStatus @default(TO_REVIEW)
-  reviewReason   String?
-  reviewedAt     DateTime?
+  id                   String           @id @default(uuid())
+  taskId               String
+  creatorId            String
+  status               AssignmentStatus @default(ACCEPTED)
+  postUrl              String?
+  acceptedAt           DateTime         @default(now())
+  submittedAt          DateTime?
+  validViews           Int              @default(0)
+  earned               Int              @default(0)
+  reviewStatus         PostReviewStatus @default(TO_REVIEW)
+  reviewReason         String?
+  reviewedAt           DateTime?
   // 0 to 100, recomputed whenever a proof or a view count comes in.
-  riskScore      Int              @default(0)
+  riskScore            Int              @default(0)
   // WhatsApp Statut reminders already sent (12 h, 23 h).
-  remindersSent  Int              @default(0)
+  remindersSent        Int              @default(0)
   // Last automatic view count, for posts the platform can be asked about.
-  viewsFetchedAt DateTime?
-  task           CampaignTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  creator        User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  proofs         PostProof[]
-  snapshots      ViewSnapshot[]
-  reviews        PostReview[]
+  viewsFetchedAt       DateTime?
+  // Dated screenshot reminders already sent (H+1, J+1, J+7, J+30).
+  captureRemindersSent Int              @default(0)
+  // The team's check, 30 days after posting, that the post is still online.
+  onlineCheckedAt      DateTime?
+  stillOnline          Boolean?
+  task                 CampaignTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  creator              User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  proofs               PostProof[]
+  snapshots            ViewSnapshot[]
+  reviews              PostReview[]
+  disputes             Dispute[]
 
   @@unique([taskId, creatorId])
   @@index([creatorId, acceptedAt])
@@ -588,6 +594,8 @@ enum PostReviewAction {
   NEEDS_FIX
   REJECT
   SUSPEND_ACCOUNT
+  STILL_ONLINE // checked online 30 days after posting
+  REMOVED // deleted before 30 days, held earnings taken back
 }
 
 // Audit trail: who did what on a post, and why.
@@ -601,6 +609,42 @@ model PostReview {
   createdAt    DateTime         @default(now())
   assignment   TaskAssignment   @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
 
+  @@index([assignmentId, createdAt])
+}
+
+enum DisputeSide {
+  CREATOR // contests a refusal or a views count
+  ADVERTISER // contests a validated post
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED
+}
+
+enum DisputeOutcome {
+  KEEP // the post stays as it was
+  SET_VIEWS // the team validates more views
+  REJECT_POST // the post is refused and its earnings taken back
+}
+
+// A creator or an advertiser contesting the team's decision on a post. While
+// it is open, the post's earnings are frozen.
+model Dispute {
+  id             String          @id @default(uuid())
+  assignmentId   String
+  openedById     String
+  side           DisputeSide
+  reason         String
+  status         DisputeStatus   @default(OPEN)
+  outcome        DisputeOutcome?
+  decisionReason String?
+  decidedById    String?
+  decidedAt      DateTime?
+  createdAt      DateTime        @default(now())
+  assignment     TaskAssignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
   @@index([assignmentId, createdAt])
 }
 
@@ -642,6 +686,8 @@ model Transaction {
   status       TransactionStatus @default(COMPLETED)
   // Earnings are held until this date (security hold, see specification).
   availableAt  DateTime          @default(now())
+  // Earnings of a post under dispute cannot be withdrawn.
+  frozen       Boolean           @default(false)
   campaignId   String?
   assignmentId String?
   paymentId    String?           @unique
@@ -717,6 +763,7 @@ enum NotificationType {
   WITHDRAWAL_UPDATED
   IDENTITY_REVIEWED
   CAMPAIGN_COMPLETED
+  DISPUTE_UPDATED
 }
 
 // In-app messages, shown in the bell on the web and in the app.

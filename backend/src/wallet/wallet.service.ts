@@ -11,6 +11,7 @@ import {
   AssignmentStatus,
   Campaign,
   CampaignStatus,
+  DisputeStatus,
   NotificationType,
   Payment,
   PaymentKind,
@@ -35,8 +36,10 @@ import { WithdrawDto } from './dto/withdraw.dto';
 import {
   advertiserCost,
   availableAt,
+  billableViews,
   creatorEarning,
   LEVEL1_EARNINGS_CAP,
+  MIN_PAID_VIEWS,
   payableViews,
 } from './earnings';
 import { FLUTTERWAVE_OPERATORS } from './gateways/flutterwave.gateway';
@@ -82,38 +85,47 @@ export class WalletService {
   async summary(userId: string) {
     const user = await this.user(userId);
     const now = new Date();
-    const [available, held, pendingWithdrawals, campaigns] = await Promise.all([
-      this.balance(this.prisma, userId, now),
-      this.sum(userId, {
-        type: TransactionType.EARNING,
-        status: TransactionStatus.COMPLETED,
-        availableAt: { gt: now },
-      }),
-      this.sum(userId, {
-        type: TransactionType.WITHDRAWAL,
-        status: TransactionStatus.PENDING,
-      }),
-      this.prisma.campaign.findMany({
-        where: {
-          advertiserId: userId,
-          fundedAt: { not: null },
-          status: {
-            in: [
-              CampaignStatus.PENDING_REVIEW,
-              CampaignStatus.ACTIVE,
-              CampaignStatus.PAUSED,
-            ],
+    const [available, held, frozen, pendingWithdrawals, campaigns] =
+      await Promise.all([
+        this.balance(this.prisma, userId, now),
+        this.sum(userId, {
+          type: TransactionType.EARNING,
+          status: TransactionStatus.COMPLETED,
+          availableAt: { gt: now },
+          frozen: false,
+        }),
+        this.sum(userId, {
+          type: TransactionType.EARNING,
+          status: TransactionStatus.COMPLETED,
+          frozen: true,
+        }),
+        this.sum(userId, {
+          type: TransactionType.WITHDRAWAL,
+          status: TransactionStatus.PENDING,
+        }),
+        this.prisma.campaign.findMany({
+          where: {
+            advertiserId: userId,
+            fundedAt: { not: null },
+            status: {
+              in: [
+                CampaignStatus.PENDING_REVIEW,
+                CampaignStatus.ACTIVE,
+                CampaignStatus.PAUSED,
+              ],
+            },
           },
-        },
-        select: { budget: true, spent: true },
-      }),
-    ]);
+          select: { budget: true, spent: true },
+        }),
+      ]);
     const provider = this.router.providerFor(user.country);
     return {
       currency: CURRENCY,
       available,
       // Earnings in their security hold, withdrawable from `availableAt`.
       held,
+      // Earnings of posts under dispute, until the team decides.
+      frozen,
       pendingWithdrawals: -pendingWithdrawals,
       // Budgets of the user's campaigns still held in escrow.
       escrow: campaigns.reduce((s, c) => s + c.budget - c.spent, 0),
@@ -579,7 +591,8 @@ export class WalletService {
       const { task } = current;
       const others = task.assignments.filter((a) => a.id !== current.id);
       const spentOnTask = others.reduce(
-        (s, a) => s + advertiserCost(a.validViews, task.contentType),
+        (s, a) =>
+          s + advertiserCost(billableViews(a.validViews), task.contentType),
         0,
       );
       // Views beyond the task budget are not paid.
@@ -587,7 +600,11 @@ export class WalletService {
         totalViews,
         payableViews(task.budget - spentOnTask, task.contentType),
       );
-      let earned = creatorEarning(views, task.creatorRatePer1000);
+      // Below the threshold the views are kept, but nothing is paid or billed.
+      let earned = creatorEarning(
+        billableViews(views),
+        task.creatorRatePer1000,
+      );
       const level =
         current.creator.profiles.find((p) => p.type === ProfileType.CREATOR)
           ?.level ?? 1;
@@ -602,8 +619,8 @@ export class WalletService {
       }
       const delta = earned - current.earned;
       const costDelta =
-        advertiserCost(views, task.contentType) -
-        advertiserCost(current.validViews, task.contentType);
+        advertiserCost(billableViews(views), task.contentType) -
+        advertiserCost(billableViews(current.validViews), task.contentType);
       if (task.campaign.spent + costDelta > task.campaign.budget) {
         throw new ConflictException('Budget de la campagne épuisé');
       }
@@ -660,6 +677,9 @@ export class WalletService {
         });
       }
       if (delta > 0) {
+        const disputed = await tx.dispute.count({
+          where: { assignmentId: current.id, status: DisputeStatus.OPEN },
+        });
         await tx.transaction.create({
           data: {
             userId: current.creatorId,
@@ -667,6 +687,7 @@ export class WalletService {
             amount: delta,
             currency: CURRENCY,
             availableAt: availableAt(level),
+            frozen: disputed > 0,
             campaignId: task.campaignId,
             assignmentId: current.id,
             note: `${views} vues validées · #${task.campaign.code}`,
@@ -684,22 +705,39 @@ export class WalletService {
     await this.notifications.notify(assignment.creatorId, {
       type: NotificationType.POST_VALIDATED,
       title: `Publication validée · #${assignment.task.campaign.code}`,
-      body: `${result.validViews.toLocaleString('fr-FR')} vues validées, ${result.earned.toLocaleString('fr-FR')} FCFA gagnés au total.`,
+      body:
+        result.validViews < MIN_PAID_VIEWS
+          ? `${result.validViews.toLocaleString('fr-FR')} vues validées. Le paiement commence à ${MIN_PAID_VIEWS} vues validées.`
+          : `${result.validViews.toLocaleString('fr-FR')} vues validées, ${result.earned.toLocaleString('fr-FR')} FCFA gagnés au total.`,
       link: '/resultats',
     });
     return result;
   }
 
   /**
-   * Takes back a rejected post's earnings while they are still in their
-   * security hold, and returns their cost to the campaign escrow.
+   * Takes back a refused post's earnings while they are still in their
+   * security hold or frozen by a dispute, and returns their cost to the
+   * campaign escrow. Throws when some were already free to withdraw.
    */
   async reverseEarnings(tx: Tx, assignmentId: string) {
+    await this.takeBack(tx, assignmentId, true);
+  }
+
+  /**
+   * Takes back what a post still holds (in its security hold or frozen),
+   * keeping what the creator could already withdraw. Used when a post was
+   * deleted before its 30-day check. Returns the amount taken back.
+   */
+  async takeBackHeld(tx: Tx, assignmentId: string) {
+    return this.takeBack(tx, assignmentId, false);
+  }
+
+  private async takeBack(tx: Tx, assignmentId: string, all: boolean) {
     const a = await tx.taskAssignment.findUniqueOrThrow({
       where: { id: assignmentId },
       include: { task: true },
     });
-    if (a.validViews === 0 && a.earned === 0) return;
+    if (a.validViews === 0 && a.earned === 0) return 0;
     await this.lock(tx, `campaign:${a.task.campaignId}`);
     await this.lock(tx, a.creatorId);
     const now = new Date();
@@ -710,20 +748,28 @@ export class WalletService {
         status: TransactionStatus.COMPLETED,
       },
     });
-    if (earnings.some((t) => t.availableAt <= now)) {
+    // Frozen earnings never reached the withdrawable balance since the freeze.
+    const held = earnings.filter((t) => t.availableAt > now || t.frozen);
+    if (all && held.length < earnings.length) {
       throw new ConflictException(
         'Gains déjà disponibles pour le créateur, refus impossible',
       );
     }
+    const taken = held.reduce((s, t) => s + t.amount, 0);
+    if (!all && taken === 0) return 0;
     await tx.transaction.updateMany({
-      where: { id: { in: earnings.map((t) => t.id) } },
+      where: { id: { in: held.map((t) => t.id) } },
       data: { status: TransactionStatus.CANCELLED },
     });
+    const cost = advertiserCost(
+      billableViews(a.validViews),
+      a.task.contentType,
+    );
+    // The share of the post taken back: all of it, or what was still held.
+    const share = all || a.earned === 0 ? 1 : taken / a.earned;
     const campaign = await tx.campaign.update({
       where: { id: a.task.campaignId },
-      data: {
-        spent: { decrement: advertiserCost(a.validViews, a.task.contentType) },
-      },
+      data: { spent: { decrement: Math.round(cost * share) } },
     });
     // A closed campaign has no escrow left: the advertiser gets the cost back.
     if (campaign.status === CampaignStatus.COMPLETED) {
@@ -731,7 +777,28 @@ export class WalletService {
     }
     await tx.taskAssignment.update({
       where: { id: assignmentId },
-      data: { validViews: 0, earned: 0 },
+      data: {
+        validViews: a.validViews - Math.round(a.validViews * share),
+        earned: a.earned - taken,
+      },
+    });
+    return taken;
+  }
+
+  /** Freezes or releases a post's earnings, for a dispute. */
+  async setFrozen(tx: Tx, assignmentId: string, frozen: boolean) {
+    const { creatorId } = await tx.taskAssignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+      select: { creatorId: true },
+    });
+    await this.lock(tx, creatorId);
+    await tx.transaction.updateMany({
+      where: {
+        assignmentId,
+        type: TransactionType.EARNING,
+        status: TransactionStatus.COMPLETED,
+      },
+      data: { frozen },
     });
   }
 
@@ -1140,6 +1207,7 @@ export class WalletService {
       this.sumWith(tx, userId, {
         status: TransactionStatus.COMPLETED,
         availableAt: { lte: now },
+        frozen: false,
       }),
       this.sumWith(tx, userId, {
         status: TransactionStatus.PENDING,
