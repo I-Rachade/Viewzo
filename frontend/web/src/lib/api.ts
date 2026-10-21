@@ -659,8 +659,6 @@ export const IDENTITY_STATUS_LABELS: Record<IdentityStatus, string> = {
 export interface IdentityCheckView {
   id: string;
   status: IdentityStatus;
-  // The provider's page, while the check is open.
-  url: string | null;
   fullName: string | null;
   documentType: string | null;
   reason: string | null;
@@ -678,10 +676,14 @@ export interface IdentityStatusView {
 
 export const identityApi = {
   status: () => call<IdentityStatusView>("/me/identity"),
-  start: () =>
-    call<IdentityCheckView>("/me/identity/start", { method: "POST" }),
-  refresh: () =>
-    call<IdentityCheckView>("/me/identity/refresh", { method: "POST" }),
+  // Front and back of the ID and a selfie, checked at once.
+  submit: (photos: { front: Blob; back?: Blob; selfie: Blob }) => {
+    const form = new FormData();
+    form.append("front", photos.front, "front.jpg");
+    if (photos.back) form.append("back", photos.back, "back.jpg");
+    form.append("selfie", photos.selfie, "selfie.jpg");
+    return upload<IdentityCheckView>("/me/identity", form);
+  },
 };
 
 interface StaffUser {

@@ -23,11 +23,15 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { cleanFirstName } from '../users/users.service';
 import { IDENTITY_PROVIDER } from './identity-provider';
-import type { IdentityDecision, IdentityProvider } from './identity-provider';
+import type {
+  IdentityDecision,
+  IdentityImages,
+  IdentityProvider,
+} from './identity-provider';
 
 const DAY = 24 * 3600 * 1000;
-// A session left unfinished this long is started again from scratch.
-const SESSION_TTL_MS = DAY;
+// Tries per person and per day, whatever their outcome.
+const MAX_TRIES_PER_DAY = 5;
 // Declined checks allowed per 30 days before the person has to wait.
 const MAX_DECLINED = 3;
 const DECLINED_WINDOW_MS = 30 * DAY;
@@ -36,11 +40,6 @@ const DECLINED_WINDOW_MS = 30 * DAY;
 export const IDENTITY_PROFILES: ProfileType[] = [
   ProfileType.CREATOR,
   ProfileType.ADVERTISER,
-];
-
-const OPEN: IdentityCheckStatus[] = [
-  IdentityCheckStatus.STARTED,
-  IdentityCheckStatus.IN_REVIEW,
 ];
 
 const GENERIC_DECLINE =
@@ -81,8 +80,11 @@ export class IdentityService {
     };
   }
 
-  /** Opens a verification session and returns the page to send the person to. */
-  async start(userId: string) {
+  /**
+   * Checks the photos with the provider and applies its answer at once:
+   * approved, declined, or sent to the team.
+   */
+  async submit(userId: string, images: IdentityImages) {
     if (!this.provider.enabled) {
       throw new ServiceUnavailableException({
         code: 'IDENTITY_CLOSED',
@@ -108,15 +110,6 @@ export class IdentityService {
         'Ta vérification est en cours d’examen par l’équipe',
       );
     }
-    if (last?.status === IdentityCheckStatus.STARTED) {
-      if (last.url && Date.now() - last.createdAt.getTime() < SESSION_TTL_MS) {
-        return this.toView(last);
-      }
-      await this.prisma.identityCheck.updateMany({
-        where: { id: last.id, status: IdentityCheckStatus.STARTED },
-        data: { status: IdentityCheckStatus.ABANDONED },
-      });
-    }
     const retryAfter = await this.retryAfter(userId);
     if (retryAfter) {
       throw new ForbiddenException({
@@ -124,24 +117,23 @@ export class IdentityService {
         message: `Trop d’essais refusés : réessaie à partir du ${retryAfter.toLocaleDateString('fr-FR')}`,
       });
     }
+    // Each try costs provider calls: a few per day, whatever their outcome.
+    const today = await this.prisma.identityCheck.count({
+      where: { userId, createdAt: { gte: new Date(Date.now() - DAY) } },
+    });
+    if (today >= MAX_TRIES_PER_DAY) {
+      throw new ForbiddenException({
+        code: 'IDENTITY_RETRY_LATER',
+        message: 'Trop d’essais aujourd’hui : réessaie demain',
+      });
+    }
 
     const check = await this.prisma.identityCheck.create({
       data: { userId, provider: this.provider.name },
     });
+    let decision: IdentityDecision;
     try {
-      const web = this.config.get<string>(
-        'WEB_ORIGIN',
-        'http://localhost:3000',
-      );
-      const session = await this.provider.createSession(
-        check.id,
-        `${web}/identite?check=${check.id}`,
-      );
-      const updated = await this.prisma.identityCheck.update({
-        where: { id: check.id },
-        data: { sessionId: session.sessionId, url: session.url },
-      });
-      return this.toView(updated);
+      decision = await this.provider.verify(check.id, images);
     } catch (e) {
       await this.prisma.identityCheck.update({
         where: { id: check.id },
@@ -149,23 +141,7 @@ export class IdentityService {
       });
       throw e;
     }
-  }
-
-  /** Asks the provider again, after the person comes back from its pages. */
-  async refresh(userId: string) {
-    const last = await this.latest(userId);
-    if (!last) throw new NotFoundException('Aucune vérification en cours');
-    const synced = await this.sync(last);
-    return this.toView(synced);
-  }
-
-  /** Provider notification: the decision is always re-read from its API. */
-  async onWebhook(sessionId: string | undefined) {
-    if (!sessionId) return;
-    const check = await this.prisma.identityCheck.findUnique({
-      where: { sessionId },
-    });
-    if (check) await this.sync(check);
+    return this.toView(await this.apply(check, decision));
   }
 
   /** Name on the approved identity, for the finance team's withdrawal checks. */
@@ -329,22 +305,16 @@ export class IdentityService {
     );
   }
 
-  /** Applies the provider's decision to a check the team has not decided on. */
-  private async sync(check: IdentityCheck): Promise<IdentityCheck> {
-    if (!OPEN.includes(check.status) || check.reviewerId || !check.sessionId) {
-      return check;
-    }
-    const decision = await this.provider.decision(check.sessionId);
+  /** Applies the provider's answer to a check just sent. */
+  private async apply(
+    check: IdentityCheck,
+    decision: IdentityDecision,
+  ): Promise<IdentityCheck> {
     const data = this.facts(decision);
 
-    let status: IdentityCheckStatus = check.status;
-    let reason: string | null = check.reason;
+    let status: IdentityCheckStatus;
+    let reason: string | null;
     switch (decision.outcome) {
-      case 'PENDING':
-        break;
-      case 'ABANDONED':
-        status = IdentityCheckStatus.ABANDONED;
-        break;
       case 'DECLINED':
         status = IdentityCheckStatus.DECLINED;
         reason = decision.warnings.join(' · ') || GENERIC_DECLINE;
@@ -385,7 +355,11 @@ export class IdentityService {
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.identityCheck.updateMany({
-        where: { id: check.id, status: { in: OPEN }, reviewerId: null },
+        where: {
+          id: check.id,
+          status: IdentityCheckStatus.STARTED,
+          reviewerId: null,
+        },
         data: {
           ...data,
           status,
@@ -482,7 +456,6 @@ export class IdentityService {
     return {
       id: c.id,
       status: c.status,
-      url: c.status === IdentityCheckStatus.STARTED ? c.url : null,
       fullName: c.fullName,
       documentType: c.documentType,
       reason: c.reason,

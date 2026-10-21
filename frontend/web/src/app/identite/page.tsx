@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   api,
   IDENTITY_STATUS_LABELS,
@@ -14,74 +13,105 @@ import { useRequireUser, useSession } from "../_shell/session";
 
 const DATE = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" });
 
-export default function IdentityPage() {
-  return (
-    <Suspense fallback={<LoadingCard />}>
-      <Identity />
-    </Suspense>
-  );
+// Photos are shrunk before sending so they go through on a mobile connection.
+const MAX_SIDE = 1600;
+
+async function shrink(file: File): Promise<Blob> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas
+      .getContext("2d")
+      ?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.85),
+    );
+    return blob ?? file;
+  } catch {
+    return file;
+  }
 }
 
-// Level 2: an ID document and a selfie, checked by Didit on its own pages,
-// then by the team when Didit can't decide alone.
-function Identity() {
+type Slot = "front" | "back" | "selfie";
+
+const SLOTS: { key: Slot; title: string; hint: string; selfie?: boolean }[] = [
+  {
+    key: "front",
+    title: "1. Recto de la pièce",
+    hint: "La pièce en entier, à plat, sans reflet.",
+  },
+  {
+    key: "back",
+    title: "2. Verso de la pièce",
+    hint: "Facultatif pour un passeport.",
+  },
+  {
+    key: "selfie",
+    title: "3. Selfie",
+    hint: "Ton visage de face, bien éclairé, sans lunettes ni casquette.",
+    selfie: true,
+  },
+];
+
+// Level 2: photos of the ID and a selfie, sent to the identity check right
+// away; the team decides when the check can't decide alone.
+export default function IdentityPage() {
   const user = useRequireUser();
   const { updateUser } = useSession();
-  const refreshUser = useCallback(
-    async () => updateUser(await api.me()),
-    [updateUser],
-  );
-  const params = useSearchParams();
-  // Didit sends the person back here with ?check=…; ?demo=1 on a dev machine.
-  const back = params.has("check") || params.has("demo");
   const [view, setView] = useState<IdentityStatusView | null>(null);
+  const [photos, setPhotos] = useState<Partial<Record<Slot, File>>>({});
+  const [previews, setPreviews] = useState<Partial<Record<Slot, string>>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const status = await identityApi.status();
-    setView(status);
-    return status;
-  }, []);
+  const load = useCallback(async () => setView(await identityApi.status()), []);
 
   useEffect(() => {
     if (!user) return;
     void (async () => {
       try {
-        const status = await load();
-        const open =
-          status.check?.status === "STARTED" ||
-          status.check?.status === "IN_REVIEW";
-        if (back && open) {
-          await identityApi.refresh();
-          await load();
-          await refreshUser();
-        }
+        await load();
       } catch (e) {
         setError((e as Error).message);
       }
     })();
-  }, [user, back, load, refreshUser]);
+  }, [user, load]);
 
-  async function start() {
-    setBusy(true);
+  // Free the preview images when they change or the page closes.
+  useEffect(
+    () => () =>
+      Object.values(previews).forEach((url) => URL.revokeObjectURL(url)),
+    [previews],
+  );
+
+  function pick(slot: Slot, file: File | undefined) {
     setError(null);
-    try {
-      const check = await identityApi.start();
-      if (check.url) window.location.assign(check.url);
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(false);
-    }
+    setPhotos((p) => ({ ...p, [slot]: file }));
+    setPreviews((p) => ({
+      ...p,
+      [slot]: file ? URL.createObjectURL(file) : undefined,
+    }));
   }
 
-  async function refresh() {
+  async function submit() {
+    if (!photos.front || !photos.selfie) return;
     setBusy(true);
     setError(null);
     try {
-      await identityApi.refresh();
+      const [front, back, selfie] = await Promise.all([
+        shrink(photos.front),
+        photos.back ? shrink(photos.back) : undefined,
+        shrink(photos.selfie),
+      ]);
+      await identityApi.submit({ front, back, selfie });
+      setPhotos({});
+      setPreviews({});
       await load();
-      await refreshUser();
+      updateUser(await api.me());
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -113,17 +143,15 @@ function Identity() {
       ) : (
         <>
           <p>
-            Le niveau 2 ouvre toutes les tâches et les retraits. Il te faut ta
-            pièce d’identité (carte, passeport ou permis) et ton téléphone pour
-            un selfie. Compte 3 minutes.
+            Le niveau 2 ouvre toutes les tâches et les retraits. Prends en photo
+            ta pièce d’identité (carte, passeport ou permis), puis fais un
+            selfie. La réponse arrive en quelques secondes.
           </p>
-          <ul>
-            <li>Une pièce valide, en entier, sans reflet.</li>
-            <li>Un selfie dans un endroit bien éclairé, sans lunettes ni casquette.</li>
-            <li>
-              Pour tes retraits, le compte Mobile Money doit être à ton nom.
-            </li>
-          </ul>
+          <p className="hint">
+            Pour tes retraits, le compte Mobile Money doit être à ton nom. Tes
+            photos servent seulement à la vérification : Viewzo ne les garde
+            pas.
+          </p>
 
           {check && (
             <p className="hint">
@@ -149,18 +177,47 @@ function Identity() {
               {DATE.format(new Date(view.retryAfter))}.
             </p>
           ) : (
-            <div className="actions">
-              <button className="coral" disabled={busy} onClick={start}>
-                {check?.status === "STARTED"
-                  ? "Reprendre la vérification"
-                  : "Commencer la vérification"}
-              </button>
-              {check?.status === "STARTED" && (
-                <button className="secondary" disabled={busy} onClick={refresh}>
-                  J’ai terminé
+            <>
+              {SLOTS.map((slot) => (
+                <label key={slot.key}>
+                  <strong>{slot.title}</strong>
+                  <span className="hint" style={{ fontWeight: 400 }}>
+                    {slot.hint}
+                  </span>
+                  {previews[slot.key] && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={previews[slot.key]}
+                      alt=""
+                      style={{
+                        maxWidth: 240,
+                        maxHeight: 160,
+                        objectFit: "contain",
+                        borderRadius: 8,
+                      }}
+                    />
+                  )}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    capture={slot.selfie ? "user" : "environment"}
+                    disabled={busy}
+                    onChange={(e) => pick(slot.key, e.target.files?.[0])}
+                  />
+                </label>
+              ))}
+              <div className="actions">
+                <button
+                  className="coral"
+                  disabled={busy || !photos.front || !photos.selfie}
+                  onClick={submit}
+                >
+                  {busy
+                    ? "Vérification en cours…"
+                    : "Envoyer pour vérification"}
                 </button>
-              )}
-            </div>
+              </div>
+            </>
           )}
         </>
       )}

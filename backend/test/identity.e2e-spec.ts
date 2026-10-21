@@ -6,6 +6,7 @@ import { AppModule } from '../src/app.module';
 import {
   IDENTITY_PROVIDER,
   IdentityDecision,
+  IdentityImages,
   IdentityProvider,
 } from '../src/identity/identity-provider';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -32,18 +33,24 @@ class FakeProvider implements IdentityProvider {
   readonly name = 'fake';
   enabled = true;
   next: IdentityDecision = IN_REVIEW;
-  sessions = 0;
-  createSession(checkId: string) {
-    this.sessions += 1;
-    return Promise.resolve({
-      sessionId: `s-${checkId}`,
-      url: `https://verify.example/${checkId}`,
-    });
-  }
-  decision() {
+  calls = 0;
+  last?: IdentityImages;
+  verify(_checkId: string, images: IdentityImages) {
+    this.calls += 1;
+    this.last = images;
     return Promise.resolve(this.next);
   }
 }
+
+// Smallest valid PNG and JPEG headers: the type is read from the bytes.
+const PNG = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.alloc(32),
+]);
+const JPEG = Buffer.concat([
+  Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+  Buffer.alloc(32),
+]);
 
 describe('Identity verification (e2e)', () => {
   let app: INestApplication<App>;
@@ -70,6 +77,16 @@ describe('Identity verification (e2e)', () => {
       .expect(201);
     return token;
   }
+
+  // Front, back and selfie, as the web and the app send them.
+  const submit = (token: string, back = true) => {
+    const req = http()
+      .post('/me/identity')
+      .set(auth(token))
+      .attach('front', PNG, 'front.png')
+      .attach('selfie', JPEG, 'selfie.jpg');
+    return back ? req.attach('back', PNG, 'back.png') : req;
+  };
 
   const levels = async (token: string) =>
     (
@@ -120,33 +137,33 @@ describe('Identity verification (e2e)', () => {
       check: null,
     });
 
-    const started = await http()
-      .post('/me/identity/start')
+    // The selfie and a real image are required; the type comes from the bytes.
+    await http()
+      .post('/me/identity')
       .set(auth(creator))
-      .expect(200);
-    const check = started.body as { id: string; status: string; url: string };
-    expect(check).toMatchObject({ status: 'STARTED' });
-    expect(check.url).toContain('https://verify.example/');
-
-    // Starting again reuses the open session.
-    const again = await http()
-      .post('/me/identity/start')
+      .attach('front', PNG, 'front.png')
+      .expect(400);
+    await http()
+      .post('/me/identity')
       .set(auth(creator))
-      .expect(200);
-    expect((again.body as { id: string }).id).toBe(check.id);
-    expect(provider.sessions).toBe(1);
+      .attach('front', Buffer.from('not an image at all'), 'front.png')
+      .attach('selfie', JPEG, 'selfie.jpg')
+      .expect(400);
+    expect(provider.calls).toBe(0);
 
     provider.next = IN_REVIEW;
-    const refreshed = await http()
-      .post('/me/identity/refresh')
-      .set(auth(creator))
-      .expect(200);
-    expect(refreshed.body).toMatchObject({
+    const sent = await submit(creator).expect(200);
+    const check = sent.body as { id: string };
+    expect(sent.body).toMatchObject({
       status: 'IN_REVIEW',
       fullName: 'Kossi Mensah',
-      url: null,
     });
-    await http().post('/me/identity/start').set(auth(creator)).expect(409);
+    expect(provider.last).toMatchObject({
+      front: { mimeType: 'image/png' },
+      back: { mimeType: 'image/png' },
+      selfie: { mimeType: 'image/jpeg' },
+    });
+    await submit(creator).expect(409);
 
     // Only the team decides now, within its countries, never on itself.
     await http().get('/staff/identity').set(auth(creator)).expect(403);
@@ -186,13 +203,10 @@ describe('Identity verification (e2e)', () => {
     expect(await levels(creator)).toEqual([{ type: 'CREATOR', level: 1 }]);
 
     // A new try, approved by the team: level 2 and withdrawals open.
-    const retry = await http()
-      .post('/me/identity/start')
-      .set(auth(creator))
-      .expect(200);
+    const retry = await submit(creator, false).expect(200);
     const retryId = (retry.body as { id: string }).id;
     expect(retryId).not.toBe(check.id);
-    await http().post('/me/identity/refresh').set(auth(creator)).expect(200);
+    expect(provider.last?.back).toBeUndefined();
     await http()
       .post(`/staff/identity/${retryId}/review`)
       .set(auth(staff))
@@ -224,7 +238,6 @@ describe('Identity verification (e2e)', () => {
 
   it('approves on its own when the provider does, once per document', async () => {
     const first = await login('+22895000020', 'ADVERTISER');
-    await http().post('/me/identity/start').set(auth(first)).expect(200);
     provider.next = {
       providerStatus: 'Approved',
       outcome: 'APPROVED',
@@ -233,10 +246,7 @@ describe('Identity verification (e2e)', () => {
       documentNumber: 'TG-123 456',
       warnings: [],
     };
-    const approved = await http()
-      .post('/me/identity/refresh')
-      .set(auth(first))
-      .expect(200);
+    const approved = await submit(first).expect(200);
     expect(approved.body).toMatchObject({ status: 'APPROVED' });
     expect(await levels(first)).toEqual([{ type: 'ADVERTISER', level: 2 }]);
     // Greeted by the first name on the ID.
@@ -250,14 +260,7 @@ describe('Identity verification (e2e)', () => {
 
     // The same document on another account goes to the team.
     const second = await login('+22895000021');
-    const started = await http()
-      .post('/me/identity/start')
-      .set(auth(second))
-      .expect(200);
-    await http()
-      .post('/identity/webhooks/didit')
-      .send({ session_id: `s-${(started.body as { id: string }).id}` })
-      .expect(200);
+    await submit(second).expect(200);
     const status = await http().get('/me/identity').set(auth(second));
     expect(status.body).toMatchObject({
       verified: false,
@@ -274,12 +277,6 @@ describe('Identity verification (e2e)', () => {
       queue.body as { userId: string; sameDocumentUsers: string[] }[]
     ).find((c) => c.sameDocumentUsers.length > 0);
     expect(flagged?.sameDocumentUsers).toEqual([row.userId]);
-
-    // Forged or unknown notifications change nothing.
-    await http()
-      .post('/identity/webhooks/didit')
-      .send({ session_id: 'unknown' })
-      .expect(200);
   });
 
   it('shows the finance team whether the Mobile Money name matches', async () => {
@@ -332,28 +329,53 @@ describe('Identity verification (e2e)', () => {
       warnings: [],
     };
     for (let i = 0; i < 3; i++) {
-      await http().post('/me/identity/start').set(auth(creator)).expect(200);
-      const res = await http()
-        .post('/me/identity/refresh')
-        .set(auth(creator))
-        .expect(200);
+      const res = await submit(creator).expect(200);
       expect(res.body).toMatchObject({ status: 'DECLINED' });
     }
-    const blocked = await http()
-      .post('/me/identity/start')
-      .set(auth(creator))
-      .expect(403);
+    const calls = provider.calls;
+    const blocked = await submit(creator).expect(403);
     expect(blocked.body).toMatchObject({ code: 'IDENTITY_RETRY_LATER' });
+    expect(provider.calls).toBe(calls);
+  });
+
+  it('limits tries per day, and keeps a failed call from blocking the next', async () => {
+    const creator = await login('+22895000050');
+    const failing = jest
+      .spyOn(provider, 'verify')
+      .mockRejectedValueOnce(new Error('Didit down'));
+    await submit(creator).expect(500);
+    failing.mockRestore();
+    const status = await http().get('/me/identity').set(auth(creator));
+    expect(status.body).toMatchObject({ check: { status: 'ABANDONED' } });
+
+    provider.next = {
+      providerStatus: 'Declined',
+      outcome: 'DECLINED',
+      warnings: [],
+    };
+    // Two declined only (not the 30-day limit), but five tries today.
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { phone: '+22895000050' },
+    });
+    await prisma.identityCheck.createMany({
+      data: [1, 2, 3].map(() => ({
+        userId: user.id,
+        provider: 'fake',
+        status: 'ABANDONED' as const,
+      })),
+    });
+    await submit(creator).expect(200);
+    const blocked = await submit(creator).expect(403);
+    expect(blocked.body).toMatchObject({
+      message: 'Trop d’essais aujourd’hui : réessaie demain',
+    });
   });
 
   it('stays closed while the provider is not set up', async () => {
     const creator = await login('+22895000040');
     provider.enabled = false;
     try {
-      const res = await http()
-        .post('/me/identity/start')
-        .set(auth(creator))
-        .expect(503);
+      const res = await submit(creator).expect(503);
       expect(res.body).toMatchObject({ code: 'IDENTITY_CLOSED' });
       const status = await http().get('/me/identity').set(auth(creator));
       expect(status.body).toMatchObject({ available: false });

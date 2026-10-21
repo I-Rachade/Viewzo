@@ -1,4 +1,7 @@
 import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -6,19 +9,20 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   IdentityDecision,
+  IdentityImage,
+  IdentityImages,
   IdentityProvider,
-  IdentitySession,
 } from './identity-provider';
 
 const DIDIT_URL = 'https://verification.didit.me/v3';
-const TIMEOUT = 20_000;
+const TIMEOUT = 30_000;
 
 type Json = Record<string, unknown>;
 
 const str = (v: unknown) =>
   typeof v === 'string' && v.trim() ? v.trim() : undefined;
 const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
-// Older answers carry one object, newer ones a list per feature.
+// An answer may carry one object or a list of them.
 const first = (v: unknown): Json | undefined =>
   Array.isArray(v)
     ? (v[0] as Json | undefined)
@@ -26,15 +30,34 @@ const first = (v: unknown): Json | undefined =>
       ? (v as Json)
       : undefined;
 
-/** Maps a Didit decision to ours. Exported for the tests. */
-export function mapDiditDecision(body: Json): IdentityDecision {
-  const providerStatus = str(body.status) ?? 'Unknown';
-  const id = first(body.id_verifications ?? body.id_verification);
-  const liveness = first(body.liveness_checks ?? body.liveness);
-  const face = first(body.face_matches ?? body.face_match);
+/**
+ * Combines the three standalone answers (document, liveness, face match)
+ * into one decision: approved only when all three are, declined as soon as
+ * one is. Exported for the tests.
+ */
+export function mapDiditDecision(answers: {
+  id?: Json;
+  liveness?: Json;
+  face?: Json;
+}): IdentityDecision {
+  const id = first(answers.id?.id_verification ?? answers.id);
+  const liveness = first(
+    answers.liveness?.liveness ??
+      answers.liveness?.passive_liveness ??
+      answers.liveness,
+  );
+  const face = first(answers.face?.face_match ?? answers.face);
+  const parts = [id, liveness, face];
+
+  const statuses = parts.map((p) => str(p?.status)?.toLowerCase());
+  const providerStatus = statuses.includes('declined')
+    ? 'Declined'
+    : statuses.every((s) => s === 'approved')
+      ? 'Approved'
+      : 'In Review';
 
   const warnings: string[] = [];
-  for (const part of [id, liveness, face]) {
+  for (const part of parts) {
     const list = part?.warnings;
     if (!Array.isArray(list)) continue;
     for (const w of list as Json[]) {
@@ -50,7 +73,12 @@ export function mapDiditDecision(body: Json): IdentityDecision {
 
   return {
     providerStatus,
-    outcome: outcomeOf(providerStatus),
+    outcome:
+      providerStatus === 'Approved'
+        ? 'APPROVED'
+        : providerStatus === 'Declined'
+          ? 'DECLINED'
+          : 'IN_REVIEW',
     fullName,
     firstName: str(id?.first_name),
     dateOfBirth: str(id?.date_of_birth),
@@ -63,27 +91,11 @@ export function mapDiditDecision(body: Json): IdentityDecision {
   };
 }
 
-function outcomeOf(status: string): IdentityDecision['outcome'] {
-  switch (status.toLowerCase()) {
-    case 'approved':
-      return 'APPROVED';
-    case 'declined':
-      return 'DECLINED';
-    case 'in review':
-      return 'IN_REVIEW';
-    case 'abandoned':
-    case 'expired':
-    case 'kyc expired':
-      return 'ABANDONED';
-    default:
-      // Not Started, In Progress.
-      return 'PENDING';
-  }
-}
-
-// Didit runs the whole check (document read, selfie, liveness, face match)
-// on its own pages, in a workflow set up in the Didit console:
-// https://docs.didit.me/reference/create-session-verification-sessions
+// Like the phone codes at signup, only the API key is needed: the photos go
+// to Didit's standalone APIs and the answer comes back at once.
+// https://docs.didit.me/standalone-apis/id-verification
+// https://docs.didit.me/standalone-apis/passive-liveness
+// https://docs.didit.me/standalone-apis/face-match
 @Injectable()
 export class DiditIdentityProvider implements IdentityProvider {
   readonly name = 'didit';
@@ -92,58 +104,79 @@ export class DiditIdentityProvider implements IdentityProvider {
   constructor(private readonly config: ConfigService) {}
 
   get enabled() {
-    return Boolean(
-      this.config.get('DIDIT_API_KEY') &&
-      this.config.get('DIDIT_KYC_WORKFLOW_ID'),
-    );
+    return Boolean(this.config.get('DIDIT_API_KEY'));
   }
 
-  async createSession(
-    checkId: string,
-    callbackUrl: string,
-  ): Promise<IdentitySession> {
-    const body = await this.call('/session/', {
-      method: 'POST',
-      body: JSON.stringify({
-        workflow_id: this.config.getOrThrow<string>('DIDIT_KYC_WORKFLOW_ID'),
-        vendor_data: checkId,
-        callback: callbackUrl,
-      }),
-    });
-    const sessionId = str(body.session_id);
-    const url = str(body.url) ?? str(body.session_url);
-    if (!sessionId || !url) {
-      this.logger.error('Didit session without id or url');
-      throw new ServiceUnavailableException(
-        'Service de vérification indisponible',
-      );
-    }
-    return { sessionId, url };
+  async verify(checkId: string, images: IdentityImages) {
+    const form = (
+      fields: Record<string, IdentityImage | string | undefined>,
+    ) => {
+      const data = new FormData();
+      for (const [key, value] of Object.entries(fields)) {
+        if (value === undefined) continue;
+        if (typeof value === 'string') {
+          data.append(key, value);
+        } else {
+          const blob = new Blob([new Uint8Array(value.buffer)], {
+            type: value.mimeType,
+          });
+          data.append(key, blob, `${key}.${ext(value)}`);
+        }
+      }
+      return data;
+    };
+    const [id, liveness, face] = await Promise.all([
+      this.post(
+        '/id-verification/',
+        form({
+          front_image: images.front,
+          back_image: images.back,
+          vendor_data: checkId,
+        }),
+      ),
+      this.post(
+        '/passive-liveness/',
+        form({ user_image: images.selfie, vendor_data: checkId }),
+      ),
+      this.post(
+        '/face-match/',
+        form({
+          user_image: images.selfie,
+          ref_image: images.front,
+          vendor_data: checkId,
+        }),
+      ),
+    ]);
+    return mapDiditDecision({ id, liveness, face });
   }
 
-  async decision(sessionId: string) {
-    return mapDiditDecision(
-      await this.call(`/session/${encodeURIComponent(sessionId)}/decision/`, {
-        method: 'GET',
-      }),
-    );
-  }
-
-  private async call(path: string, init: RequestInit): Promise<Json> {
+  private async post(path: string, body: FormData): Promise<Json> {
     let res: Response;
     try {
       res = await fetch(`${DIDIT_URL}${path}`, {
-        ...init,
+        method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'x-api-key': this.config.getOrThrow<string>('DIDIT_API_KEY'),
         },
+        body,
         signal: AbortSignal.timeout(TIMEOUT),
       });
     } catch (e) {
       this.logger.error(`Didit ${path} unreachable`, e as Error);
       throw new ServiceUnavailableException(
         'Service de vérification indisponible',
+      );
+    }
+    if (res.status === 429) {
+      throw new HttpException(
+        'Trop de vérifications en même temps, réessaie dans une minute',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    if (res.status === 400) {
+      this.logger.warn(`Didit ${path} refused the photos`);
+      throw new BadRequestException(
+        'Photo illisible : reprends-la bien éclairée, la pièce en entier',
       );
     }
     if (!res.ok) {
@@ -155,3 +188,10 @@ export class DiditIdentityProvider implements IdentityProvider {
     return (await res.json()) as Json;
   }
 }
+
+const ext = (image: IdentityImage) =>
+  image.mimeType === 'image/png'
+    ? 'png'
+    : image.mimeType === 'image/webp'
+      ? 'webp'
+      : 'jpg';

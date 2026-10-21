@@ -1,10 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import {
-  IdentityDecision,
-  IdentityProvider,
-  IdentitySession,
-} from './identity-provider';
+import { IdentityDecision, IdentityProvider } from './identity-provider';
 
 /**
  * Developer machines only: no document is read, every check goes to the
@@ -15,21 +10,11 @@ import {
 export class LocalIdentityProvider implements IdentityProvider {
   readonly name = 'local';
 
-  constructor(private readonly config: ConfigService) {}
-
   get enabled() {
     return process.env.NODE_ENV !== 'production';
   }
 
-  createSession(checkId: string): Promise<IdentitySession> {
-    const web = this.config.get<string>('WEB_ORIGIN', 'http://localhost:3000');
-    return Promise.resolve({
-      sessionId: `local-${checkId}`,
-      url: `${web}/identite?demo=1`,
-    });
-  }
-
-  decision(): Promise<IdentityDecision> {
+  verify(): Promise<IdentityDecision> {
     return Promise.resolve({
       providerStatus: 'In Review',
       outcome: 'IN_REVIEW',

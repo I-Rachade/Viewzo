@@ -6,7 +6,6 @@ import { DiditIdentityProvider } from './didit-identity.provider';
 import { IDENTITY_PROVIDER } from './identity-provider';
 import {
   IdentityController,
-  IdentityWebhooksController,
   StaffIdentityController,
 } from './identity.controller';
 import { IdentityService } from './identity.service';
@@ -14,11 +13,7 @@ import { LocalIdentityProvider } from './local-identity.provider';
 
 @Global()
 @Module({
-  controllers: [
-    IdentityController,
-    IdentityWebhooksController,
-    StaffIdentityController,
-  ],
+  controllers: [IdentityController, StaffIdentityController],
   providers: [
     IdentityService,
     StaffGuard,
@@ -30,7 +25,7 @@ import { LocalIdentityProvider } from './local-identity.provider';
       useFactory: (config: ConfigService) =>
         config.get('IDENTITY_PROVIDER') === 'didit'
           ? new DiditIdentityProvider(config)
-          : new LocalIdentityProvider(config),
+          : new LocalIdentityProvider(),
     },
   ],
   exports: [IdentityService],

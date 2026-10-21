@@ -2,7 +2,7 @@
 export interface IdentityDecision {
   // The provider's own status, e.g. Approved, In Review, Declined.
   providerStatus: string;
-  outcome: 'PENDING' | 'APPROVED' | 'IN_REVIEW' | 'DECLINED' | 'ABANDONED';
+  outcome: 'APPROVED' | 'IN_REVIEW' | 'DECLINED';
   fullName?: string;
   firstName?: string;
   dateOfBirth?: string;
@@ -15,17 +15,25 @@ export interface IdentityDecision {
   warnings: string[];
 }
 
-export interface IdentitySession {
-  sessionId: string;
-  url: string;
+/** One photo sent by the person, kept in memory only. */
+export interface IdentityImage {
+  buffer: Buffer;
+  mimeType: string;
+}
+
+/** The photos of one verification: the document and a selfie. */
+export interface IdentityImages {
+  front: IdentityImage;
+  back?: IdentityImage;
+  selfie: IdentityImage;
 }
 
 export interface IdentityProvider {
   readonly name: string;
   /** False when the provider is not set up: verification is closed. */
   readonly enabled: boolean;
-  createSession(checkId: string, callbackUrl: string): Promise<IdentitySession>;
-  decision(sessionId: string): Promise<IdentityDecision>;
+  /** Reads the document, checks the selfie is alive and matches it. */
+  verify(checkId: string, images: IdentityImages): Promise<IdentityDecision>;
 }
 
 export const IDENTITY_PROVIDER = Symbol('IDENTITY_PROVIDER');
