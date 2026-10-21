@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,11 +8,12 @@ import {
   ParseEnumPipe,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { LiveSaleStatus } from '@prisma/client';
+import { LivePayoutStatus, LiveSaleStatus, StaffRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MODERATION, StaffRoles } from '../auth/staff';
 import type { StaffRequest } from '../auth/staff';
@@ -21,18 +23,24 @@ import {
   RequiresModule,
 } from '../modules/module-enabled.guard';
 import { StaffCancelLiveDto } from './dto/lead.dto';
-import { LiveRunnerService } from './live-runner.service';
+import {
+  LiveRateDto,
+  PayoutDecisionDto,
+  ReviewLiveDto,
+} from './dto/staff-live.dto';
+import { LiveOffersService } from './live-offers.service';
 import { LiveService } from './live.service';
 
-// Back-office: every team member sees the lives of their countries;
-// moderation stops one.
+// Back-office: every team member sees the offers of their countries;
+// moderation reviews them, checks unusual audiences and stops an offer.
+// Super admins set the prices per country.
 @Controller('staff/live')
 @UseGuards(JwtAuthGuard, StaffGuard, ModuleEnabledGuard)
 @RequiresModule('LIVE_SALES')
 export class StaffLiveController {
   constructor(
     private readonly lives: LiveService,
-    private readonly runner: LiveRunnerService,
+    private readonly offers: LiveOffersService,
   ) {}
 
   @Get('sales')
@@ -44,16 +52,63 @@ export class StaffLiveController {
     return this.lives.staffList(req.staff, status);
   }
 
+  @Post('sales/:id/review')
+  @HttpCode(200)
+  @StaffRoles(...MODERATION)
+  review(
+    @Req() req: StaffRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReviewLiveDto,
+  ) {
+    return this.offers.review(req.staff, id, dto);
+  }
+
   @Post('sales/:id/cancel')
   @HttpCode(200)
   @StaffRoles(...MODERATION)
-  async cancel(
+  cancel(
     @Req() req: StaffRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: StaffCancelLiveDto,
   ) {
-    const live = await this.lives.staffCancel(req.staff, id, dto.reason);
-    await this.runner.detach(id);
-    return live;
+    return this.offers.staffCancel(req.staff, id, dto.reason);
+  }
+
+  @Get('sessions')
+  sessions(
+    @Req() req: StaffRequest,
+    @Query('payout', new ParseEnumPipe(LivePayoutStatus, { optional: true }))
+    payout?: LivePayoutStatus,
+  ) {
+    return this.offers.staffSessions(req.staff, payout);
+  }
+
+  @Post('sessions/:id/payout')
+  @HttpCode(200)
+  @StaffRoles(...MODERATION)
+  payout(
+    @Req() req: StaffRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PayoutDecisionDto,
+  ) {
+    return this.offers.decidePayout(req.staff, id, dto);
+  }
+
+  @Get('rates')
+  rates() {
+    return this.offers.listRates();
+  }
+
+  @Put('rates/:country')
+  @StaffRoles(StaffRole.SUPER_ADMIN)
+  setRate(
+    @Req() req: StaffRequest,
+    @Param('country') country: string,
+    @Body() dto: LiveRateDto,
+  ) {
+    if (!/^[A-Za-z]{2}$/.test(country)) {
+      throw new BadRequestException('Code pays invalide');
+    }
+    return this.offers.setRate(req.staff, country, dto);
   }
 }

@@ -36,6 +36,11 @@ export class ManualItemDto {
 }
 
 export class ManualLeadDto {
+  // Which live of the offer; defaults to the only one running.
+  @IsOptional()
+  @IsUUID('4')
+  sessionId?: string;
+
   @IsString()
   @Matches(/^@?[A-Za-z0-9._]{2,24}$/, {
     message: 'Nom d’utilisateur TikTok invalide',

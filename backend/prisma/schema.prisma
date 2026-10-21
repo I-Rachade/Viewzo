@@ -29,32 +29,32 @@ enum ProfileType {
 }
 
 model User {
-  id              String             @id @default(uuid())
+  id              String               @id @default(uuid())
   // Used to greet the person; asked at sign-up or taken from the verified ID.
   firstName       String?
   // At least one of phone and email is set and verified.
-  phone           String?            @unique
-  email           String?            @unique
+  phone           String?              @unique
+  email           String?              @unique
   phoneVerifiedAt DateTime?
   emailVerifiedAt DateTime?
   // scrypt hash; null for accounts created by the old code-only login.
   passwordHash    String?
   // Bumped on password change so older tokens stop working.
-  tokenVersion    Int                @default(0)
-  failedLogins    Int                @default(0)
+  tokenVersion    Int                  @default(0)
+  failedLogins    Int                  @default(0)
   lockedUntil     DateTime?
   // ISO 3166-1 alpha-2 country derived from the phone number.
   country         String
   // Signup position within the country, timestamped and never changed afterwards.
   priorityRank    Int
-  locale          String             @default("fr")
-  role            UserRole           @default(USER)
+  locale          String               @default("fr")
+  role            UserRole             @default(USER)
   // Set for team members (role STAFF).
   staffRole       StaffRole?
   // Countries a team member works on; empty means every country.
-  staffCountries  String[]           @default([])
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  staffCountries  String[]             @default([])
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
   profiles        UserProfile[]
   accounts        SocialAccount[]
   skills          CreatorSkills?
@@ -69,6 +69,8 @@ model User {
   campaignFiles   CampaignFile[]
   liveProducts    LiveProduct[]
   liveSales       LiveSale[]
+  liveSessions    LiveSession[]
+  liveStanding    LiveCreatorStanding?
 
   @@unique([country, priorityRank])
 }
@@ -295,6 +297,8 @@ enum CreatorTaskType {
   POST_PROVIDED_VISUAL
   POST_PROVIDED_VIDEO
   CREATE_ORIGINAL_VIDEO
+  // Sells an advertiser's products in their own TikTok lives.
+  LIVE_SELLING
 }
 
 enum CreatorSpecialty {
@@ -678,27 +682,31 @@ enum TransactionStatus {
 // Wallet ledger: credits are positive, debits negative. The balance is the sum
 // of completed entries already available, minus pending withdrawals.
 model Transaction {
-  id           String            @id @default(uuid())
-  userId       String
-  type         TransactionType
-  amount       Int
-  currency     String            @default("XOF")
-  status       TransactionStatus @default(COMPLETED)
+  id            String            @id @default(uuid())
+  userId        String
+  type          TransactionType
+  amount        Int
+  currency      String            @default("XOF")
+  status        TransactionStatus @default(COMPLETED)
   // Earnings are held until this date (security hold, see specification).
-  availableAt  DateTime          @default(now())
+  availableAt   DateTime          @default(now())
   // Earnings of a post under dispute cannot be withdrawn.
-  frozen       Boolean           @default(false)
-  campaignId   String?
-  assignmentId String?
-  paymentId    String?           @unique
-  note         String?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  user         User              @relation(fields: [userId], references: [id], onDelete: Restrict)
-  payment      Payment?          @relation(fields: [paymentId], references: [id])
+  frozen        Boolean           @default(false)
+  campaignId    String?
+  assignmentId  String?
+  // Live sale offer the escrow, earning or service fee belongs to.
+  liveId        String?
+  liveSessionId String?
+  paymentId     String?           @unique
+  note          String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  user          User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  payment       Payment?          @relation(fields: [paymentId], references: [id])
 
   @@index([userId, createdAt])
   @@index([campaignId])
+  @@index([liveId])
 }
 
 enum PaymentKind {
@@ -764,6 +772,7 @@ enum NotificationType {
   IDENTITY_REVIEWED
   CAMPAIGN_COMPLETED
   DISPUTE_UPDATED
+  LIVE_UPDATED
 }
 
 // In-app messages, shown in the bell on the web and in the app.
@@ -834,42 +843,147 @@ model LiveProduct {
   @@index([sellerId, createdAt])
 }
 
+// CREATORS: creators accept the offer and sell in their own TikTok lives.
+// SELF: the advertiser sells in their own live; Viewzo reads the comments
+// for a service fee.
+enum LiveMode {
+  CREATORS
+  SELF
+}
+
 enum LiveSaleStatus {
-  SCHEDULED
-  RUNNING
-  ENDED
+  PENDING_PAYMENT
+  PENDING_REVIEW
+  ACTIVE
+  COMPLETED
+  REJECTED
   CANCELLED
 }
 
-// One TikTok live a seller sells in. Comments are read while it runs.
+// A live sale offer: the products, the period and how many creators may
+// sell them. Each TikTok live that sells it is a LiveSession.
 model LiveSale {
-  id             String         @id @default(uuid())
-  sellerId       String
-  title          String
+  id           String         @id @default(uuid())
+  sellerId     String
+  title        String
+  mode         LiveMode       @default(CREATORS)
+  // The advertiser's WhatsApp number (E.164); buyers write to it with their code.
+  whatsapp     String?
+  // Period the creators choose their hour in. SELF: the planned time, no end.
+  startsAt     DateTime
+  endsAt       DateTime?
+  // How many creators may accept (CREATORS).
+  slots        Int            @default(1)
+  // Countries of the creators who may accept.
+  countries    String[]       @default([])
+  // Simulated comments instead of TikTok, to try the module.
+  demo         Boolean        @default(false)
+  // Products of the offer; empty means every active product of the seller.
+  productIds   String[]       @default([])
+  // Escrow in FCFA (CREATORS): each slot earns at most budget / slots.
+  budget       Int            @default(0)
+  fundedAt     DateTime?
+  // Escrow paid to the creators, and what went back to the advertiser.
+  spent        Int            @default(0)
+  refunded     Int            @default(0)
+  // SELF: service fee taken from the wallet at the first start, FCFA.
+  serviceFee   Int?
+  status       LiveSaleStatus @default(PENDING_PAYMENT)
+  // Why the team refused or stopped the offer; the seller sees it.
+  statusReason String?
+  completedAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  seller       User           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  sessions     LiveSession[]
+  leads        LiveLead[]
+  comments     LiveComment[]
+
+  @@index([sellerId, startsAt])
+  @@index([status, startsAt])
+}
+
+enum LiveSessionStatus {
+  INVITED // the advertiser invited the creator, who has not answered yet
+  ACCEPTED
+  RUNNING
+  ENDED
+  WITHDRAWN // the creator withdrew after accepting
+  DECLINED // the creator declined the invitation
+  MISSED // accepted, but no live before the end of the period
+  CANCELLED // stopped by the team or with the offer
+}
+
+enum LivePayoutStatus {
+  NONE
+  TO_REVIEW // unusual audience: the team decides before paying
+  PAID
+  REFUSED
+}
+
+// One TikTok live selling an offer: a creator's, or the advertiser's own.
+model LiveSession {
+  id             String            @id @default(uuid())
+  liveId         String
+  // Null for the advertiser's own live.
+  creatorId      String?
   // TikTok username the comments are read from, without @.
   tiktokUsername String
-  scheduledAt    DateTime
-  // Simulated comments instead of TikTok, to try the module.
-  demo           Boolean        @default(false)
-  // Products of the day; empty means every active product of the seller.
-  productIds     String[]       @default([])
-  status         LiveSaleStatus @default(SCHEDULED)
+  // Followers of the creator's TikTok account when they accepted.
+  followers      Int?
+  status         LiveSessionStatus @default(ACCEPTED)
+  // Hour the creator chose inside the offer's period.
+  scheduledAt    DateTime?
+  invitedAt      DateTime?
+  acceptedAt     DateTime?
   startedAt      DateTime?
   endedAt        DateTime?
   viewers        Int?
+  // Most viewers at the same time: the audience the creator is paid for.
+  peakViewers    Int               @default(0)
   // Last message of the TikTok connection (connected, disconnected, error).
   sourceState    String?
   sourceMessage  String?
-  // Set by the team when it stops a live; the seller sees the reason.
-  cancelReason   String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  seller         User           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  // Why the audience looks unusual (sudden jump, more than the followers).
+  flag           String?
+  payout         LivePayoutStatus  @default(NONE)
+  // What the creator earned and what it cost the advertiser's escrow, FCFA.
+  earned         Int               @default(0)
+  cost           Int               @default(0)
+  payoutReason   String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  live           LiveSale          @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  creator        User?             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   leads          LiveLead[]
   comments       LiveComment[]
 
-  @@index([sellerId, scheduledAt])
+  @@unique([liveId, creatorId])
+  @@index([creatorId, status])
   @@index([status, scheduledAt])
+}
+
+// Prices of live selling per country, set by the team. Countries without a
+// row use the defaults in live/billing.ts.
+model LiveRate {
+  country          String   @id
+  // Per 100 viewers at the peak of a creator's live, FCFA.
+  advertiserPer100 Int
+  creatorPer100    Int
+  // Service fee of an advertiser's own live, FCFA.
+  selfFee          Int
+  updatedAt        DateTime @updatedAt
+}
+
+// Withdrawals from accepted lives: 10 days without lives after each, banned
+// from lives after three in a row.
+model LiveCreatorStanding {
+  userId         String    @id
+  withdrawStreak Int       @default(0)
+  blockedUntil   DateTime?
+  bannedAt       DateTime?
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 enum LiveLeadStatus {
@@ -885,6 +999,7 @@ enum LiveLeadStatus {
 model LiveLead {
   id         String         @id @default(uuid())
   liveId     String
+  sessionId  String
   // VZ + 4 characters, unique so a shared WhatsApp number finds the order.
   code       String         @unique
   tiktokUser String
@@ -903,16 +1018,18 @@ model LiveLead {
   firstAt    DateTime       @default(now())
   lastAt     DateTime       @default(now())
   live       LiveSale       @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  session    LiveSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   comments   LiveComment[]
 
-  @@unique([liveId, tiktokUser])
+  @@unique([sessionId, tiktokUser])
   @@index([liveId, lastAt])
 }
 
 // A comment read from the live, kept for the live screen and the summary.
 model LiveComment {
-  id         String    @id @default(uuid())
+  id         String      @id @default(uuid())
   liveId     String
+  sessionId  String
   leadId     String?
   // TikTok message id, so a comment read twice is stored once.
   externalId String
@@ -924,9 +1041,11 @@ model LiveComment {
   // "IA" or "mots-clés".
   by         String?
   at         DateTime
-  live       LiveSale  @relation(fields: [liveId], references: [id], onDelete: Cascade)
-  lead       LiveLead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  live       LiveSale    @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  session    LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  lead       LiveLead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
-  @@unique([liveId, externalId])
+  @@unique([sessionId, externalId])
   @@index([liveId, at])
+  @@index([sessionId, at])
 }
