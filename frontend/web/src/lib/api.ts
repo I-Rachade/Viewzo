@@ -456,8 +456,7 @@ export const campaignsApi = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
-  remove: (id: string) =>
-    call<void>(`/campaigns/${id}`, { method: "DELETE" }),
+  remove: (id: string) => call<void>(`/campaigns/${id}`, { method: "DELETE" }),
   send: (id: string) =>
     call<CampaignView>(`/campaigns/${id}/send`, { method: "POST" }),
   pause: (id: string) =>
@@ -815,8 +814,7 @@ export const staffApi = {
   overview: () => call<StaffOverview>("/staff/overview"),
   accounts: () => call<StaffAccount[]>("/staff/accounts"),
   // Accounts the system refused on its own, so the team can catch mistakes.
-  autoRejectedAccounts: () =>
-    call<StaffAccount[]>("/staff/accounts?auto=1"),
+  autoRejectedAccounts: () => call<StaffAccount[]>("/staff/accounts?auto=1"),
   accountByCode: (code: string) =>
     call<StaffAccount>(`/staff/accounts/by-code/${encodeURIComponent(code)}`),
   reviewAccount: (
@@ -874,7 +872,8 @@ export interface AllowedCountry {
 export const countriesApi = {
   enabled: () => call<string[]>("/countries"),
   all: () => call<AllowedCountry[]>("/staff/countries"),
-  add: (code: string) => call<AllowedCountry>("/staff/countries", post({ code })),
+  add: (code: string) =>
+    call<AllowedCountry>("/staff/countries", post({ code })),
   set: (code: string, enabled: boolean) =>
     call<AllowedCountry>(`/staff/countries/${code}`, {
       method: "PATCH",
@@ -884,7 +883,11 @@ export const countriesApi = {
 
 // ---- Posts, proofs and reviews -------------------------------------------
 
-export type PostReviewStatus = "TO_REVIEW" | "VALIDATED" | "NEEDS_FIX" | "REJECTED";
+export type PostReviewStatus =
+  | "TO_REVIEW"
+  | "VALIDATED"
+  | "NEEDS_FIX"
+  | "REJECTED";
 
 export const REVIEW_STATUS_LABELS: Record<PostReviewStatus, string> = {
   TO_REVIEW: "À vérifier",
@@ -1066,7 +1069,12 @@ export interface CampaignReport {
   verifiedViews: number;
   unbilledViews: number;
   costPer1000: number | null;
-  posts: { total: number; validated: number; toReview: number; rejected: number };
+  posts: {
+    total: number;
+    validated: number;
+    toReview: number;
+    rejected: number;
+  };
   byNetwork: { network: SocialNetwork; views: number; posts: number }[];
   byCountry: { country: string; views: number; posts: number }[];
   daily: { date: string; views: number }[];
@@ -1094,7 +1102,12 @@ export interface StaffPostRow {
   network: SocialNetwork;
   contentType: ContentType;
   campaign: { id: string; code: string; title: string };
-  creator: { id: string; phone: string | null; email: string | null; country: string };
+  creator: {
+    id: string;
+    phone: string | null;
+    email: string | null;
+    country: string;
+  };
   postUrl: string | null;
   submittedAt: string | null;
   latestViews: number | null;
@@ -1159,10 +1172,24 @@ export interface PostDossier {
       followers: number | null;
       avgStatusViews: number | null;
     } | null;
-    history: { validated: number; rejected: number; toReview: number; needsFix: number };
-    sharedDevice: { id: string; phone: string | null; email: string | null; country: string }[];
+    history: {
+      validated: number;
+      rejected: number;
+      toReview: number;
+      needsFix: number;
+    };
+    sharedDevice: {
+      id: string;
+      phone: string | null;
+      email: string | null;
+      country: string;
+    }[];
   };
-  proofs: (ProofView & { sha256: string | null; deviceId: string | null; ip: string | null })[];
+  proofs: (ProofView & {
+    sha256: string | null;
+    deviceId: string | null;
+    ip: string | null;
+  })[];
   snapshots: {
     views: number;
     source: "CREATOR" | "STAFF" | "API";
@@ -1199,7 +1226,12 @@ export interface CreatorFile {
   }[];
   earned: number;
   devices: number;
-  sharedDevice: { id: string; phone: string | null; email: string | null; country: string }[];
+  sharedDevice: {
+    id: string;
+    phone: string | null;
+    email: string | null;
+    country: string;
+  }[];
   posts: {
     id: string;
     network: SocialNetwork;
@@ -1250,7 +1282,12 @@ export interface StaffDispute extends DisputeView {
     id: string;
     network: SocialNetwork;
     campaign: { id: string; code: string; title: string };
-    creator: { id: string; phone: string | null; email: string | null; country: string };
+    creator: {
+      id: string;
+      phone: string | null;
+      email: string | null;
+      country: string;
+    };
     postUrl: string | null;
     reviewStatus: PostReviewStatus;
     validViews: number;
@@ -1331,7 +1368,24 @@ export const modulesApi = {
 
 // ---- Live selling on TikTok -----------------------------------------------
 
-export type LiveSaleStatus = "SCHEDULED" | "RUNNING" | "ENDED" | "CANCELLED";
+export type LiveMode = "CREATORS" | "SELF";
+export type LiveSaleStatus =
+  | "PENDING_PAYMENT"
+  | "PENDING_REVIEW"
+  | "ACTIVE"
+  | "COMPLETED"
+  | "REJECTED"
+  | "CANCELLED";
+export type LiveSessionStatus =
+  | "INVITED"
+  | "ACCEPTED"
+  | "RUNNING"
+  | "ENDED"
+  | "WITHDRAWN"
+  | "DECLINED"
+  | "MISSED"
+  | "CANCELLED";
+export type LivePayoutStatus = "NONE" | "TO_REVIEW" | "PAID" | "REFUSED";
 export type LiveLeadStatus =
   | "NEW"
   | "CONTACTED"
@@ -1347,17 +1401,50 @@ export type LiveIntent =
   | "autre";
 
 export const LIVE_STATUS_LABELS: Record<LiveSaleStatus, string> = {
-  SCHEDULED: "Planifié",
-  RUNNING: "En direct",
-  ENDED: "Terminé",
-  CANCELLED: "Annulé",
+  PENDING_PAYMENT: "À payer",
+  PENDING_REVIEW: "En vérification",
+  ACTIVE: "Ouverte",
+  COMPLETED: "Terminée",
+  REJECTED: "Refusée",
+  CANCELLED: "Annulée",
 };
 
 export const LIVE_STATUS_TONES: Record<LiveSaleStatus, string> = {
-  SCHEDULED: "pending",
+  PENDING_PAYMENT: "pending",
+  PENDING_REVIEW: "pending",
+  ACTIVE: "paid",
+  COMPLETED: "neutral",
+  REJECTED: "refused",
+  CANCELLED: "refused",
+};
+
+export const SESSION_STATUS_LABELS: Record<LiveSessionStatus, string> = {
+  INVITED: "Invité",
+  ACCEPTED: "Prévu",
+  RUNNING: "En direct",
+  ENDED: "Terminé",
+  WITHDRAWN: "Retiré",
+  DECLINED: "A refusé",
+  MISSED: "Non fait",
+  CANCELLED: "Annulé",
+};
+
+export const SESSION_STATUS_TONES: Record<LiveSessionStatus, string> = {
+  INVITED: "pending",
+  ACCEPTED: "pending",
   RUNNING: "paid",
   ENDED: "neutral",
+  WITHDRAWN: "refused",
+  DECLINED: "neutral",
+  MISSED: "refused",
   CANCELLED: "refused",
+};
+
+export const PAYOUT_LABELS: Record<LivePayoutStatus, string> = {
+  NONE: "Pas de gain",
+  TO_REVIEW: "Audience en vérification",
+  PAID: "Payé",
+  REFUSED: "Paiement refusé",
 };
 
 export const LEAD_STATUS_LABELS: Record<LiveLeadStatus, string> = {
@@ -1387,22 +1474,58 @@ export interface LiveProduct {
   active: boolean;
 }
 
+// An offer: what is sold, when, and how many creators may sell it.
 export interface LiveSale {
   id: string;
   title: string;
-  tiktokUsername: string;
-  scheduledAt: string;
+  mode: LiveMode;
+  // E.164; buyers write to it with their code.
+  whatsapp: string | null;
+  // CREATORS: the period creators choose their hour in. SELF: the planned time.
+  startsAt: string;
+  endsAt: string | null;
+  slots: number;
+  countries: string[];
   demo: boolean;
-  // Products of the day; empty means all active products.
+  // Products of the offer; empty means all active products.
   productIds: string[];
+  // FCFA in escrow, paid to creators, and returned.
+  budget: number;
+  fundedAt: string | null;
+  spent: number;
+  refunded: number;
+  // SELF: fee of the comment reading, taken at the first start.
+  serviceFee: number | null;
   status: LiveSaleStatus;
+  statusReason: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+// One TikTok live selling an offer: a creator's, or the advertiser's own.
+export interface LiveSession {
+  id: string;
+  liveId: string;
+  creatorId: string | null;
+  tiktokUsername: string;
+  followers: number | null;
+  status: LiveSessionStatus;
+  scheduledAt: string | null;
+  invitedAt: string | null;
+  acceptedAt: string | null;
   startedAt: string | null;
   endedAt: string | null;
   viewers: number | null;
+  peakViewers: number;
   sourceState: string | null;
   sourceMessage: string | null;
-  cancelReason: string | null;
-  createdAt: string;
+  flag: string | null;
+  payout: LivePayoutStatus;
+  earned: number;
+  cost: number;
+  payoutReason: string | null;
+  creator: { firstName: string | null } | null;
+  running?: boolean;
 }
 
 export interface LiveLeadItem {
@@ -1415,6 +1538,7 @@ export interface LiveLeadItem {
 
 export interface LiveLead {
   id: string;
+  sessionId: string;
   // The buyer sends it on WhatsApp to give their number.
   code: string;
   tiktokUser: string;
@@ -1422,7 +1546,9 @@ export interface LiveLead {
   intent: LiveIntent;
   items: LiveLeadItem[];
   total: number | null;
+  // Ends by sending the buyer to the shop's WhatsApp with their code.
   reply: string | null;
+  whatsappLink: string | null;
   status: LiveLeadStatus;
   // The buyer wrote a number in a comment; it was masked, not kept.
   phoneSeen: boolean;
@@ -1432,6 +1558,7 @@ export interface LiveLead {
 
 export interface LiveComment {
   id: string;
+  sessionId: string;
   tiktokUser: string;
   nickname: string;
   text: string;
@@ -1440,35 +1567,55 @@ export interface LiveComment {
   at: string;
 }
 
+export interface LiveStats {
+  comments: number;
+  interested: number;
+  buyers: number;
+  cancelled: number;
+  paid: number;
+  forecast: number;
+}
+
+export type LiveBoardProduct = Omit<LiveProduct, "active"> & {
+  left: number | null;
+};
+
 export interface LiveBoard {
   live: LiveSale;
-  stats: {
-    comments: number;
-    interested: number;
-    buyers: number;
-    cancelled: number;
-    paid: number;
-    forecast: number;
-  };
+  sessions: LiveSession[];
+  stats: LiveStats;
   leads: LiveLead[];
   comments: LiveComment[];
-  products: (Omit<LiveProduct, "active"> & { left: number | null })[];
-  running: boolean;
+  products: LiveBoardProduct[];
   ai: boolean;
 }
 
 export interface LiveInput {
   title: string;
-  tiktokUsername: string;
-  scheduledAt: string;
+  mode: LiveMode;
+  whatsapp: string;
+  startsAt: string;
+  endsAt?: string;
+  slots?: number;
+  budget?: number;
+  countries?: string[];
+  tiktokUsername?: string;
   demo?: boolean;
   productIds?: string[];
 }
 
-export interface StaffLiveRow extends LiveSale {
-  seller: StaffUser & { country: string };
-  _count: { leads: number; comments: number };
+export interface LiveCandidate {
+  id: string;
+  firstName: string | null;
+  country: string;
+  tiktokUsername: string;
+  followers: number;
 }
+
+export type LiveSaleRow = LiveSale & {
+  sessions: Pick<LiveSession, "status" | "tiktokUsername" | "scheduledAt">[];
+  _count: { leads: number };
+};
 
 export const liveApi = {
   products: () => call<LiveProduct[]>("/me/live/products"),
@@ -1478,21 +1625,33 @@ export const liveApi = {
     call<LiveProduct>(`/me/live/products/${id}`, patch(input)),
   deleteProduct: (id: string) =>
     call<void>(`/me/live/products/${id}`, { method: "DELETE" }),
-  sales: () =>
-    call<(LiveSale & { _count: { leads: number } })[]>("/me/live/sales"),
-  create: (input: LiveInput) => call<LiveSale>("/me/live/sales", post(input)),
-  update: (id: string, input: Partial<LiveInput>) =>
-    call<LiveSale>(`/me/live/sales/${id}`, patch(input)),
+  sales: () => call<LiveSaleRow[]>("/me/live/sales"),
+  create: (input: LiveInput) =>
+    call<{ id: string; status: LiveSaleStatus }>("/me/live/sales", post(input)),
   board: (id: string) => call<LiveBoard>(`/me/live/sales/${id}`),
-  start: (id: string) =>
-    call<LiveSale & { running: boolean }>(`/me/live/sales/${id}/start`, post({})),
-  stop: (id: string) => call<LiveSale>(`/me/live/sales/${id}/stop`, post({})),
+  pay: (id: string) =>
+    call<{ funded: true }>(`/me/live/sales/${id}/pay`, post({})),
   cancel: (id: string) =>
-    call<LiveSale>(`/me/live/sales/${id}/cancel`, post({})),
+    call<{ cancelled: true; refunded: number }>(
+      `/me/live/sales/${id}/cancel`,
+      post({}),
+    ),
+  candidates: (id: string) =>
+    call<LiveCandidate[]>(`/me/live/sales/${id}/candidates`),
+  invite: (id: string, creatorId: string) =>
+    call<LiveSession>(`/me/live/sales/${id}/invite`, post({ creatorId })),
+  start: (id: string) =>
+    call<LiveSession & { running: boolean }>(
+      `/me/live/sales/${id}/start`,
+      post({}),
+    ),
+  stop: (id: string) =>
+    call<LiveSession>(`/me/live/sales/${id}/stop`, post({})),
   addLead: (
     id: string,
     input: {
       tiktokUser: string;
+      sessionId?: string;
       items?: { productId: string; quantity: number; variant?: string }[];
     },
   ) => call<LiveLead>(`/me/live/sales/${id}/leads`, post(input)),
@@ -1500,9 +1659,157 @@ export const liveApi = {
     call<LiveLead>(`/me/live/sales/${id}/leads/${leadId}`, patch({ status })),
 };
 
+// ---- Creators' side of live selling ----
+
+export interface LiveOfferForCreator {
+  id: string;
+  title: string;
+  shop: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  slots: number;
+  demo: boolean;
+  // What the creator earns per 100 viewers at the peak, and at most.
+  ratePer100: number;
+  maxEarning: number;
+  products: { name: string; price: number }[];
+  placesLeft?: number;
+}
+
+export interface CreatorLiveSession {
+  id: string;
+  status: LiveSessionStatus;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  peakViewers: number;
+  payout: LivePayoutStatus;
+  earned: number;
+  payoutReason: string | null;
+  offer: LiveOfferForCreator;
+}
+
+export interface CreatorLiveHome {
+  eligibility: {
+    eligible: boolean;
+    reason: string | null;
+    country: string;
+    tiktok: { username: string; followers: number } | null;
+  };
+  rules: {
+    minFollowers: number;
+    minMinutes: number;
+    blockDays: number;
+    banAfter: number;
+  };
+  offers: (LiveOfferForCreator & { placesLeft: number })[];
+  sessions: CreatorLiveSession[];
+}
+
+export interface CreatorLiveBoard {
+  live: {
+    id: string;
+    title: string;
+    shop: string | null;
+    startsAt: string;
+    endsAt: string | null;
+    demo: boolean;
+    status: LiveSaleStatus;
+  };
+  session: LiveSession;
+  running: boolean;
+  ai: boolean;
+  stats: LiveStats;
+  leads: LiveLead[];
+  comments: LiveComment[];
+  products: LiveBoardProduct[];
+}
+
+export const creatorLiveApi = {
+  home: () => call<CreatorLiveHome>("/me/live-tasks"),
+  board: (sessionId: string) =>
+    call<CreatorLiveBoard>(`/me/live-tasks/sessions/${sessionId}`),
+  accept: (offerId: string, scheduledAt: string) =>
+    call<LiveSession>(
+      `/me/live-tasks/offers/${offerId}/accept`,
+      post({ scheduledAt }),
+    ),
+  respond: (sessionId: string, accept: boolean, scheduledAt?: string) =>
+    call<LiveSession>(
+      `/me/live-tasks/sessions/${sessionId}/respond`,
+      post({ accept, scheduledAt }),
+    ),
+  reschedule: (sessionId: string, scheduledAt: string) =>
+    call<LiveSession>(
+      `/me/live-tasks/sessions/${sessionId}`,
+      patch({ scheduledAt }),
+    ),
+  withdraw: (sessionId: string) =>
+    call<{ status: string; withdrawStreak: number; bannedAt: string | null }>(
+      `/me/live-tasks/sessions/${sessionId}/withdraw`,
+      post({}),
+    ),
+  start: (sessionId: string) =>
+    call<LiveSession & { running: boolean }>(
+      `/me/live-tasks/sessions/${sessionId}/start`,
+      post({}),
+    ),
+  stop: (sessionId: string) =>
+    call<LiveSession>(`/me/live-tasks/sessions/${sessionId}/stop`, post({})),
+};
+
+// ---- Back-office ----
+
+type StaffSession = Omit<LiveSession, "creator"> & {
+  creator: { id: string; firstName: string | null; country: string } | null;
+};
+
+export interface StaffLiveRow extends LiveSale {
+  seller: StaffUser & { firstName: string | null; country: string };
+  sessions: StaffSession[];
+  _count: { leads: number; comments: number };
+}
+
+export type StaffLiveSession = StaffSession & {
+  live: { id: string; title: string; demo: boolean };
+};
+
+export interface LiveRate {
+  country: string;
+  custom: boolean;
+  advertiserPer100: number;
+  creatorPer100: number;
+  selfFee: number;
+}
+
 export const staffLiveApi = {
   list: (status?: LiveSaleStatus) =>
-    call<StaffLiveRow[]>(`/staff/live/sales${status ? `?status=${status}` : ""}`),
+    call<StaffLiveRow[]>(
+      `/staff/live/sales${status ? `?status=${status}` : ""}`,
+    ),
+  review: (id: string, status: "ACTIVE" | "REJECTED", reason?: string) =>
+    call<LiveSale>(`/staff/live/sales/${id}/review`, post({ status, reason })),
   cancel: (id: string, reason: string) =>
     call<LiveSale>(`/staff/live/sales/${id}/cancel`, post({ reason })),
+  sessions: (payout?: LivePayoutStatus) =>
+    call<StaffLiveSession[]>(
+      `/staff/live/sessions${payout ? `?payout=${payout}` : ""}`,
+    ),
+  payout: (
+    id: string,
+    input: {
+      decision: "PAY" | "REFUSE";
+      peakViewers?: number;
+      reason?: string;
+    },
+  ) => call<LiveSession>(`/staff/live/sessions/${id}/payout`, post(input)),
+  rates: () =>
+    call<{ defaults: Omit<LiveRate, "country" | "custom">; rates: LiveRate[] }>(
+      "/staff/live/rates",
+    ),
+  setRate: (country: string, input: Omit<LiveRate, "country" | "custom">) =>
+    call<LiveRate>(`/staff/live/rates/${country}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
 };

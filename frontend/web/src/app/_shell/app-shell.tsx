@@ -34,7 +34,12 @@ const CONNECTIONS: Item = {
 function itemsFor(mode: Mode, live: boolean): Item[] {
   return mode === "ADVERTISER"
     ? [
-        { href: "/dashboard", label: "Tableau de bord", short: "Accueil", icon: "home" },
+        {
+          href: "/dashboard",
+          label: "Tableau de bord",
+          short: "Accueil",
+          icon: "home",
+        },
         {
           href: "/campaigns",
           label: "Mes campagnes",
@@ -42,8 +47,18 @@ function itemsFor(mode: Mode, live: boolean): Item[] {
           icon: "megaphone",
           match: ["/campaigns/"],
         },
-        { href: "/campaigns/new", label: "Créer une campagne", short: "Créer", icon: "plus" },
-        { href: "/wallet", label: "Portefeuille", short: "Wallet", icon: "wallet" },
+        {
+          href: "/campaigns/new",
+          label: "Créer une campagne",
+          short: "Créer",
+          icon: "plus",
+        },
+        {
+          href: "/wallet",
+          label: "Portefeuille",
+          short: "Wallet",
+          icon: "wallet",
+        },
         // Only while the team has switched the module on.
         ...(live
           ? [
@@ -58,11 +73,42 @@ function itemsFor(mode: Mode, live: boolean): Item[] {
           : []),
       ]
     : [
-        { href: "/dashboard", label: "Tableau de bord", short: "Accueil", icon: "home" },
-        { href: "/resultats", label: "Mes publications", short: "Résultats", icon: "chart" },
-        { href: "/comptes", label: "Mes comptes", short: "Comptes", icon: "at" },
+        {
+          href: "/dashboard",
+          label: "Tableau de bord",
+          short: "Accueil",
+          icon: "home",
+        },
+        {
+          href: "/resultats",
+          label: "Mes publications",
+          short: "Résultats",
+          icon: "chart",
+        },
+        {
+          href: "/comptes",
+          label: "Mes comptes",
+          short: "Comptes",
+          icon: "at",
+        },
         ...(OAUTH_CONNECTIONS ? [CONNECTIONS] : []),
-        { href: "/wallet", label: "Portefeuille", short: "Wallet", icon: "wallet" },
+        ...(live
+          ? [
+              {
+                href: "/lives",
+                label: "Lives de vente",
+                short: "Lives",
+                icon: "live",
+                match: ["/lives/"],
+              } satisfies Item,
+            ]
+          : []),
+        {
+          href: "/wallet",
+          label: "Portefeuille",
+          short: "Wallet",
+          icon: "wallet",
+        },
       ];
 }
 
@@ -135,11 +181,23 @@ export function AppShell({ children }: { children: ReactNode }) {
           count: staff?.withdrawals,
         },
         ...(liveOn
-          ? [{ href: "/staff?tab=lives", label: "Lives TikTok", icon: "live" } satisfies Item]
+          ? [
+              {
+                href: "/staff?tab=lives",
+                label: "Lives TikTok",
+                icon: "live",
+              } satisfies Item,
+            ]
           : []),
         { href: "/staff?tab=team", label: "Équipe", icon: "users" },
         ...(staff?.me.staffRole === "SUPER_ADMIN"
-          ? [{ href: "/staff?tab=modules", label: "Modules", icon: "toggle" } satisfies Item]
+          ? [
+              {
+                href: "/staff?tab=modules",
+                label: "Modules",
+                icon: "toggle",
+              } satisfies Item,
+            ]
           : []),
       ]
     : [];
@@ -171,12 +229,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     router.replace("/login");
   }
 
-  const initials = (user.email ?? user.phone ?? "V").replace(/^\+/, "").slice(0, 2).toUpperCase();
+  const initials = (user.email ?? user.phone ?? "V")
+    .replace(/^\+/, "")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <div className="shell">
       <aside className={`sidebar${open ? " open" : ""}`}>
-        <Link href="/dashboard" className="sidebar-brand" onClick={() => setOpen(false)}>
+        <Link
+          href="/dashboard"
+          className="sidebar-brand"
+          onClick={() => setOpen(false)}
+        >
           <Logo size={30} />
           Viewzo
         </Link>
@@ -232,7 +297,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-label={`Notifications${unread ? ` (${unread} non lues)` : ""}`}
           >
             <Icon name="bell" />
-            {unread > 0 && <span className="dot">{unread > 9 ? "9+" : unread}</span>}
+            {unread > 0 && (
+              <span className="dot">{unread > 9 ? "9+" : unread}</span>
+            )}
           </Link>
           <span className="avatar" title={user.email ?? user.phone ?? ""}>
             {initials}
@@ -250,7 +317,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Icon name={item.icon} size={22} />
             <span>{item.short ?? item.label}</span>
-            {!!item.count && <span className="dot">{item.count > 9 ? "9+" : item.count}</span>}
+            {!!item.count && (
+              <span className="dot">{item.count > 9 ? "9+" : item.count}</span>
+            )}
           </Link>
         ))}
       </nav>

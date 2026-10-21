@@ -19,6 +19,7 @@ const WEB_LINKS: Record<string, string> = {
   "/comptes": "/comptes",
   "/identite": "/identite",
   "/campaigns": "/campaigns",
+  "/lives": "/lives",
 };
 
 function webLink(link: string | null) {

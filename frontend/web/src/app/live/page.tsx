@@ -6,10 +6,12 @@ import {
   formatFcfa,
   LIVE_STATUS_LABELS,
   LIVE_STATUS_TONES,
+  LiveMode,
   LiveProduct,
-  LiveSale,
+  LiveSaleRow,
   liveApi,
 } from "@/lib/api";
+import { CountryMultiSelect } from "../country-select";
 import { LoadingCard } from "../loading-card";
 import { useRequireUser } from "../_shell/session";
 import { isUnavailable, UNAVAILABLE } from "./unavailable";
@@ -18,22 +20,40 @@ const DATE = new Intl.DateTimeFormat("fr-FR", {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const DAY = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" });
 
-// "datetime-local" value for one hour from now, in the browser's time zone.
-function inAnHour() {
-  const d = new Date(Date.now() + 60 * 60 * 1000);
+// "datetime-local" value for a time from now, in the browser's time zone.
+function local(hoursFromNow: number) {
+  const d = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
   d.setMinutes(0, 0, 0);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
 }
 
-type Sale = LiveSale & { _count: { leads: number } };
+/** One line on who sells the offer and when. */
+function sellers(s: LiveSaleRow) {
+  if (s.mode === "SELF") {
+    const own = s.sessions[0];
+    return `Ton live @${own?.tiktokUsername ?? "?"} · ${DATE.format(new Date(s.startsAt))}`;
+  }
+  const taken = s.sessions.filter((x) =>
+    ["INVITED", "ACCEPTED", "RUNNING", "ENDED"].includes(x.status),
+  );
+  const running = s.sessions.filter((x) => x.status === "RUNNING").length;
+  return [
+    `${DAY.format(new Date(s.startsAt))} → ${s.endsAt ? DAY.format(new Date(s.endsAt)) : "?"}`,
+    `${taken.length}/${s.slots} créateur${s.slots > 1 ? "s" : ""}`,
+    running ? `${running} en direct` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
-// Seller's side of "Vente en live TikTok": the catalogue and the lives.
+// Seller's side of "Vente en live TikTok": the catalogue and the offers.
 export default function LivePage() {
   const user = useRequireUser();
   const [products, setProducts] = useState<LiveProduct[] | null>(null);
-  const [sales, setSales] = useState<Sale[] | null>(null);
+  const [sales, setSales] = useState<LiveSaleRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [off, setOff] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -100,13 +120,19 @@ export default function LivePage() {
       <div className="card wide">
         <h1>Ventes en live</h1>
         <p className="hint">
-          Pendant ton live TikTok, Viewzo lit les commentaires, repère qui veut
-          acheter et prépare le panier de chaque acheteur.
+          Des créateurs TikTok vendent tes produits dans leurs lives. Viewzo lit
+          les commentaires, repère les acheteurs et leur dit de t’écrire sur
+          WhatsApp avec leur code. Tu livres et tu encaisses toi-même.
         </p>
         {error && <p className="error">{error}</p>}
-        <NewLive products={products ?? []} busy={busy} act={act} />
+        <NewLive
+          products={products ?? []}
+          country={user.country}
+          busy={busy}
+          act={act}
+        />
         {sales === null && !error && <div className="skeleton" />}
-        {sales?.length === 0 && <p>Aucun live pour l’instant.</p>}
+        {sales?.length === 0 && <p>Aucune offre pour l’instant.</p>}
         <div className="stagger" style={{ display: "grid", gap: 12 }}>
           {sales?.map((s) => (
             <article key={s.id} className="campaign">
@@ -117,17 +143,26 @@ export default function LivePage() {
                 </span>
               </header>
               <p>
-                @{s.tiktokUsername} · {DATE.format(new Date(s.scheduledAt))}
+                {sellers(s)}
                 {s.demo ? " · démo" : ""} · {s._count.leads} intéressé
                 {s._count.leads > 1 ? "s" : ""}
               </p>
-              {s.cancelReason && <p className="error">{s.cancelReason}</p>}
+              {s.mode === "CREATORS" && (
+                <p className="hint">
+                  Budget {formatFcfa(s.budget)}
+                  {s.spent > 0 ? ` · ${formatFcfa(s.spent)} payés` : ""}
+                  {s.refunded > 0
+                    ? ` · ${formatFcfa(s.refunded)} remboursés`
+                    : ""}
+                </p>
+              )}
+              {s.statusReason && <p className="error">{s.statusReason}</p>}
               <Link className="button secondary" href={`/live/${s.id}`}>
-                {s.status === "SCHEDULED"
-                  ? "Ouvrir pour commencer"
-                  : s.status === "RUNNING"
+                {s.status === "PENDING_PAYMENT"
+                  ? "Payer l’offre"
+                  : s.sessions.some((x) => x.status === "RUNNING")
                     ? "Suivre le live"
-                    : "Voir le bilan"}
+                    : "Ouvrir"}
               </Link>
             </article>
           ))}
@@ -143,25 +178,50 @@ interface Act {
   act: (action: () => Promise<unknown>) => Promise<boolean>;
 }
 
-function NewLive({ products, busy, act }: Act & { products: LiveProduct[] }) {
+function NewLive({
+  products,
+  country,
+  busy,
+  act,
+}: Act & { products: LiveProduct[]; country: string }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<LiveMode>("CREATORS");
   const [title, setTitle] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [from, setFrom] = useState(() => local(1));
+  const [to, setTo] = useState(() => local(24 * 7));
+  const [slots, setSlots] = useState("3");
+  const [budget, setBudget] = useState("30000");
+  const [countries, setCountries] = useState<string[]>([country]);
   const [username, setUsername] = useState("");
-  const [when, setWhen] = useState(inAnHour);
   const [demo, setDemo] = useState(false);
   const [chosen, setChosen] = useState<string[]>([]);
   const active = products.filter((p) => p.active);
+  const perPlace =
+    Number(slots) > 0 ? Math.floor(Number(budget) / Number(slots)) : 0;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    const base = {
+      title,
+      mode,
+      whatsapp,
+      startsAt: new Date(from).toISOString(),
+      demo,
+      productIds: chosen,
+    };
     const ok = await act(() =>
-      liveApi.create({
-        title,
-        tiktokUsername: username,
-        scheduledAt: new Date(when).toISOString(),
-        demo,
-        productIds: chosen,
-      }),
+      liveApi.create(
+        mode === "SELF"
+          ? { ...base, tiktokUsername: username }
+          : {
+              ...base,
+              endsAt: new Date(to).toISOString(),
+              slots: Number(slots),
+              budget: Number(budget),
+              countries,
+            },
+      ),
     );
     if (ok) {
       setOpen(false);
@@ -173,12 +233,30 @@ function NewLive({ products, busy, act }: Act & { products: LiveProduct[] }) {
   if (!open) {
     return (
       <button className="coral" onClick={() => setOpen(true)}>
-        Planifier un live
+        Annoncer un live
       </button>
     );
   }
   return (
     <form className="summary" onSubmit={submit}>
+      <div className="chips" role="radiogroup" aria-label="Qui fait le live">
+        <button
+          type="button"
+          className={`chip${mode === "CREATORS" ? " selected" : ""}`}
+          aria-pressed={mode === "CREATORS"}
+          onClick={() => setMode("CREATORS")}
+        >
+          Des créateurs vendent pour moi
+        </button>
+        <button
+          type="button"
+          className={`chip${mode === "SELF" ? " selected" : ""}`}
+          aria-pressed={mode === "SELF"}
+          onClick={() => setMode("SELF")}
+        >
+          Je fais mon propre live
+        </button>
+      </div>
       <label>
         Titre
         <input
@@ -191,24 +269,112 @@ function NewLive({ products, busy, act }: Act & { products: LiveProduct[] }) {
         />
       </label>
       <label>
-        Compte TikTok qui fait le live
+        Ton numéro WhatsApp
         <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="@maboutique"
-          pattern="@?[A-Za-z0-9._]{2,24}"
+          type="tel"
+          value={whatsapp}
+          onChange={(e) => setWhatsapp(e.target.value)}
+          placeholder="+228 90 00 00 00"
+          pattern="\+?[\d\s.\-]{8,20}"
           required
         />
+        <small className="hint">
+          Les acheteurs t’écrivent ici avec leur code. Tu livres et tu encaisses
+          toi-même.
+        </small>
       </label>
-      <label>
-        Date et heure
-        <input
-          type="datetime-local"
-          value={when}
-          onChange={(e) => setWhen(e.target.value)}
-          required
-        />
-      </label>
+      {mode === "CREATORS" ? (
+        <>
+          <div className="row">
+            <label>
+              Du
+              <input
+                type="datetime-local"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Au
+              <input
+                type="datetime-local"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                required
+              />
+            </label>
+          </div>
+          <p className="hint">
+            Chaque créateur choisit son heure dans cette période.
+          </p>
+          <div className="row">
+            <label>
+              Nombre de créateurs
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={50}
+                value={slots}
+                onChange={(e) => setSlots(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Budget (FCFA)
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1000}
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                required
+              />
+            </label>
+          </div>
+          <label>
+            Pays des créateurs
+            <CountryMultiSelect
+              value={countries}
+              onChange={setCountries}
+              required
+            />
+          </label>
+          <p className="hint">
+            Le budget est mis en séquestre. Chaque créateur est payé selon le
+            nombre de spectateurs au plus fort de son live, au plus{" "}
+            {formatFcfa(perPlace)}. Ce qui n’est pas dépensé revient sur ton
+            solde.
+          </p>
+        </>
+      ) : (
+        <>
+          <label>
+            Ton compte TikTok
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="@maboutique"
+              pattern="@?[A-Za-z0-9._]{2,24}"
+              required
+            />
+          </label>
+          <label>
+            Date et heure
+            <input
+              type="datetime-local"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              required
+            />
+          </label>
+          <p className="hint">
+            Viewzo lit les commentaires de ton live pour un forfait, pris sur
+            ton solde au début du live.
+          </p>
+        </>
+      )}
       {active.length > 0 && (
         <fieldset>
           <legend>Produits du live (aucun coché : tout le catalogue)</legend>
@@ -221,7 +387,9 @@ function NewLive({ products, busy, act }: Act & { products: LiveProduct[] }) {
                 aria-pressed={chosen.includes(p.id)}
                 onClick={() =>
                   setChosen((c) =>
-                    c.includes(p.id) ? c.filter((x) => x !== p.id) : [...c, p.id],
+                    c.includes(p.id)
+                      ? c.filter((x) => x !== p.id)
+                      : [...c, p.id],
                   )
                 }
               >
@@ -238,11 +406,17 @@ function NewLive({ products, busy, act }: Act & { products: LiveProduct[] }) {
           checked={demo}
           onChange={(e) => setDemo(e.target.checked)}
         />
-        Live de démonstration (commentaires d’exemple, pour essayer)
+        Live de démonstration (commentaires d’exemple, rien n’est payé)
       </label>
       <div className="actions">
-        <button disabled={busy}>Planifier</button>
-        <button type="button" className="secondary" onClick={() => setOpen(false)}>
+        <button disabled={busy}>
+          {mode === "CREATORS" ? "Créer l’offre" : "Planifier mon live"}
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => setOpen(false)}
+        >
           Annuler
         </button>
       </div>
