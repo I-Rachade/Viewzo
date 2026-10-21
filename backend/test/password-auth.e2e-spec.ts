@@ -79,11 +79,13 @@ describe('Password auth (e2e)', () => {
       password: 'motdepasse1',
       role: 'ADVERTISER',
       country: 'TG',
+      firstName: '  Awa  ',
     });
     expect(res).toMatchObject({
       isNew: true,
       user: {
         email: 'awa@example.com',
+        firstName: 'Awa',
         phone: null,
         hasPassword: true,
         country: 'TG',
@@ -96,6 +98,16 @@ describe('Password auth (e2e)', () => {
       .post('/auth/register/start')
       .send({ identifier: 'awa@example.com' })
       .expect(409);
+
+    // The first name can be changed later.
+    const token = { Authorization: `Bearer ${res.accessToken}` };
+    await http().patch('/me').set(token).send({ firstName: ' ' }).expect(400);
+    const renamed = await http()
+      .patch('/me')
+      .set(token)
+      .send({ firstName: 'Awa Mawuli' })
+      .expect(200);
+    expect(renamed.body).toMatchObject({ firstName: 'Awa Mawuli' });
   });
 
   it('needs a country for an email sign-up', async () => {

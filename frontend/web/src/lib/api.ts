@@ -13,6 +13,8 @@ export interface UserView {
   // At least one of phone and email is set.
   phone: string | null;
   email: string | null;
+  // Null until given at sign-up, on the dashboard or by the verified ID.
+  firstName: string | null;
   hasPassword: boolean;
   // A creator without a verified phone; only /telephone is open to them.
   phoneRequired: boolean;
@@ -194,6 +196,7 @@ export const authApi = {
     password: string;
     role: "CREATOR" | "ADVERTISER";
     country?: string;
+    firstName?: string;
   }) => call<Session>("/auth/register/complete", post(body)),
   login: (identifier: string, password: string) =>
     call<Session>("/auth/login", post({ identifier, password })),
@@ -209,6 +212,11 @@ export const authApi = {
 
 export const api = {
   me: () => call<UserView>("/me"),
+  setFirstName: (firstName: string) =>
+    call<UserView>("/me", {
+      method: "PATCH",
+      body: JSON.stringify({ firstName }),
+    }),
   activateProfile: (type: ProfileType) =>
     call<UserView>("/me/profiles", {
       method: "POST",
@@ -238,11 +246,47 @@ export type ContentType =
   | "MOTION_DESIGN"
   | "FREE_BRIEF";
 export type NoAssetsChoice = "CREATOR_VIDEOS" | "STUDIO";
+export type ContentCase = "READY" | "PARTIAL" | "NONE";
 export type CampaignStatus =
+  | "DRAFT"
+  | "PENDING_PAYMENT"
   | "PENDING_REVIEW"
   | "ACTIVE"
+  | "PAUSED"
   | "REJECTED"
   | "COMPLETED";
+
+export const CONTENT_CASE_LABELS: Record<
+  ContentCase,
+  { title: string; hint: string }
+> = {
+  READY: {
+    title: "Contenu prêt",
+    hint: "Tes visuels ou vidéos sont faits : les créateurs les publient.",
+  },
+  PARTIAL: {
+    title: "Matière partielle",
+    hint: "Logo, photos, rushes : les créateurs assemblent la vidéo.",
+  },
+  NONE: {
+    title: "Rien pour l’instant",
+    hint: "Les créateurs ou le Studio Viewzo créent tout à partir du brief.",
+  },
+};
+
+export type CampaignFileKind = "IMAGE" | "VIDEO" | "AUDIO" | "PDF";
+export type CampaignFilePurpose = "ASSET" | "BRIEF";
+
+// Opened through a signed link that expires after a few hours.
+export interface CampaignFile {
+  id: string;
+  purpose: CampaignFilePurpose;
+  kind: CampaignFileKind;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  url: string;
+}
 
 export const NETWORK_LABELS: Record<SocialNetwork, string> = {
   TIKTOK: "TikTok",
@@ -282,8 +326,11 @@ export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
 };
 
 export const STATUS_LABELS: Record<CampaignStatus, string> = {
+  DRAFT: "Brouillon",
+  PENDING_PAYMENT: "À payer",
   PENDING_REVIEW: "En vérification",
   ACTIVE: "Active",
+  PAUSED: "En pause",
   REJECTED: "Refusée",
   COMPLETED: "Terminée",
 };
@@ -315,9 +362,18 @@ export interface CampaignInput {
   package: CampaignPackage;
   budget: number;
   platforms: { network: SocialNetwork; contentType: ContentType }[];
-  hasAssets: boolean;
+  // Saved without being sent.
+  draft?: boolean;
+  contentCase: ContentCase;
+  fileIds?: string[];
+  briefFileIds?: string[];
   assetUrls?: string[];
   noAssetsChoice?: NoAssetsChoice;
+  keyMessage: string;
+  callToAction?: string;
+  caption?: string;
+  sound?: string;
+  productDetails?: string;
   shipsProduct?: boolean;
   productPickup?: string;
   faceRequired?: boolean;
@@ -330,12 +386,36 @@ export interface CampaignInput {
   examples?: string[];
 }
 
-export interface CampaignView {
+// What creators read before posting.
+export interface CampaignBrief {
+  contentCase: ContentCase;
+  noAssetsChoice: NoAssetsChoice | null;
+  keyMessage: string | null;
+  callToAction: string | null;
+  caption: string | null;
+  sound: string | null;
+  productDetails: string | null;
+  assetUrls: string[];
+  files: CampaignFile[];
+  faceRequired: boolean;
+  language: string;
+  minDurationSec: number | null;
+  maxDurationSec: number | null;
+  tone: string | null;
+  mandatoryElements: string[];
+  forbiddenElements: string[];
+  examples: string[];
+}
+
+export interface CampaignView extends CampaignBrief {
   id: string;
   code: string;
   title: string;
   objective: CampaignObjective;
   countries: string[];
+  cities: string[];
+  shipsProduct: boolean;
+  productPickup: string | null;
   startsAt: string;
   endsAt: string;
   package: CampaignPackage;
@@ -370,7 +450,28 @@ export const campaignsApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  // Only while the campaign is a draft or waits for its payment.
+  update: (id: string, input: CampaignInput) =>
+    call<CampaignView>(`/campaigns/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  remove: (id: string) =>
+    call<void>(`/campaigns/${id}`, { method: "DELETE" }),
+  send: (id: string) =>
+    call<CampaignView>(`/campaigns/${id}/send`, { method: "POST" }),
+  pause: (id: string) =>
+    call<CampaignView>(`/campaigns/${id}/pause`, { method: "POST" }),
+  resume: (id: string) =>
+    call<CampaignView>(`/campaigns/${id}/resume`, { method: "POST" }),
+  get: (id: string) => call<CampaignView>(`/me/campaigns/${id}`),
   list: () => call<CampaignView[]>("/me/campaigns"),
+  uploadFile: (file: File, purpose: CampaignFilePurpose = "ASSET") => {
+    const form = new FormData();
+    form.append("purpose", purpose);
+    form.append("file", file);
+    return upload<CampaignFile>("/me/campaign-files", form);
+  },
 };
 
 export function formatFcfa(amount: number) {
@@ -412,6 +513,8 @@ export interface WalletSummary {
   currency: string;
   available: number;
   held: number;
+  // Earnings of posts under dispute.
+  frozen: number;
   pendingWithdrawals: number;
   escrow: number;
   minWithdrawal: number;
@@ -539,6 +642,49 @@ export const accountsApi = {
     call<void>(`/me/accounts/${id}`, { method: "DELETE" }),
 };
 
+export type IdentityStatus =
+  | "STARTED"
+  | "IN_REVIEW"
+  | "APPROVED"
+  | "DECLINED"
+  | "ABANDONED";
+
+export const IDENTITY_STATUS_LABELS: Record<IdentityStatus, string> = {
+  STARTED: "Commencée",
+  IN_REVIEW: "En examen par l’équipe",
+  APPROVED: "Vérifiée",
+  DECLINED: "Refusée",
+  ABANDONED: "Interrompue",
+};
+
+export interface IdentityCheckView {
+  id: string;
+  status: IdentityStatus;
+  // The provider's page, while the check is open.
+  url: string | null;
+  fullName: string | null;
+  documentType: string | null;
+  reason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+export interface IdentityStatusView {
+  available: boolean;
+  verified: boolean;
+  needsProfile: boolean;
+  check: IdentityCheckView | null;
+  retryAfter: string | null;
+}
+
+export const identityApi = {
+  status: () => call<IdentityStatusView>("/me/identity"),
+  start: () =>
+    call<IdentityCheckView>("/me/identity/start", { method: "POST" }),
+  refresh: () =>
+    call<IdentityCheckView>("/me/identity/refresh", { method: "POST" }),
+};
+
 interface StaffUser {
   phone: string | null;
   email?: string | null;
@@ -580,11 +726,15 @@ export interface StaffOverview {
   // The member's own role and countries (empty: all countries).
   me: { staffRole: StaffRole; countries: string[] };
   accounts: number;
+  identity: number;
   campaigns: number;
   withdrawals: number;
   // Posts waiting for review, and those the fraud rules flag.
   assignments: number;
   alerts: number;
+  // Open disputes, and those open for more than 72 h.
+  disputes: number;
+  overdueDisputes: number;
 }
 
 export interface StaffAccount {
@@ -612,7 +762,6 @@ export interface StaffAccount {
 }
 
 export interface StaffCampaign extends CampaignView {
-  assetUrls: string[];
   advertiser: StaffUser;
 }
 
@@ -623,7 +772,23 @@ export interface StaffWithdrawal extends PaymentView {
   // Large withdrawals need two different finance members.
   needsSecondApproval: boolean;
   firstApprovedById: string | null;
+  // Name on the verified ID and whether the Mobile Money holder matches it.
+  verifiedName: string | null;
+  nameMatches: boolean | null;
   user: StaffUser & { profiles: { type: ProfileType; level: number }[] };
+}
+
+export interface StaffIdentityCheck extends IdentityCheckView {
+  userId: string;
+  user: StaffUser & { profiles: { type: ProfileType; level: number }[] };
+  dateOfBirth: string | null;
+  documentCountry: string | null;
+  documentNumberLast4: string | null;
+  livenessScore: number | null;
+  faceMatchScore: number | null;
+  providerStatus: string | null;
+  // Other accounts that showed the same document.
+  sameDocumentUsers: string[];
 }
 
 export interface StaffMember {
@@ -683,6 +848,11 @@ export const staffApi = {
     id: string,
     input: { outcome: "SUCCEEDED" | "FAILED"; reason: string },
   ) => call<PaymentView>(`/staff/withdrawals/${id}/resolve`, post(input)),
+  identityChecks: () => call<StaffIdentityCheck[]>("/staff/identity"),
+  reviewIdentity: (
+    id: string,
+    input: { decision: "APPROVE" | "DECLINE"; reason?: string },
+  ) => call<IdentityCheckView>(`/staff/identity/${id}/review`, post(input)),
   members: () => call<StaffMember[]>("/staff/members"),
   addMember: (phone: string, rights: MemberRights) =>
     call<StaffMember>("/staff/members", post({ phone, ...rights })),
@@ -740,6 +910,38 @@ export interface ProofView {
   uploadedAt: string;
 }
 
+// A post is paid, and billed, from this many validated views.
+export const MIN_PAID_VIEWS = 500;
+
+export type DisputeSide = "CREATOR" | "ADVERTISER";
+export type DisputeOutcome = "KEEP" | "SET_VIEWS" | "REJECT_POST";
+
+export const DISPUTE_OUTCOME_LABELS: Record<DisputeOutcome, string> = {
+  KEEP: "Décision maintenue",
+  SET_VIEWS: "Vues corrigées",
+  REJECT_POST: "Publication refusée",
+};
+
+export interface DisputeView {
+  id: string;
+  side: DisputeSide;
+  reason: string;
+  status: "OPEN" | "RESOLVED";
+  outcome: DisputeOutcome | null;
+  decisionReason: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+export const disputesApi = {
+  // The post's creator or the campaign's advertiser.
+  open: (postId: string, reason: string) =>
+    call<DisputeView>(`/me/posts/${postId}/disputes`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+};
+
 export interface CreatorAssignment {
   id: string;
   status: "ACCEPTED" | "SUBMITTED";
@@ -750,12 +952,13 @@ export interface CreatorAssignment {
   reviewReason: string | null;
   validViews: number;
   earned: number;
+  minPaidViews: number;
+  dispute: DisputeView | null;
   declaredViews: number | null;
   proofs: ProofView[];
-  proofPlan: {
-    steps: { label: string; dueAt: string | null; doneAt: string | null }[];
-    nextDueAt: string | null;
-  } | null;
+  proofPlan: ProofPlan | null;
+  // Dated screenshots (H+1 to J+30) on every network but statuts.
+  capturePlan: ProofPlan | null;
   task: {
     id: string;
     network: SocialNetwork;
@@ -763,6 +966,11 @@ export interface CreatorAssignment {
     creatorRatePer1000: number;
     campaign: { title: string; hashtag: string; endsAt: string };
   };
+}
+
+export interface ProofPlan {
+  steps: { label: string; dueAt: string | null; doneAt: string | null }[];
+  nextDueAt: string | null;
 }
 
 export interface CreatorResults {
@@ -853,6 +1061,8 @@ export interface CampaignReport {
   endsAt: string;
   budget: number;
   spent: number;
+  completedAt: string | null;
+  refunded: number;
   verifiedViews: number;
   unbilledViews: number;
   costPer1000: number | null;
@@ -869,6 +1079,7 @@ export interface CampaignReport {
     views: number;
     imageUrl: string | null;
     submittedAt: string | null;
+    dispute: DisputeView | null;
   }[];
 }
 
@@ -913,6 +1124,10 @@ export interface PostDossier {
   submittedAt: string | null;
   validViews: number;
   earned: number;
+  onlineCheckedAt: string | null;
+  stillOnline: boolean | null;
+  onlineCheckDue: boolean;
+  disputes: (DisputeView & { openedById: string })[];
   latestViews: number;
   expectedEarning: number;
   creatorRatePer1000: number;
@@ -1018,11 +1233,49 @@ export interface CreatorFile {
   }[];
 }
 
-export type PostDecision = "VALIDATE" | "NEEDS_FIX" | "REJECT" | "SUSPEND_ACCOUNT";
+export type PostDecision =
+  | "VALIDATE"
+  | "NEEDS_FIX"
+  | "REJECT"
+  | "SUSPEND_ACCOUNT"
+  | "STILL_ONLINE"
+  | "REMOVED";
+
+// Validated posts due for their 30-day online check.
+export type PostQueue = PostReviewStatus | "ALL" | "ONLINE_CHECK";
+
+export interface StaffDispute extends DisputeView {
+  overdue: boolean;
+  post: {
+    id: string;
+    network: SocialNetwork;
+    campaign: { id: string; code: string; title: string };
+    creator: { id: string; phone: string | null; email: string | null; country: string };
+    postUrl: string | null;
+    reviewStatus: PostReviewStatus;
+    validViews: number;
+    earned: number;
+  };
+}
+
+export const staffDisputesApi = {
+  list: (status: "OPEN" | "RESOLVED" = "OPEN") =>
+    call<{ open: number; overdue: number; items: StaffDispute[] }>(
+      `/staff/disputes?status=${status}`,
+    ),
+  decide: (
+    id: string,
+    input: { outcome: DisputeOutcome; reason: string; views?: number },
+  ) =>
+    call<DisputeView>(`/staff/disputes/${id}/decide`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+};
 
 export const staffPostsApi = {
   list: (filters: {
-    status?: PostReviewStatus | "ALL";
+    status?: PostQueue;
     network?: SocialNetwork;
     country?: string;
     q?: string;
@@ -1032,7 +1285,7 @@ export const staffPostsApi = {
       Object.entries(filters).filter(([, v]) => v) as [string, string][],
     );
     return call<{
-      counts: Record<PostReviewStatus, number>;
+      counts: Record<PostReviewStatus | "ONLINE_CHECK", number>;
       items: StaffPostRow[];
     }>(`/staff/posts?${params}`);
   },

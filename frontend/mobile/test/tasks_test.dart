@@ -302,6 +302,67 @@ void main() {
     expect(find.textContaining('Au départ · envoyée'), findsOneWidget);
     expect(find.textContaining('Après 12 h · à envoyer vers'), findsOneWidget);
   });
+
+  testWidgets('contests a refused post and shows the frozen dispute', (
+    tester,
+  ) async {
+    final assignments = [
+      {
+        'id': 'a1',
+        'status': 'SUBMITTED',
+        'postUrl': 'https://www.tiktok.com/@ama/video/1',
+        'reviewStatus': 'REJECTED',
+        'reviewReason': 'Hashtag absent',
+        'validViews': 0,
+        'earned': 0,
+        'minPaidViews': 500,
+        'dispute': null,
+        'task': task('t1'),
+      },
+    ];
+    Object? opened;
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      if (path == '/me/tasks') return json([]);
+      if (path == '/me/assignments') return json(assignments);
+      if (path == '/me/posts/a1/disputes') {
+        opened = jsonDecode(request.body);
+        assignments[0] = {
+          ...assignments[0],
+          'dispute': {'side': 'CREATOR', 'status': 'OPEN'},
+        };
+        return json({'id': 'd1'}, 201);
+      }
+      return http.Response('', 404);
+    });
+
+    await tester.pumpWidget(
+      VzApp(
+        home: TasksScreen(api: ApiClient(client: client)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mes tâches'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hashtag absent'), findsOneWidget);
+    await tester.tap(find.text('Contester'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Envoyer'));
+    await tester.pumpAndSettle();
+    expect(find.text('Explique en quelques mots'), findsOneWidget);
+
+    await tester.enterText(
+      find.byType(EditableText),
+      'Le hashtag est dans la légende',
+    );
+    await tester.tap(find.text('Envoyer'));
+    await tester.pumpAndSettle();
+
+    expect(opened, {'reason': 'Le hashtag est dans la légende'});
+    expect(find.textContaining('Litige en cours'), findsOneWidget);
+    expect(find.text('Contester'), findsNothing);
+  });
 }
 
 /// Records the screenshot upload and answers it, other calls go to [client].

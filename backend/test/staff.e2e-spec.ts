@@ -76,10 +76,13 @@ describe('Back-office (e2e)', () => {
       (await http().get('/staff/overview').set(auth(staff)).expect(200)).body,
     ).toEqual({
       accounts: 0,
+      identity: 0,
       campaigns: 0,
       withdrawals: 0,
       assignments: 0,
       alerts: 0,
+      disputes: 0,
+      overdueDisputes: 0,
       me: { staffRole: 'SUPER_ADMIN', countries: [] },
     });
 
@@ -101,7 +104,7 @@ describe('Back-office (e2e)', () => {
         endsAt: new Date(Date.now() + day),
         package: 'BASIC',
         budget: 20_000,
-        hasAssets: true,
+        contentCase: 'READY',
         language: 'Français',
         status: 'ACTIVE',
         fundedAt: new Date(),
@@ -140,10 +143,13 @@ describe('Back-office (e2e)', () => {
       (await http().get('/staff/overview').set(auth(staff)).expect(200)).body,
     ).toEqual({
       accounts: 1,
+      identity: 0,
       campaigns: 0,
       withdrawals: 0,
       assignments: 1,
       alerts: 0,
+      disputes: 0,
+      overdueDisputes: 0,
       me: { staffRole: 'SUPER_ADMIN', countries: [] },
     });
     const list = await http()

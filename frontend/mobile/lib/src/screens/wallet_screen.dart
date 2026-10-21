@@ -6,6 +6,7 @@ import '../api_client.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import '../wallet_models.dart';
+import 'identity_screen.dart';
 
 /// The wallet shared by all profiles: balances, history, top-up, withdrawal.
 class WalletScreen extends StatefulWidget {
@@ -28,6 +29,13 @@ class _WalletScreenState extends State<WalletScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  Future<void> _verifyIdentity() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => IdentityScreen(api: widget.api)));
+    if (mounted) await _load();
   }
 
   Future<void> _load() => _run(() async {
@@ -134,15 +142,27 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
                   const SizedBox(height: 12),
                   if (!summary.withdrawalsOpen)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: ShadAlert(
-                        icon: Icon(LucideIcons.lock),
-                        title: Text('Retraits fermés pour l’instant'),
-                        description: Text(
-                          'Les retraits s’ouvrent au niveau 2, après la '
-                          'vérification de ton identité.',
-                        ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const ShadAlert(
+                            icon: Icon(LucideIcons.lock),
+                            title: Text('Retraits fermés pour l’instant'),
+                            description: Text(
+                              'Les retraits s’ouvrent au niveau 2, après la '
+                              'vérification de ton identité : une pièce et '
+                              'un selfie, en quelques minutes.',
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ShadButton.outline(
+                            onPressed: _verifyIdentity,
+                            leading: const Icon(LucideIcons.idCard, size: 16),
+                            child: const Text('Vérifier mon identité'),
+                          ),
+                        ],
                       ),
                     ),
                   if (_error != null)
@@ -357,6 +377,12 @@ class _BalanceCard extends StatelessWidget {
                 formatFcfa(summary.held),
                 color: const Color(0xFFFFD27A),
               ),
+              if (summary.frozen > 0)
+                _DarkBadge(
+                  'Gelé (litige)',
+                  formatFcfa(summary.frozen),
+                  color: const Color(0xFFFF9C8A),
+                ),
               if (summary.escrow > 0)
                 _DarkBadge(
                   'Séquestre',

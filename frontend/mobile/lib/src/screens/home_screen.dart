@@ -11,6 +11,7 @@ import '../wallet_models.dart';
 import 'accounts_screen.dart';
 import 'auth_widgets.dart';
 import 'connections_screen.dart';
+import 'identity_screen.dart';
 import 'live_screen.dart';
 import 'login_screen.dart';
 import 'notifications_screen.dart';
@@ -88,6 +89,8 @@ class _HomeScreenState extends State<HomeScreen>
                 _select(2);
               case '/comptes':
                 _open(AccountsScreen(api: api, phone: _user?.phone ?? ''));
+              case '/identite':
+                _open(IdentityScreen(api: api));
             }
           },
         ),
@@ -241,6 +244,7 @@ class _HomeScreenState extends State<HomeScreen>
                 onSkills: () =>
                     _open(SkillsScreen(api: api, country: user.country)),
                 onConnections: () => _open(ConnectionsScreen(api: api)),
+                onIdentity: () => _open(IdentityScreen(api: api)),
                 onLive:
                     _modules.contains('LIVE_SALES') &&
                         user.profiles.any(
@@ -584,7 +588,10 @@ class _HomeTabState extends State<_HomeTab> {
                   VzMark(size: 40, outline: VzMark.outlineFor(context)),
                   Expanded(
                     child: Text(
-                      hour >= 18 || hour < 5 ? 'Bonsoir' : 'Bonjour',
+                      [
+                        hour >= 18 || hour < 5 ? 'Bonsoir' : 'Bonjour',
+                        ?user.firstName,
+                      ].join(' '),
                       style: theme.textTheme.h3,
                     ),
                   ),
@@ -961,6 +968,7 @@ class _ProfileTab extends StatelessWidget {
     required this.onAccounts,
     required this.onSkills,
     required this.onConnections,
+    required this.onIdentity,
     this.onLive,
     required this.onAddContact,
     required this.onLogout,
@@ -969,6 +977,7 @@ class _ProfileTab extends StatelessWidget {
   final VoidCallback onAccounts;
   final VoidCallback onSkills;
   final VoidCallback onConnections;
+  final VoidCallback onIdentity;
 
   /// Null while the live module is off or the user isn't an advertiser.
   final VoidCallback? onLive;
@@ -1081,11 +1090,27 @@ class _ProfileTab extends StatelessWidget {
             ),
             const SizedBox(height: 24),
           ],
-          if (onLive case final onLive?) ...[
+          if (user.profiles.any((p) => p.type != ProfileType.provider)) ...[
             _Group(
               children: [
                 tile(
                   3,
+                  LucideIcons.idCard,
+                  'Mon identité',
+                  user.profiles.any((p) => p.level >= 2)
+                      ? 'Vérifiée · niveau 2'
+                      : 'Pièce et selfie pour le niveau 2',
+                  onIdentity,
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+          ],
+          if (onLive case final onLive?) ...[
+            _Group(
+              children: [
+                tile(
+                  4,
                   LucideIcons.radio,
                   'Ventes en live',
                   'Tes lives TikTok et tes acheteurs',
@@ -1098,7 +1123,7 @@ class _ProfileTab extends StatelessWidget {
           _Group(
             children: [
               tile(
-                4,
+                5,
                 LucideIcons.logOut,
                 'Se déconnecter',
                 'Sur ce téléphone',

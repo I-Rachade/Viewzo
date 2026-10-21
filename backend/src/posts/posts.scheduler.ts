@@ -14,8 +14,11 @@ import {
   SocialNetwork,
   ViewSource,
 } from '@prisma/client';
+import { CampaignFilesService } from '../files/campaign-files.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CAPTURE_STEPS, CAPTURE_WINDOW, dueCaptureStep } from './captures';
 import { PrismaService } from '../prisma/prisma.service';
+import { WalletService } from '../wallet/wallet.service';
 import { ProofsService, STATUS_PROOF_STEPS } from './proofs.service';
 import { ViewCounter } from './view-counters';
 
@@ -26,8 +29,10 @@ const EVERY = 10 * 60 * 1000;
 
 /**
  * Background jobs, every 10 minutes: reminds creators to send the next
- * screenshot of a statut, and reads view counts from the platforms that
- * allow it.
+ * screenshot of a statut or a dated screenshot of a post (H+1 to J+30),
+ * reads view counts from the platforms that allow
+ * it, closes the campaigns that are over and removes campaign files nobody
+ * attached.
  */
 @Injectable()
 export class PostsScheduler implements OnModuleInit, OnModuleDestroy {
@@ -40,6 +45,8 @@ export class PostsScheduler implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly notifications: NotificationsService,
     private readonly proofs: ProofsService,
+    private readonly wallet: WalletService,
+    private readonly files: CampaignFilesService,
     @Inject(VIEW_COUNTER_LIST) private readonly counters: ViewCounter[],
   ) {}
 
@@ -61,7 +68,10 @@ export class PostsScheduler implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     try {
       await this.sendReminders();
+      await this.sendCaptureReminders();
       await this.fetchViews();
+      await this.wallet.closeDueCampaigns();
+      await this.files.purgeOrphans();
     } catch (e) {
       this.logger.error('Background jobs failed', e as Error);
     } finally {
@@ -108,6 +118,49 @@ export class PostsScheduler implements OnModuleInit, OnModuleDestroy {
         type: NotificationType.PROOF_REMINDER,
         title: `Capture ${step.label.toLowerCase()} · #${a.task.campaign.code}`,
         body: 'Ouvre la liste des vues de ton statut et envoie la capture avant qu’il disparaisse.',
+        link: '/resultats',
+      });
+      sent++;
+    }
+    return sent;
+  }
+
+  /** Dated screenshots of the other networks: H+1, J+1, J+7 and J+30. */
+  async sendCaptureReminders(now = new Date()) {
+    const open = await this.prisma.taskAssignment.findMany({
+      where: {
+        status: AssignmentStatus.SUBMITTED,
+        reviewStatus: { not: PostReviewStatus.REJECTED },
+        task: { network: { not: SocialNetwork.WHATSAPP_STATUS } },
+        captureRemindersSent: { lt: CAPTURE_STEPS.length },
+        submittedAt: { gt: new Date(now.getTime() - CAPTURE_WINDOW) },
+      },
+      include: {
+        proofs: {
+          where: { kind: ProofKind.SCREENSHOT },
+          select: { uploadedAt: true },
+        },
+        task: { select: { campaign: { select: { code: true } } } },
+      },
+    });
+    let sent = 0;
+    for (const a of open) {
+      const step = dueCaptureStep(a.submittedAt!, now);
+      // A step missed while the server was down is skipped, not sent late.
+      if (step < a.captureRemindersSent) continue;
+      const from =
+        a.submittedAt!.getTime() +
+        (step === 0 ? 0 : CAPTURE_STEPS[step - 1].until);
+      const alreadySent = a.proofs.some((p) => p.uploadedAt.getTime() >= from);
+      const claimed = await this.prisma.taskAssignment.updateMany({
+        where: { id: a.id, captureRemindersSent: a.captureRemindersSent },
+        data: { captureRemindersSent: step + 1 },
+      });
+      if (!claimed.count || alreadySent) continue;
+      await this.notifications.notify(a.creatorId, {
+        type: NotificationType.PROOF_REMINDER,
+        title: `Capture ${CAPTURE_STEPS[step].label} · #${a.task.campaign.code}`,
+        body: 'Envoie une capture de ta publication avec son nombre de vues : elle prouve qu’elle est toujours en ligne.',
         link: '/resultats',
       });
       sent++;

@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { confirmed } from "./confirm";
 import { DATE, useQueue } from "./use-queue";
+import { BriefView } from "../../campaigns/brief-view";
 
 export function CampaignsSection({ onChange }: { onChange: () => void }) {
   const queue = useQueue(staffApi.campaigns, onChange);
@@ -77,17 +78,7 @@ function CampaignCard({
           {formatFcfa(p.budget)}
         </p>
       ))}
-      {c.assetUrls.length > 0 && (
-        <p>
-          Éléments fournis :{" "}
-          {c.assetUrls.map((url, i) => (
-            <a key={url} href={url} target="_blank" rel="noreferrer">
-              {i > 0 && ", "}
-              fichier {i + 1}
-            </a>
-          ))}
-        </p>
-      )}
+      <BriefView brief={c} />
       <label>
         Motif du refus
         <input value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -104,11 +95,6 @@ function CampaignCard({
           Refuser
         </button>
       </div>
-      {!c.fundedAt && (
-        <p className="hint">
-          Les créateurs ne la verront qu’une fois payée par l’annonceur.
-        </p>
-      )}
     </article>
   );
 }

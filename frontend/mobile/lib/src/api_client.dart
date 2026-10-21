@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'creator_models.dart';
+import 'identity_models.dart';
 import 'live_models.dart';
 import 'task_models.dart';
 import 'wallet_models.dart';
@@ -35,6 +36,7 @@ class UserView {
   UserView({
     required this.phone,
     required this.email,
+    this.firstName,
     required this.hasPassword,
     this.phoneRequired = false,
     required this.country,
@@ -46,6 +48,7 @@ class UserView {
   factory UserView.fromJson(Map<String, dynamic> json) => UserView(
     phone: json['phone'] as String?,
     email: json['email'] as String?,
+    firstName: json['firstName'] as String?,
     hasPassword: json['hasPassword'] as bool? ?? false,
     phoneRequired: json['phoneRequired'] as bool? ?? false,
     country: json['country'] as String,
@@ -62,6 +65,9 @@ class UserView {
 
   final String? phone;
   final String? email;
+
+  /// Null until given at sign-up, on the web or by the verified ID.
+  final String? firstName;
   final bool hasPassword;
 
   /// A creator without a verified phone: only the phone screen is open.
@@ -176,12 +182,14 @@ class ApiClient {
     required String password,
     required ProfileType role,
     String? country,
+    String? firstName,
   }) async {
     return _signIn(
       await _post('/auth/register/complete', {
         'ticket': ticket,
         'password': password,
         'role': role.code,
+        'firstName': ?firstName,
         'country': ?country,
       }),
     );
@@ -345,6 +353,12 @@ class ApiClient {
     );
   }
 
+  /// Contests the team's decision on a post: its earnings are frozen until
+  /// the team decides.
+  Future<void> openDispute(String assignmentId, String reason) async {
+    await _post('/me/posts/$assignmentId/disputes', {'reason': reason});
+  }
+
   Future<CreatorResults> results() async {
     final res = await _client.get(
       Uri.parse('$baseUrl/me/results'),
@@ -433,6 +447,22 @@ class ApiClient {
     );
     _decode(res);
   }
+
+  Future<IdentityStatus> identity() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/me/identity'),
+      headers: _headers,
+    );
+    return IdentityStatus.fromJson(_decode(res));
+  }
+
+  /// Opens a verification and returns the provider's page to send the person to.
+  Future<IdentityCheck> startIdentity() async =>
+      IdentityCheck.fromJson(await _post('/me/identity/start', {}));
+
+  /// Asks the provider again after the person comes back from its page.
+  Future<IdentityCheck> refreshIdentity() async =>
+      IdentityCheck.fromJson(await _post('/me/identity/refresh', {}));
 
   Future<WalletSummary> wallet() async {
     final res = await _client.get(

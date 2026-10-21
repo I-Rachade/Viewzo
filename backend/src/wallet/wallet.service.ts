@@ -11,6 +11,7 @@ import {
   AssignmentStatus,
   Campaign,
   CampaignStatus,
+  DisputeStatus,
   NotificationType,
   Payment,
   PaymentKind,
@@ -35,8 +36,10 @@ import { WithdrawDto } from './dto/withdraw.dto';
 import {
   advertiserCost,
   availableAt,
+  billableViews,
   creatorEarning,
   LEVEL1_EARNINGS_CAP,
+  MIN_PAID_VIEWS,
   payableViews,
 } from './earnings';
 import { FLUTTERWAVE_OPERATORS } from './gateways/flutterwave.gateway';
@@ -45,6 +48,8 @@ import {
   GatewayStatus,
   PayinResult,
 } from './gateways/gateway';
+import { IdentityService } from '../identity/identity.service';
+import { namesMatch } from '../identity/names';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentRouter } from './payment-router';
 
@@ -52,6 +57,15 @@ const CURRENCY = 'XOF';
 const DEFAULT_MIN_WITHDRAWAL = 1_000;
 // From this amount a second finance member must approve a withdrawal.
 const DEFAULT_SECOND_APPROVAL_FROM = 100_000;
+// A campaign closes this long after its end, once its posts are decided.
+// Older campaigns could be approved before being paid.
+const FUNDABLE: CampaignStatus[] = [
+  CampaignStatus.PENDING_PAYMENT,
+  CampaignStatus.PENDING_REVIEW,
+  CampaignStatus.ACTIVE,
+];
+
+const CLOSE_AFTER_MS = 48 * 3600 * 1000;
 
 type Tx = Prisma.TransactionClient;
 
@@ -65,39 +79,53 @@ export class WalletService {
     private readonly router: PaymentRouter,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
+    private readonly identity: IdentityService,
   ) {}
 
   async summary(userId: string) {
     const user = await this.user(userId);
     const now = new Date();
-    const [available, held, pendingWithdrawals, campaigns] = await Promise.all([
-      this.balance(this.prisma, userId, now),
-      this.sum(userId, {
-        type: TransactionType.EARNING,
-        status: TransactionStatus.COMPLETED,
-        availableAt: { gt: now },
-      }),
-      this.sum(userId, {
-        type: TransactionType.WITHDRAWAL,
-        status: TransactionStatus.PENDING,
-      }),
-      this.prisma.campaign.findMany({
-        where: {
-          advertiserId: userId,
-          fundedAt: { not: null },
-          status: {
-            in: [CampaignStatus.PENDING_REVIEW, CampaignStatus.ACTIVE],
+    const [available, held, frozen, pendingWithdrawals, campaigns] =
+      await Promise.all([
+        this.balance(this.prisma, userId, now),
+        this.sum(userId, {
+          type: TransactionType.EARNING,
+          status: TransactionStatus.COMPLETED,
+          availableAt: { gt: now },
+          frozen: false,
+        }),
+        this.sum(userId, {
+          type: TransactionType.EARNING,
+          status: TransactionStatus.COMPLETED,
+          frozen: true,
+        }),
+        this.sum(userId, {
+          type: TransactionType.WITHDRAWAL,
+          status: TransactionStatus.PENDING,
+        }),
+        this.prisma.campaign.findMany({
+          where: {
+            advertiserId: userId,
+            fundedAt: { not: null },
+            status: {
+              in: [
+                CampaignStatus.PENDING_REVIEW,
+                CampaignStatus.ACTIVE,
+                CampaignStatus.PAUSED,
+              ],
+            },
           },
-        },
-        select: { budget: true, spent: true },
-      }),
-    ]);
+          select: { budget: true, spent: true },
+        }),
+      ]);
     const provider = this.router.providerFor(user.country);
     return {
       currency: CURRENCY,
       available,
       // Earnings in their security hold, withdrawable from `availableAt`.
       held,
+      // Earnings of posts under dispute, until the team decides.
+      frozen,
       pendingWithdrawals: -pendingWithdrawals,
       // Budgets of the user's campaigns still held in escrow.
       escrow: campaigns.reduce((s, c) => s + c.budget - c.spent, 0),
@@ -291,9 +319,18 @@ export class WalletService {
         },
       },
     });
+    const verified = await this.identity.verifiedNames([
+      ...new Set(payments.map((p) => p.userId)),
+    ]);
     return payments.map((p) => ({
       ...this.toPaymentView(p),
       beneficiaryName: p.beneficiaryName,
+      // Name on the verified ID, and whether the Mobile Money holder matches.
+      verifiedName: verified.get(p.userId) ?? null,
+      nameMatches:
+        verified.has(p.userId) && p.beneficiaryName
+          ? namesMatch(verified.get(p.userId)!, p.beneficiaryName)
+          : null,
       phone: p.phone,
       operator: p.operator,
       userId: p.userId,
@@ -525,6 +562,11 @@ export class WalletService {
     if (!assignment.task.campaign.fundedAt) {
       throw new BadRequestException('Campagne non financée');
     }
+    if (assignment.task.campaign.status === CampaignStatus.COMPLETED) {
+      throw new BadRequestException(
+        'Campagne clôturée : son budget restant a été rendu',
+      );
+    }
     if (assignment.reviewStatus === PostReviewStatus.REJECTED && !reopen) {
       throw new BadRequestException('Publication refusée');
     }
@@ -549,7 +591,8 @@ export class WalletService {
       const { task } = current;
       const others = task.assignments.filter((a) => a.id !== current.id);
       const spentOnTask = others.reduce(
-        (s, a) => s + advertiserCost(a.validViews, task.contentType),
+        (s, a) =>
+          s + advertiserCost(billableViews(a.validViews), task.contentType),
         0,
       );
       // Views beyond the task budget are not paid.
@@ -557,7 +600,11 @@ export class WalletService {
         totalViews,
         payableViews(task.budget - spentOnTask, task.contentType),
       );
-      let earned = creatorEarning(views, task.creatorRatePer1000);
+      // Below the threshold the views are kept, but nothing is paid or billed.
+      let earned = creatorEarning(
+        billableViews(views),
+        task.creatorRatePer1000,
+      );
       const level =
         current.creator.profiles.find((p) => p.type === ProfileType.CREATOR)
           ?.level ?? 1;
@@ -572,8 +619,8 @@ export class WalletService {
       }
       const delta = earned - current.earned;
       const costDelta =
-        advertiserCost(views, task.contentType) -
-        advertiserCost(current.validViews, task.contentType);
+        advertiserCost(billableViews(views), task.contentType) -
+        advertiserCost(billableViews(current.validViews), task.contentType);
       if (task.campaign.spent + costDelta > task.campaign.budget) {
         throw new ConflictException('Budget de la campagne épuisé');
       }
@@ -630,6 +677,9 @@ export class WalletService {
         });
       }
       if (delta > 0) {
+        const disputed = await tx.dispute.count({
+          where: { assignmentId: current.id, status: DisputeStatus.OPEN },
+        });
         await tx.transaction.create({
           data: {
             userId: current.creatorId,
@@ -637,6 +687,7 @@ export class WalletService {
             amount: delta,
             currency: CURRENCY,
             availableAt: availableAt(level),
+            frozen: disputed > 0,
             campaignId: task.campaignId,
             assignmentId: current.id,
             note: `${views} vues validées · #${task.campaign.code}`,
@@ -654,22 +705,39 @@ export class WalletService {
     await this.notifications.notify(assignment.creatorId, {
       type: NotificationType.POST_VALIDATED,
       title: `Publication validée · #${assignment.task.campaign.code}`,
-      body: `${result.validViews.toLocaleString('fr-FR')} vues validées, ${result.earned.toLocaleString('fr-FR')} FCFA gagnés au total.`,
+      body:
+        result.validViews < MIN_PAID_VIEWS
+          ? `${result.validViews.toLocaleString('fr-FR')} vues validées. Le paiement commence à ${MIN_PAID_VIEWS} vues validées.`
+          : `${result.validViews.toLocaleString('fr-FR')} vues validées, ${result.earned.toLocaleString('fr-FR')} FCFA gagnés au total.`,
       link: '/resultats',
     });
     return result;
   }
 
   /**
-   * Takes back a rejected post's earnings while they are still in their
-   * security hold, and returns their cost to the campaign escrow.
+   * Takes back a refused post's earnings while they are still in their
+   * security hold or frozen by a dispute, and returns their cost to the
+   * campaign escrow. Throws when some were already free to withdraw.
    */
   async reverseEarnings(tx: Tx, assignmentId: string) {
+    await this.takeBack(tx, assignmentId, true);
+  }
+
+  /**
+   * Takes back what a post still holds (in its security hold or frozen),
+   * keeping what the creator could already withdraw. Used when a post was
+   * deleted before its 30-day check. Returns the amount taken back.
+   */
+  async takeBackHeld(tx: Tx, assignmentId: string) {
+    return this.takeBack(tx, assignmentId, false);
+  }
+
+  private async takeBack(tx: Tx, assignmentId: string, all: boolean) {
     const a = await tx.taskAssignment.findUniqueOrThrow({
       where: { id: assignmentId },
       include: { task: true },
     });
-    if (a.validViews === 0 && a.earned === 0) return;
+    if (a.validViews === 0 && a.earned === 0) return 0;
     await this.lock(tx, `campaign:${a.task.campaignId}`);
     await this.lock(tx, a.creatorId);
     const now = new Date();
@@ -680,24 +748,57 @@ export class WalletService {
         status: TransactionStatus.COMPLETED,
       },
     });
-    if (earnings.some((t) => t.availableAt <= now)) {
+    // Frozen earnings never reached the withdrawable balance since the freeze.
+    const held = earnings.filter((t) => t.availableAt > now || t.frozen);
+    if (all && held.length < earnings.length) {
       throw new ConflictException(
         'Gains déjà disponibles pour le créateur, refus impossible',
       );
     }
+    const taken = held.reduce((s, t) => s + t.amount, 0);
+    if (!all && taken === 0) return 0;
     await tx.transaction.updateMany({
-      where: { id: { in: earnings.map((t) => t.id) } },
+      where: { id: { in: held.map((t) => t.id) } },
       data: { status: TransactionStatus.CANCELLED },
     });
-    await tx.campaign.update({
+    const cost = advertiserCost(
+      billableViews(a.validViews),
+      a.task.contentType,
+    );
+    // The share of the post taken back: all of it, or what was still held.
+    const share = all || a.earned === 0 ? 1 : taken / a.earned;
+    const campaign = await tx.campaign.update({
       where: { id: a.task.campaignId },
-      data: {
-        spent: { decrement: advertiserCost(a.validViews, a.task.contentType) },
-      },
+      data: { spent: { decrement: Math.round(cost * share) } },
     });
+    // A closed campaign has no escrow left: the advertiser gets the cost back.
+    if (campaign.status === CampaignStatus.COMPLETED) {
+      await this.refundRemaining(tx, campaign.id);
+    }
     await tx.taskAssignment.update({
       where: { id: assignmentId },
-      data: { validViews: 0, earned: 0 },
+      data: {
+        validViews: a.validViews - Math.round(a.validViews * share),
+        earned: a.earned - taken,
+      },
+    });
+    return taken;
+  }
+
+  /** Freezes or releases a post's earnings, for a dispute. */
+  async setFrozen(tx: Tx, assignmentId: string, frozen: boolean) {
+    const { creatorId } = await tx.taskAssignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+      select: { creatorId: true },
+    });
+    await this.lock(tx, creatorId);
+    await tx.transaction.updateMany({
+      where: {
+        assignmentId,
+        type: TransactionType.EARNING,
+        status: TransactionStatus.COMPLETED,
+      },
+      data: { frozen },
     });
   }
 
@@ -731,6 +832,114 @@ export class WalletService {
       },
     });
     return remaining;
+  }
+
+  /**
+   * Closes the campaigns that are over: 48 h after their end, once the team
+   * has decided on every post, or as soon as their budget is used up. What is
+   * left in escrow goes back to the advertiser's wallet.
+   */
+  async closeDueCampaigns(now = new Date()) {
+    const candidates = await this.prisma.campaign.findMany({
+      where: { status: { in: [CampaignStatus.ACTIVE, CampaignStatus.PAUSED] } },
+      select: {
+        id: true,
+        status: true,
+        budget: true,
+        spent: true,
+        endsAt: true,
+        fundedAt: true,
+      },
+    });
+    const due = candidates.filter(
+      (c) =>
+        c.endsAt.getTime() + CLOSE_AFTER_MS <= now.getTime() ||
+        (c.fundedAt !== null && c.spent >= c.budget),
+    );
+    let closed = 0;
+    for (const c of due) {
+      const waiting = await this.prisma.taskAssignment.count({
+        where: {
+          task: { campaignId: c.id },
+          status: AssignmentStatus.SUBMITTED,
+          reviewStatus: {
+            in: [PostReviewStatus.TO_REVIEW, PostReviewStatus.NEEDS_FIX],
+          },
+        },
+      });
+      // Posts still waiting for the team keep the campaign open, unless no
+      // money is left to pay them.
+      if (waiting > 0 && c.spent < c.budget) continue;
+      if (await this.closeCampaign(c.id, c.status, now)) closed += 1;
+    }
+    return closed;
+  }
+
+  /** Gives a closed campaign's unspent escrow back to the advertiser. */
+  private async refundRemaining(tx: Tx, campaignId: string) {
+    await this.lock(tx, `campaign:${campaignId}`);
+    const campaign = await tx.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+    });
+    await this.lock(tx, campaign.advertiserId);
+    if (!campaign.fundedAt) return 0;
+    const remaining = campaign.budget - campaign.spent - campaign.refunded;
+    if (remaining <= 0) return 0;
+    await tx.campaign.update({
+      where: { id: campaign.id },
+      data: { refunded: { increment: remaining } },
+    });
+    await tx.transaction.create({
+      data: {
+        userId: campaign.advertiserId,
+        type: TransactionType.REFUND,
+        amount: remaining,
+        currency: CURRENCY,
+        campaignId: campaign.id,
+        note: `Budget non dépensé #${campaign.code}`,
+      },
+    });
+    return remaining;
+  }
+
+  private async closeCampaign(
+    campaignId: string,
+    status: CampaignStatus,
+    now: Date,
+  ) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, `campaign:${campaignId}`);
+      const claimed = await tx.campaign.updateMany({
+        where: { id: campaignId, status },
+        data: { status: CampaignStatus.COMPLETED, completedAt: now },
+      });
+      if (claimed.count === 0) return null;
+      const refunded = await this.refundRemaining(tx, campaignId);
+      const campaign = await tx.campaign.findUniqueOrThrow({
+        where: { id: campaignId },
+      });
+      await this.audit.record(tx, {
+        actor: null,
+        action: 'campaign.complete',
+        entity: 'Campaign',
+        entityId: campaignId,
+        before: { status },
+        after: { status: CampaignStatus.COMPLETED, refunded },
+      });
+      return { campaign, refunded };
+    });
+    if (!result) return false;
+    const { campaign, refunded } = result;
+    await this.notifications.notify(campaign.advertiserId, {
+      type: NotificationType.CAMPAIGN_COMPLETED,
+      title: `Campagne terminée · #${campaign.code}`,
+      body:
+        refunded > 0
+          ? `${refunded.toLocaleString('fr-FR')} FCFA non dépensés sont revenus sur ton solde. Le rapport final est disponible.`
+          : 'Tout le budget a été utilisé. Le rapport final est disponible.',
+      link: `/campaigns/${campaign.id}`,
+    });
+    return true;
   }
 
   // ---- Internals --------------------------------------------------------
@@ -962,17 +1171,22 @@ export class WalletService {
         note: `Séquestre #${campaign.code}`,
       },
     });
+    // A sent campaign goes to the team once it is paid.
     await tx.campaign.update({
       where: { id: campaign.id },
-      data: { fundedAt: new Date() },
+      data: {
+        fundedAt: new Date(),
+        ...(campaign.status === CampaignStatus.PENDING_PAYMENT
+          ? { status: CampaignStatus.PENDING_REVIEW }
+          : {}),
+      },
     });
   }
 
   private isFundable(campaign: Campaign) {
     return (
       !campaign.fundedAt &&
-      (campaign.status === CampaignStatus.PENDING_REVIEW ||
-        campaign.status === CampaignStatus.ACTIVE) &&
+      FUNDABLE.includes(campaign.status) &&
       campaign.endsAt > new Date()
     );
   }
@@ -993,6 +1207,7 @@ export class WalletService {
       this.sumWith(tx, userId, {
         status: TransactionStatus.COMPLETED,
         availableAt: { lte: now },
+        frozen: false,
       }),
       this.sumWith(tx, userId, {
         status: TransactionStatus.PENDING,

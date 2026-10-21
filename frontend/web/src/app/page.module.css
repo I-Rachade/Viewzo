@@ -86,6 +86,49 @@
   font-size: 13px;
 }
 
+/* Four ways in, two by two, even on a phone. */
+.doors {
+  width: 100%;
+  max-width: 480px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.door {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #221f2e;
+  border: 1px solid #343046;
+  color: #f4f2fa;
+  text-align: left;
+  text-decoration: none;
+}
+
+a.door:hover {
+  border-color: #ff6b6b;
+  text-decoration: none;
+}
+
+.door span {
+  font-size: 13px;
+  font-weight: 400;
+  color: #b9b4c9;
+}
+
+.soon {
+  opacity: 0.6;
+}
+
+.soon small {
+  font-size: 11px;
+  font-weight: 700;
+  color: #c9beff;
+}
+
 /* Module copies of the shared keyframes: names here are scoped to this file. */
 @keyframes vz-ring-in {
   from {

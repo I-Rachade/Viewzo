@@ -120,6 +120,11 @@ export default function WalletPage() {
           <span className="pill pending">
             En attente : {formatFcfa(summary.held)}
           </span>
+          {summary.frozen > 0 && (
+            <span className="pill refused">
+              Gelé (litige) : {formatFcfa(summary.frozen)}
+            </span>
+          )}
           {summary.escrow > 0 && (
             <span className="pill">
               En séquestre : {formatFcfa(summary.escrow)}
@@ -208,10 +213,15 @@ export default function WalletPage() {
           </button>
         </form>
       ) : (
-        <p>
-          Les retraits s’ouvrent au niveau 2, après la vérification de ton
-          identité.
-        </p>
+        <div className="card">
+          <p>
+            Les retraits s’ouvrent au niveau 2, après la vérification de ton
+            identité : une pièce d’identité et un selfie, en quelques minutes.
+          </p>
+          <Link className="button" href="/identite">
+            Vérifier mon identité
+          </Link>
+        </div>
       )}
       {message && <Toast message={message} onDone={() => setMessage(null)} />}
       {error && <p className="error">{error}</p>}

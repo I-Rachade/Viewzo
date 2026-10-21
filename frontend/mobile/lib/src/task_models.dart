@@ -17,6 +17,32 @@ enum ContentType {
       values.firstWhere((t) => t.code == code);
 }
 
+/// A file the advertiser sent, opened through a signed link.
+class BriefFile {
+  BriefFile({
+    required this.name,
+    required this.kind,
+    required this.purpose,
+    required this.url,
+  });
+
+  factory BriefFile.fromJson(Map<String, dynamic> json) => BriefFile(
+    name: json['name'] as String,
+    kind: json['kind'] as String,
+    purpose: json['purpose'] as String,
+    url: json['url'] as String,
+  );
+
+  final String name;
+
+  /// IMAGE, VIDEO, AUDIO or PDF.
+  final String kind;
+
+  /// ASSET for the content, BRIEF for a voice or video brief.
+  final String purpose;
+  final String url;
+}
+
 /// The brief a creator sees; never the advertiser's budget.
 class TaskBrief {
   TaskBrief({
@@ -24,6 +50,12 @@ class TaskBrief {
     required this.hashtag,
     required this.endsAt,
     required this.assetUrls,
+    this.files = const [],
+    this.keyMessage,
+    this.callToAction,
+    this.caption,
+    this.sound,
+    this.productDetails,
     required this.faceRequired,
     required this.language,
     this.minDurationSec,
@@ -39,6 +71,15 @@ class TaskBrief {
     hashtag: json['hashtag'] as String,
     endsAt: DateTime.parse(json['endsAt'] as String).toLocal(),
     assetUrls: _strings(json['assetUrls']),
+    files: [
+      for (final f in json['files'] as List<dynamic>? ?? const [])
+        BriefFile.fromJson(f as Map<String, dynamic>),
+    ],
+    keyMessage: json['keyMessage'] as String?,
+    callToAction: json['callToAction'] as String?,
+    caption: json['caption'] as String?,
+    sound: json['sound'] as String?,
+    productDetails: json['productDetails'] as String?,
     faceRequired: json['faceRequired'] as bool? ?? false,
     language: json['language'] as String,
     minDurationSec: json['minDurationSec'] as int?,
@@ -53,6 +94,16 @@ class TaskBrief {
   final String hashtag;
   final DateTime endsAt;
   final List<String> assetUrls;
+  final List<BriefFile> files;
+  final String? keyMessage;
+  final String? callToAction;
+
+  /// Text to put under the post.
+  final String? caption;
+
+  /// Sound or music to use.
+  final String? sound;
+  final String? productDetails;
   final bool faceRequired;
   final String language;
   final int? minDurationSec;
@@ -123,6 +174,36 @@ class ProofStep {
   final DateTime? doneAt;
 }
 
+/// A creator or an advertiser contesting the team's decision on a post.
+class Dispute {
+  Dispute({
+    required this.side,
+    required this.open,
+    this.outcome,
+    this.decisionReason,
+  });
+
+  factory Dispute.fromJson(Map<String, dynamic> json) => Dispute(
+    side: json['side'] as String,
+    open: json['status'] == 'OPEN',
+    outcome: json['outcome'] as String?,
+    decisionReason: json['decisionReason'] as String?,
+  );
+
+  /// CREATOR or ADVERTISER.
+  final String side;
+  final bool open;
+  final String? outcome;
+  final String? decisionReason;
+
+  String? get outcomeLabel => switch (outcome) {
+    'KEEP' => 'décision maintenue',
+    'SET_VIEWS' => 'vues corrigées',
+    'REJECT_POST' => 'publication refusée',
+    _ => null,
+  };
+}
+
 class Assignment {
   Assignment({
     required this.id,
@@ -137,10 +218,15 @@ class Assignment {
     this.screenshots = 0,
     this.proofSteps = const [],
     this.nextProofAt,
+    this.dated = false,
+    this.minPaidViews = 500,
+    this.dispute,
   });
 
   factory Assignment.fromJson(Map<String, dynamic> json) {
-    final plan = json['proofPlan'] as Map<String, dynamic>?;
+    final dated = json['capturePlan'] as Map<String, dynamic>?;
+    final plan = json['proofPlan'] as Map<String, dynamic>? ?? dated;
+    final dispute = json['dispute'] as Map<String, dynamic>?;
     return Assignment(
       id: json['id'] as String,
       submitted: json['status'] == 'SUBMITTED',
@@ -160,6 +246,9 @@ class Assignment {
           ProofStep.fromJson(s as Map<String, dynamic>),
       ],
       nextProofAt: _date(plan?['nextDueAt']),
+      dated: dated != null,
+      minPaidViews: json['minPaidViews'] as int? ?? 500,
+      dispute: dispute == null ? null : Dispute.fromJson(dispute),
     );
   }
 
@@ -176,9 +265,25 @@ class Assignment {
   final int? declaredViews;
   final int screenshots;
 
-  /// Empty except for WhatsApp Statut tasks.
+  /// The statut schedule, or the dated screenshots (H+1 to J+30) of a post.
   final List<ProofStep> proofSteps;
   final DateTime? nextProofAt;
+
+  /// True when [proofSteps] are the dated screenshots of a post.
+  final bool dated;
+
+  /// A post is paid from this many validated views.
+  final int minPaidViews;
+
+  /// The latest dispute on this post, if any.
+  final Dispute? dispute;
+
+  /// The creator may contest a refusal or a views count, once.
+  bool get canDispute =>
+      submitted &&
+      (reviewStatus == ReviewStatus.validated ||
+          reviewStatus == ReviewStatus.rejected) &&
+      (dispute == null || (!dispute!.open && dispute!.side != 'CREATOR'));
 }
 
 /// "Mes résultats": what the team validated and what it paid.

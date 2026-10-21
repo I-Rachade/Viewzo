@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -38,6 +40,50 @@ export class CampaignsController {
   @Post('campaigns')
   create(@Req() req: { user: AuthUser }, @Body() dto: CreateCampaignDto) {
     return this.campaigns.create(req.user.userId, dto);
+  }
+
+  // Only while the campaign is a draft or waits for its payment.
+  @Put('campaigns/:id')
+  update(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateCampaignDto,
+  ) {
+    return this.campaigns.update(req.user.userId, id, dto);
+  }
+
+  @Delete('campaigns/:id')
+  @HttpCode(204)
+  remove(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.campaigns.remove(req.user.userId, id);
+  }
+
+  // A draft goes on to the payment.
+  @Post('campaigns/:id/send')
+  @HttpCode(200)
+  send(@Req() req: { user: AuthUser }, @Param('id', ParseUUIDPipe) id: string) {
+    return this.campaigns.send(req.user.userId, id);
+  }
+
+  @Post('campaigns/:id/pause')
+  @HttpCode(200)
+  pause(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.campaigns.setPaused(req.user.userId, id, true);
+  }
+
+  @Post('campaigns/:id/resume')
+  @HttpCode(200)
+  resume(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.campaigns.setPaused(req.user.userId, id, false);
   }
 
   @Get('me/campaigns')

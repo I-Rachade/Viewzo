@@ -7,6 +7,22 @@ import styles from "./page.module.css";
 // The landing screen is dark from edge to edge, browser bars included.
 export const viewport: Viewport = { themeColor: "#16151d" };
 
+// The four ways in: two open now, the others with the Studio and the experts.
+const DOORS: { title: string; text: string; href?: string }[] = [
+  {
+    title: "Créateur",
+    text: "Gagner de l’argent avec mes réseaux",
+    href: "/inscription?profil=CREATOR",
+  },
+  {
+    title: "Annonceur",
+    text: "Faire connaître ma marque",
+    href: "/inscription?profil=ADVERTISER",
+  },
+  { title: "Créatif", text: "Proposer mes talents" },
+  { title: "Expert", text: "Construire des plans média" },
+];
+
 export default function Home() {
   return (
     <div className={`hero ${styles.welcome}`}>
@@ -30,10 +46,25 @@ export default function Home() {
         className={`${styles.bottom} rise`}
         style={{ animationDelay: "1150ms" }}
       >
-        <Link className="button coral" href="/login">
-          Commencer à gagner
-        </Link>
-        <p>Tes vues, payées. Partout dans le monde.</p>
+        <div className={styles.doors}>
+          {DOORS.map((d) =>
+            d.href ? (
+              <Link key={d.title} className={styles.door} href={d.href}>
+                <strong>{d.title}</strong>
+                <span>{d.text}</span>
+              </Link>
+            ) : (
+              <div key={d.title} className={`${styles.door} ${styles.soon}`}>
+                <strong>{d.title}</strong>
+                <span>{d.text}</span>
+                <small>Bientôt</small>
+              </div>
+            ),
+          )}
+        </div>
+        <p>
+          Déjà inscrit ? <Link href="/login">Se connecter</Link>
+        </p>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import {
   CampaignObjective,
   CampaignPackage,
+  ContentCase,
   ContentType,
   NoAssetsChoice,
   SocialNetwork,
@@ -17,6 +18,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -82,10 +84,30 @@ export class CreateCampaignDto {
   @Type(() => CampaignPlatformDto)
   platforms!: CampaignPlatformDto[];
 
-  // « As-tu des éléments à mettre à disposition ? »
+  // Saved without sending: the advertiser comes back to it later.
+  @IsOptional()
   @IsBoolean()
-  hasAssets!: boolean;
+  draft?: boolean;
 
+  // « Qu'apportes-tu pour le contenu ? »
+  @IsEnum(ContentCase)
+  contentCase!: ContentCase;
+
+  // Files sent beforehand with POST /me/campaign-files.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID('all', { each: true })
+  fileIds?: string[];
+
+  // Voice or video brief, sent the same way.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(2)
+  @IsUUID('all', { each: true })
+  briefFileIds?: string[];
+
+  // Extra links, a shared folder for instance.
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(20)
@@ -95,6 +117,34 @@ export class CreateCampaignDto {
   @IsOptional()
   @IsEnum(NoAssetsChoice)
   noAssetsChoice?: NoAssetsChoice;
+
+  // The one thing people must remember.
+  @IsString()
+  @MinLength(3)
+  @MaxLength(300)
+  keyMessage!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  callToAction?: string;
+
+  // Text to put under the post.
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  caption?: string;
+
+  // Sound or music to use, by name or link.
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  sound?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  productDetails?: string;
 
   @IsOptional()
   @IsBoolean()

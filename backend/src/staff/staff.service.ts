@@ -7,6 +7,8 @@ import {
   AccountStatus,
   AssignmentStatus,
   CampaignStatus,
+  DisputeStatus,
+  IdentityCheckStatus,
   PaymentKind,
   PaymentStatus,
   PostReviewStatus,
@@ -19,6 +21,7 @@ import { AuditService } from '../audit/audit.service';
 import { parsePhone } from '../auth/phone';
 import { countryScope, StaffActor } from '../auth/staff';
 import { CountriesService } from '../countries/countries.service';
+import { DISPUTE_OVERDUE_MS } from '../posts/disputes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberRightsDto } from './dto/add-member.dto';
 
@@ -49,47 +52,76 @@ export class StaffService {
   async overview(actor: StaffActor) {
     const user = userInScope(actor);
     const scope = countryScope(actor);
-    const [accounts, campaigns, withdrawals, assignments, alerts] =
-      await Promise.all([
-        this.prisma.socialAccount.count({
-          where: { status: AccountStatus.PENDING, user },
-        }),
-        this.prisma.campaign.count({
-          where: {
-            status: CampaignStatus.PENDING_REVIEW,
-            ...(scope ? { countries: { hasSome: scope } } : {}),
-          },
-        }),
-        this.prisma.payment.count({
-          where: {
-            kind: PaymentKind.PAYOUT,
-            status: PaymentStatus.REQUESTED,
-            user,
-          },
-        }),
-        this.prisma.taskAssignment.count({
-          where: {
-            status: AssignmentStatus.SUBMITTED,
-            reviewStatus: PostReviewStatus.TO_REVIEW,
-            creator: user,
-          },
-        }),
-        // Posts to review that the fraud rules flag.
-        this.prisma.taskAssignment.count({
-          where: {
-            status: AssignmentStatus.SUBMITTED,
-            reviewStatus: PostReviewStatus.TO_REVIEW,
-            riskScore: { gte: ALERT_SCORE },
-            creator: user,
-          },
-        }),
-      ]);
-    return {
+    const overdueBefore = new Date(Date.now() - DISPUTE_OVERDUE_MS);
+    const [
       accounts,
       campaigns,
       withdrawals,
       assignments,
       alerts,
+      identity,
+      disputes,
+      overdueDisputes,
+    ] = await Promise.all([
+      this.prisma.socialAccount.count({
+        where: { status: AccountStatus.PENDING, user },
+      }),
+      this.prisma.campaign.count({
+        where: {
+          status: CampaignStatus.PENDING_REVIEW,
+          ...(scope ? { countries: { hasSome: scope } } : {}),
+        },
+      }),
+      this.prisma.payment.count({
+        where: {
+          kind: PaymentKind.PAYOUT,
+          status: PaymentStatus.REQUESTED,
+          user,
+        },
+      }),
+      this.prisma.taskAssignment.count({
+        where: {
+          status: AssignmentStatus.SUBMITTED,
+          reviewStatus: PostReviewStatus.TO_REVIEW,
+          creator: user,
+        },
+      }),
+      // Posts to review that the fraud rules flag.
+      this.prisma.taskAssignment.count({
+        where: {
+          status: AssignmentStatus.SUBMITTED,
+          reviewStatus: PostReviewStatus.TO_REVIEW,
+          riskScore: { gte: ALERT_SCORE },
+          creator: user,
+        },
+      }),
+      this.prisma.identityCheck.count({
+        where: { status: IdentityCheckStatus.IN_REVIEW, user },
+      }),
+      this.prisma.dispute.count({
+        where: {
+          status: DisputeStatus.OPEN,
+          assignment: { creator: user },
+        },
+      }),
+      // Open for more than 72 h: shown in red.
+      this.prisma.dispute.count({
+        where: {
+          status: DisputeStatus.OPEN,
+          createdAt: { lte: overdueBefore },
+          assignment: { creator: user },
+        },
+      }),
+    ]);
+    return {
+      accounts,
+      identity,
+      campaigns,
+      withdrawals,
+      assignments,
+      alerts,
+      disputes,
+      overdueDisputes,
       // What the web shows and hides for this member.
       me: { staffRole: actor.role, countries: scope ?? [] },
     };

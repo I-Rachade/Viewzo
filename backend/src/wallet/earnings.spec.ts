@@ -1,6 +1,7 @@
 import {
   advertiserCost,
   availableAt,
+  billableViews,
   creatorEarning,
   payableViews,
 } from './earnings';
@@ -12,6 +13,12 @@ describe('earnings', () => {
     expect(payableViews(16_000, 'FULL_EDITING')).toBe(10_000);
     expect(payableViews(-5, 'FACECAM')).toBe(0);
     expect(creatorEarning(12_345, 450)).toBe(5_555);
+  });
+
+  it('pays nothing below 500 validated views, everything from there', () => {
+    expect(billableViews(499)).toBe(0);
+    expect(billableViews(500)).toBe(500);
+    expect(billableViews(12_000)).toBe(12_000);
   });
 
   it('holds earnings until next month, 3 days for certified creators', () => {

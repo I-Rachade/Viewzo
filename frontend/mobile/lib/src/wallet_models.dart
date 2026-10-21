@@ -2,6 +2,7 @@ class WalletSummary {
   WalletSummary({
     required this.available,
     required this.held,
+    this.frozen = 0,
     required this.escrow,
     required this.pendingWithdrawals,
     required this.minWithdrawal,
@@ -12,6 +13,7 @@ class WalletSummary {
   factory WalletSummary.fromJson(Map<String, dynamic> json) => WalletSummary(
     available: json['available'] as int,
     held: json['held'] as int,
+    frozen: json['frozen'] as int? ?? 0,
     escrow: json['escrow'] as int,
     pendingWithdrawals: json['pendingWithdrawals'] as int,
     minWithdrawal: json['minWithdrawal'] as int,
@@ -22,6 +24,8 @@ class WalletSummary {
   final int available;
   // Earnings in their security hold.
   final int held;
+  // Earnings of posts under dispute.
+  final int frozen;
   final int escrow;
   final int pendingWithdrawals;
   final int minWithdrawal;

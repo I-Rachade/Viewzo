@@ -102,6 +102,14 @@ function Who({ w }: { w: StaffWithdrawal }) {
         {w.beneficiaryName} · {w.phone}
         {w.operator && ` · ${w.operator}`}
       </p>
+      {w.verifiedName ? (
+        <p className={w.nameMatches ? "hint" : "error"}>
+          Identité vérifiée : {w.verifiedName}
+          {w.nameMatches ? " · même nom" : " · nom différent du compte Mobile Money"}
+        </p>
+      ) : (
+        <p className="error">Aucune identité vérifiée sur ce compte</p>
+      )}
       <p className="hint">
         Compte {contactOf(w.user)} ({w.user.country}) ·{" "}
         {w.user.profiles

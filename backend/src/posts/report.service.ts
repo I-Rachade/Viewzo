@@ -6,6 +6,8 @@ import {
   ViewSource,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { billableViews } from '../wallet/earnings';
+import { disputeView } from './disputes.service';
 import { ProofStorage } from './proof-storage';
 
 const DAY = 24 * 3600 * 1000;
@@ -78,6 +80,7 @@ export class ReportService {
           take: 1,
         },
         snapshots: { orderBy: { takenAt: 'desc' }, take: 1 },
+        disputes: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
     const readings = await this.prisma.viewSnapshot.findMany({
@@ -91,7 +94,11 @@ export class ReportService {
     const validated = posts.filter(
       (p) => p.reviewStatus === PostReviewStatus.VALIDATED,
     );
-    const verifiedViews = posts.reduce((s, p) => s + p.validViews, 0);
+    // Only views from the 500-view threshold are billed.
+    const verifiedViews = posts.reduce(
+      (s, p) => s + billableViews(p.validViews),
+      0,
+    );
     // Views creators reported that are not billed: not validated yet,
     // refused, or beyond the budget.
     const declared = posts.reduce(
@@ -101,10 +108,11 @@ export class ReportService {
     const group = (key: (p: (typeof posts)[number]) => string) => {
       const m = new Map<string, { views: number; posts: number }>();
       for (const p of posts) {
-        if (!p.validViews) continue;
+        const views = billableViews(p.validViews);
+        if (!views) continue;
         const k = key(p);
         const cur = m.get(k) ?? { views: 0, posts: 0 };
-        m.set(k, { views: cur.views + p.validViews, posts: cur.posts + 1 });
+        m.set(k, { views: cur.views + views, posts: cur.posts + 1 });
       }
       return [...m.entries()]
         .map(([k, v]) => ({ key: k, ...v }))
@@ -123,6 +131,9 @@ export class ReportService {
       endsAt: campaign.endsAt,
       budget: campaign.budget,
       spent: campaign.spent,
+      // Final report: when the campaign closed and what went back to the wallet.
+      completedAt: campaign.completedAt,
+      refunded: campaign.refunded,
       verifiedViews,
       unbilledViews: Math.max(0, declared - verifiedViews),
       costPer1000: verifiedViews
@@ -163,6 +174,8 @@ export class ReportService {
           views: p.validViews,
           imageUrl: p.proofs[0] ? this.storage.signedUrl(p.proofs[0].id) : null,
           submittedAt: p.submittedAt,
+          // The advertiser may contest a validated post once.
+          dispute: disputeView(p.disputes[0]),
         })),
     };
   }

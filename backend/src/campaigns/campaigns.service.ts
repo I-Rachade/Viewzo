@@ -12,10 +12,12 @@ import {
   CampaignPackage,
   CampaignStatus,
   CampaignTask,
+  ContentCase,
   ContentType,
   PostReviewStatus,
   CreatorSkills,
   CreatorTaskType,
+  Dispute,
   NotificationType,
   PostProof,
   Prisma,
@@ -27,10 +29,13 @@ import { AuditService } from '../audit/audit.service';
 import { assertCountry, assertNotSelf, countryScope } from '../auth/staff';
 import type { StaffActor } from '../auth/staff';
 import { CountriesService } from '../countries/countries.service';
+import { CampaignFilesService } from '../files/campaign-files.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { disputeView } from '../posts/disputes.service';
 import { ProofSource, ProofsService } from '../posts/proofs.service';
 import { linkMatchesNetwork } from '../posts/risk';
 import { PrismaService } from '../prisma/prisma.service';
+import { MIN_PAID_VIEWS } from '../wallet/earnings';
 import { WalletService } from '../wallet/wallet.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { ReviewCampaignDto } from './dto/review-campaign.dto';
@@ -47,6 +52,13 @@ import {
 const UNVERIFIED_MONTHLY_BUDGET = 100_000;
 
 type CampaignWithTasks = Campaign & { tasks: CampaignTask[] };
+type FileView = ReturnType<CampaignFilesService['view']>;
+
+// The advertiser may still change or delete a campaign until it is paid.
+const EDITABLE: CampaignStatus[] = [
+  CampaignStatus.DRAFT,
+  CampaignStatus.PENDING_PAYMENT,
+];
 
 @Injectable()
 export class CampaignsService {
@@ -57,6 +69,7 @@ export class CampaignsService {
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly countries: CountriesService,
+    private readonly files: CampaignFilesService,
   ) {}
 
   quote(pkg: CampaignPackage, budget: number, platforms: SocialNetwork[]) {
@@ -76,6 +89,129 @@ export class CampaignsService {
   }
 
   async create(advertiserId: string, dto: CreateCampaignDto) {
+    const profile = await this.advertiserProfile(advertiserId);
+    const data = await this.validated(profile.level, dto);
+    const draft = dto.draft === true;
+    // The monthly cap is checked under a lock, so parallel requests can't
+    // both fit under it. Drafts count once they are sent.
+    const guard =
+      profile.level < 2 && !draft
+        ? (tx: Prisma.TransactionClient) =>
+            this.assertMonthlyBudget(tx, advertiserId, dto.budget)
+        : undefined;
+    const campaign = await this.createWithCode(
+      guard,
+      {
+        ...data,
+        advertiserId,
+        status: draft ? CampaignStatus.DRAFT : CampaignStatus.PENDING_PAYMENT,
+        tasks: { create: data.tasks },
+      },
+      (tx, id) =>
+        this.files.attach(
+          tx,
+          advertiserId,
+          id,
+          dto.fileIds ?? [],
+          dto.briefFileIds ?? [],
+        ),
+    );
+    return this.getOwn(advertiserId, campaign.id);
+  }
+
+  /** Replaces a campaign that is not paid yet, files and platforms included. */
+  async update(advertiserId: string, id: string, dto: CreateCampaignDto) {
+    const profile = await this.advertiserProfile(advertiserId);
+    const data = await this.validated(profile.level, dto);
+    await this.prisma.$transaction(async (tx) => {
+      await this.wallet.lock(tx, `campaign:${id}`);
+      const campaign = await this.editable(tx, advertiserId, id);
+      if (profile.level < 2 && campaign.status !== CampaignStatus.DRAFT) {
+        await this.assertMonthlyBudget(tx, advertiserId, dto.budget, id);
+      }
+      await tx.campaignTask.deleteMany({ where: { campaignId: id } });
+      await tx.campaign.update({
+        where: { id },
+        data: { ...data, tasks: { create: data.tasks } },
+      });
+      await this.files.attach(
+        tx,
+        advertiserId,
+        id,
+        dto.fileIds ?? [],
+        dto.briefFileIds ?? [],
+      );
+    });
+    return this.getOwn(advertiserId, id);
+  }
+
+  /** Sends a draft: it then waits for the payment. */
+  async send(advertiserId: string, id: string) {
+    const profile = await this.advertiserProfile(advertiserId);
+    await this.prisma.$transaction(async (tx) => {
+      await this.wallet.lock(tx, `campaign:${id}`);
+      const campaign = await this.editable(tx, advertiserId, id);
+      if (campaign.status !== CampaignStatus.DRAFT) {
+        throw new ConflictException('Campagne déjà envoyée');
+      }
+      if (campaign.endsAt <= new Date()) {
+        throw new BadRequestException('La date de fin est passée');
+      }
+      if (profile.level < 2) {
+        await this.assertMonthlyBudget(tx, advertiserId, campaign.budget, id);
+      }
+      await tx.campaign.update({
+        where: { id },
+        data: { status: CampaignStatus.PENDING_PAYMENT },
+      });
+    });
+    return this.getOwn(advertiserId, id);
+  }
+
+  /** Deletes a campaign that is not paid yet; its files are cleaned later. */
+  async remove(advertiserId: string, id: string) {
+    await this.prisma.$transaction(async (tx) => {
+      await this.wallet.lock(tx, `campaign:${id}`);
+      await this.editable(tx, advertiserId, id);
+      await tx.campaign.delete({ where: { id } });
+    });
+  }
+
+  /** Stops new creators from taking the tasks, or opens them again. */
+  async setPaused(advertiserId: string, id: string, paused: boolean) {
+    const [from, to] = paused
+      ? [CampaignStatus.ACTIVE, CampaignStatus.PAUSED]
+      : [CampaignStatus.PAUSED, CampaignStatus.ACTIVE];
+    await this.prisma.$transaction(async (tx) => {
+      await this.wallet.lock(tx, `campaign:${id}`);
+      const campaign = await tx.campaign.findUnique({ where: { id } });
+      if (!campaign || campaign.advertiserId !== advertiserId) {
+        throw new NotFoundException();
+      }
+      if (campaign.status !== from) {
+        throw new ConflictException(
+          paused
+            ? 'Seule une campagne en cours peut être mise en pause'
+            : "Cette campagne n'est pas en pause",
+        );
+      }
+      if (!paused && campaign.endsAt <= new Date()) {
+        throw new BadRequestException('La date de fin est passée');
+      }
+      await tx.campaign.update({ where: { id }, data: { status: to } });
+      await this.audit.record(tx, {
+        actor: null,
+        action: paused ? 'campaign.pause' : 'campaign.resume',
+        entity: 'Campaign',
+        entityId: id,
+        before: { status: from },
+        after: { status: to, by: advertiserId },
+      });
+    });
+    return this.getOwn(advertiserId, id);
+  }
+
+  private async advertiserProfile(advertiserId: string) {
     const profile = await this.prisma.userProfile.findUnique({
       where: {
         userId_type: { userId: advertiserId, type: ProfileType.ADVERTISER },
@@ -84,7 +220,28 @@ export class CampaignsService {
     if (!profile) {
       throw new ForbiddenException("Active d'abord le profil Annonceur");
     }
+    return profile;
+  }
 
+  private async editable(
+    tx: Prisma.TransactionClient,
+    advertiserId: string,
+    id: string,
+  ) {
+    const campaign = await tx.campaign.findUnique({ where: { id } });
+    if (!campaign || campaign.advertiserId !== advertiserId) {
+      throw new NotFoundException();
+    }
+    if (campaign.fundedAt || !EDITABLE.includes(campaign.status)) {
+      throw new ConflictException(
+        'Campagne déjà payée : elle ne peut plus être modifiée',
+      );
+    }
+    return campaign;
+  }
+
+  /** Checks the form and returns the campaign's fields and tasks. */
+  private async validated(level: number, dto: CreateCampaignDto) {
     const startsAt = new Date(dto.startsAt);
     const endsAt = new Date(dto.endsAt);
     if (endsAt <= startsAt) {
@@ -104,8 +261,7 @@ export class CampaignsService {
     if (new Set(networks).size !== networks.length) {
       throw new BadRequestException('Chaque plateforme une seule fois');
     }
-    const unverified = profile.level < 2;
-    if (unverified && dto.package !== CampaignPackage.BASIC) {
+    if (level < 2 && dto.package !== CampaignPackage.BASIC) {
       throw new ForbiddenException(
         'Vérifie ton compte pour accéder aux autres packages',
       );
@@ -120,15 +276,10 @@ export class CampaignsService {
 
     this.assertContent(dto);
     const allocation = this.allocate(dto);
+    const none = dto.contentCase === ContentCase.NONE;
+    const text = (v?: string) => v?.trim() || null;
 
-    // The monthly cap is checked under a lock, so parallel requests can't
-    // both fit under it.
-    const guard = unverified
-      ? (tx: Prisma.TransactionClient) =>
-          this.assertMonthlyBudget(tx, advertiserId, dto.budget)
-      : undefined;
-    const campaign = await this.createWithCode(guard, {
-      advertiserId,
+    return {
       title: dto.title.trim(),
       objective: dto.objective,
       countries: [...new Set(dto.countries)],
@@ -137,30 +288,32 @@ export class CampaignsService {
       endsAt,
       package: dto.package,
       budget: dto.budget,
-      hasAssets: dto.hasAssets,
-      assetUrls: dto.hasAssets ? (dto.assetUrls ?? []) : [],
-      noAssetsChoice: dto.hasAssets ? null : dto.noAssetsChoice,
+      contentCase: dto.contentCase,
+      assetUrls: none ? [] : (dto.assetUrls ?? []),
+      noAssetsChoice: none ? dto.noAssetsChoice : null,
+      keyMessage: dto.keyMessage.trim(),
+      callToAction: text(dto.callToAction),
+      caption: text(dto.caption),
+      sound: text(dto.sound),
+      productDetails: text(dto.productDetails),
       shipsProduct: dto.shipsProduct ?? false,
       productPickup: dto.shipsProduct ? dto.productPickup : null,
       faceRequired: dto.faceRequired ?? false,
       language: dto.language.trim(),
-      minDurationSec: dto.minDurationSec,
-      maxDurationSec: dto.maxDurationSec,
-      tone: dto.tone,
+      minDurationSec: dto.minDurationSec ?? null,
+      maxDurationSec: dto.maxDurationSec ?? null,
+      tone: dto.tone ?? null,
       mandatoryElements: dto.mandatoryElements ?? [],
       forbiddenElements: dto.forbiddenElements ?? [],
       examples: dto.examples ?? [],
-      tasks: {
-        create: dto.platforms.map((p, position) => ({
-          network: p.network,
-          contentType: p.contentType,
-          budget: allocation[position],
-          position,
-          creatorRatePer1000: creatorRatePer1000(p.contentType),
-        })),
-      },
-    });
-    return this.toAdvertiserView(campaign);
+      tasks: dto.platforms.map((p, position) => ({
+        network: p.network,
+        contentType: p.contentType,
+        budget: allocation[position],
+        position,
+        creatorRatePer1000: creatorRatePer1000(p.contentType),
+      })),
+    };
   }
 
   async listOwn(advertiserId: string) {
@@ -169,8 +322,14 @@ export class CampaignsService {
       orderBy: { createdAt: 'desc' },
       include: { tasks: { orderBy: { position: 'asc' } } },
     });
-    const counts = await this.assignmentCounts(campaigns.map((c) => c.id));
-    return campaigns.map((c) => this.toAdvertiserView(c, counts.get(c.id)));
+    const ids = campaigns.map((c) => c.id);
+    const [counts, files] = await Promise.all([
+      this.assignmentCounts(ids),
+      this.files.forCampaigns(ids),
+    ]);
+    return campaigns.map((c) =>
+      this.toAdvertiserView(c, counts.get(c.id), files.get(c.id)),
+    );
   }
 
   async getOwn(advertiserId: string, id: string) {
@@ -181,8 +340,11 @@ export class CampaignsService {
     if (!campaign || campaign.advertiserId !== advertiserId) {
       throw new NotFoundException();
     }
-    const counts = await this.assignmentCounts([id]);
-    return this.toAdvertiserView(campaign, counts.get(id));
+    const [counts, files] = await Promise.all([
+      this.assignmentCounts([id]),
+      this.files.forCampaigns([id]),
+    ]);
+    return this.toAdvertiserView(campaign, counts.get(id), files.get(id));
   }
 
   // Back-office: campaigns waiting for moderation, oldest first.
@@ -200,10 +362,10 @@ export class CampaignsService {
       },
       take: 100,
     });
+    const files = await this.files.forCampaigns(campaigns.map((c) => c.id));
     return campaigns.map((c) => ({
-      ...this.toAdvertiserView(c),
-      // The moderator checks the provided assets before anything is posted.
-      assetUrls: c.assetUrls,
+      // The moderator checks the files and the brief before anything is posted.
+      ...this.toAdvertiserView(c, undefined, files.get(c.id)),
       advertiserId: c.advertiserId,
       advertiser: c.advertiser,
     }));
@@ -341,12 +503,17 @@ export class CampaignsService {
       take: 200,
     });
     const open = tasks.filter((t) => this.canTake(ctx, t.campaign, t));
+    const files = await this.files.forCampaigns([
+      ...new Set(open.map((t) => t.campaignId)),
+    ]);
+    const view = (t: (typeof open)[number]) =>
+      this.toTaskView(t, t.campaign, files.get(t.campaignId));
     const unlocked = (t: CampaignTask) => ctx.networks.includes(t.network);
     return [
-      ...open.filter(unlocked).map((t) => this.toTaskView(t, t.campaign)),
+      ...open.filter(unlocked).map(view),
       ...open
         .filter((t) => !unlocked(t))
-        .map((t) => ({ ...this.toTaskView(t, t.campaign), locked: true })),
+        .map((t) => ({ ...view(t), locked: true })),
     ];
   }
 
@@ -379,7 +546,15 @@ export class CampaignsService {
       const assignment = await this.prisma.taskAssignment.create({
         data: { taskId, creatorId },
       });
-      return this.toAssignmentView(assignment, task, task.campaign);
+      const files = await this.files.forCampaigns([task.campaignId]);
+      return this.toAssignmentView(
+        assignment,
+        task,
+        task.campaign,
+        [],
+        [],
+        files.get(task.campaignId),
+      );
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -399,10 +574,22 @@ export class CampaignsService {
         task: { include: { campaign: true } },
         proofs: { orderBy: { uploadedAt: 'asc' } },
         snapshots: { select: { views: true, takenAt: true } },
+        disputes: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
+    const files = await this.files.forCampaigns([
+      ...new Set(assignments.map((a) => a.task.campaignId)),
+    ]);
     return assignments.map((a) =>
-      this.toAssignmentView(a, a.task, a.task.campaign, a.proofs, a.snapshots),
+      this.toAssignmentView(
+        a,
+        a.task,
+        a.task.campaign,
+        a.proofs,
+        a.snapshots,
+        files.get(a.task.campaignId),
+        a.disputes[0],
+      ),
     );
   }
 
@@ -451,12 +638,14 @@ export class CampaignsService {
         snapshots: { select: { views: true, takenAt: true } },
       },
     });
+    const files = await this.files.forCampaigns([assignment.task.campaignId]);
     return this.toAssignmentView(
       updated,
       assignment.task,
       assignment.task.campaign,
       updated.proofs,
       updated.snapshots,
+      files.get(assignment.task.campaignId),
     );
   }
 
@@ -464,6 +653,8 @@ export class CampaignsService {
     tx: Prisma.TransactionClient,
     advertiserId: string,
     budget: number,
+    // The campaign being changed or sent, not counted twice.
+    except?: string,
   ) {
     await this.wallet.lock(tx, `monthly-budget:${advertiserId}`);
     const start = new Date();
@@ -473,7 +664,8 @@ export class CampaignsService {
       where: {
         advertiserId,
         createdAt: { gte: start },
-        status: { not: CampaignStatus.REJECTED },
+        status: { notIn: [CampaignStatus.REJECTED, CampaignStatus.DRAFT] },
+        ...(except ? { id: { not: except } } : {}),
       },
       _sum: { budget: true },
     });
@@ -485,31 +677,59 @@ export class CampaignsService {
   }
 
   private assertContent(dto: CreateCampaignDto) {
-    if (dto.hasAssets && !dto.assetUrls?.length) {
-      throw new BadRequestException('Ajoute les éléments que tu fournis');
-    }
-    if (!dto.hasAssets && !dto.noAssetsChoice) {
-      throw new BadRequestException(
-        'Choisis des vidéos des créateurs ou le Studio Viewzo',
-      );
+    const files = dto.fileIds?.length ?? 0;
+    const links = dto.assetUrls?.length ?? 0;
+    // Big videos may stay behind a link (a shared folder) until resumable
+    // uploads exist.
+    switch (dto.contentCase) {
+      case ContentCase.READY:
+        if (!files && !links) {
+          throw new BadRequestException('Ajoute les fichiers à publier');
+        }
+        break;
+      case ContentCase.PARTIAL:
+        if (!files && !links) {
+          throw new BadRequestException(
+            'Ajoute la matière que tu fournis : logo, photos, rushes',
+          );
+        }
+        break;
+      case ContentCase.NONE:
+        if (!dto.noAssetsChoice) {
+          throw new BadRequestException(
+            'Choisis des vidéos des créateurs ou le Studio Viewzo',
+          );
+        }
+        if (files) {
+          throw new BadRequestException(
+            'Sans contenu fourni, ne joins pas de fichier',
+          );
+        }
+        break;
     }
     for (const p of dto.platforms) {
-      if (p.contentType === ContentType.PROVIDED_ASSETS && !dto.hasAssets) {
+      if (
+        p.contentType === ContentType.PROVIDED_ASSETS &&
+        dto.contentCase !== ContentCase.READY
+      ) {
         throw new BadRequestException(
-          'Publication des éléments fournis impossible sans fichier',
+          'Publication des éléments fournis : il faut un contenu prêt',
         );
       }
-      if (p.contentType === ContentType.VIDEO_WITH_POSTERS && !dto.hasAssets) {
+      if (
+        p.contentType === ContentType.VIDEO_WITH_POSTERS &&
+        dto.contentCase === ContentCase.NONE
+      ) {
         throw new BadRequestException('Ajoute les affiches à intégrer');
       }
       // WhatsApp Statut needs something ready to post.
       if (
         p.network === SocialNetwork.WHATSAPP_STATUS &&
-        !dto.hasAssets &&
+        dto.contentCase !== ContentCase.READY &&
         dto.noAssetsChoice !== 'STUDIO'
       ) {
         throw new BadRequestException(
-          'WhatsApp Statut exige des éléments à poster ou le Studio Viewzo',
+          'WhatsApp Statut exige un contenu prêt ou le Studio Viewzo',
         );
       }
     }
@@ -545,15 +765,17 @@ export class CampaignsService {
   private async createWithCode(
     guard: ((tx: Prisma.TransactionClient) => Promise<void>) | undefined,
     data: Omit<Prisma.CampaignUncheckedCreateInput, 'code'>,
+    after: (tx: Prisma.TransactionClient, id: string) => Promise<void>,
   ) {
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.prisma.$transaction(async (tx) => {
           if (guard) await guard(tx);
-          return tx.campaign.create({
+          const campaign = await tx.campaign.create({
             data: { ...data, code: `VZ${randomInt(1000, 1_000_000)}` },
-            include: { tasks: { orderBy: { position: 'asc' } } },
           });
+          await after(tx, campaign.id);
+          return campaign;
         });
       } catch (e) {
         if (
@@ -642,7 +864,11 @@ export class CampaignsService {
     return !needsFace || skills.showsFace;
   }
 
-  private toAdvertiserView(c: CampaignWithTasks, counts?: Map<string, number>) {
+  private toAdvertiserView(
+    c: CampaignWithTasks,
+    counts?: Map<string, number>,
+    files: FileView[] = [],
+  ) {
     return {
       id: c.id,
       code: c.code,
@@ -659,8 +885,11 @@ export class CampaignsService {
       // Null until the budget is in escrow.
       fundedAt: c.fundedAt,
       spent: c.spent,
-      hasAssets: c.hasAssets,
-      noAssetsChoice: c.noAssetsChoice,
+      completedAt: c.completedAt,
+      refunded: c.refunded,
+      ...this.brief(c, files),
+      shipsProduct: c.shipsProduct,
+      productPickup: c.productPickup,
       platforms: c.tasks.map((t) => ({
         network: t.network,
         contentType: t.contentType,
@@ -677,7 +906,30 @@ export class CampaignsService {
   }
 
   // What a creator sees: the brief and their rate, never the advertiser's budget.
-  private toTaskView(t: CampaignTask, c: Campaign) {
+  // The brief, as the advertiser wrote it and as creators read it.
+  private brief(c: Campaign, files: FileView[]) {
+    return {
+      contentCase: c.contentCase,
+      noAssetsChoice: c.noAssetsChoice,
+      keyMessage: c.keyMessage,
+      callToAction: c.callToAction,
+      caption: c.caption,
+      sound: c.sound,
+      productDetails: c.productDetails,
+      assetUrls: c.assetUrls,
+      files,
+      faceRequired: c.faceRequired,
+      language: c.language,
+      minDurationSec: c.minDurationSec,
+      maxDurationSec: c.maxDurationSec,
+      tone: c.tone,
+      mandatoryElements: c.mandatoryElements,
+      forbiddenElements: c.forbiddenElements,
+      examples: c.examples,
+    };
+  }
+
+  private toTaskView(t: CampaignTask, c: Campaign, files: FileView[] = []) {
     return {
       id: t.id,
       // True when the creator has no eligible account on the network yet.
@@ -689,15 +941,7 @@ export class CampaignsService {
         title: c.title,
         hashtag: `#${c.code}`,
         endsAt: c.endsAt,
-        assetUrls: c.assetUrls,
-        faceRequired: c.faceRequired,
-        language: c.language,
-        minDurationSec: c.minDurationSec,
-        maxDurationSec: c.maxDurationSec,
-        tone: c.tone,
-        mandatoryElements: c.mandatoryElements,
-        forbiddenElements: c.forbiddenElements,
-        examples: c.examples,
+        ...this.brief(c, files),
       },
     };
   }
@@ -718,6 +962,8 @@ export class CampaignsService {
     c: Campaign,
     proofs: PostProof[] = [],
     snapshots: { views: number; takenAt: Date }[] = [],
+    files: FileView[] = [],
+    dispute?: Dispute,
   ) {
     return {
       id: a.id,
@@ -730,8 +976,11 @@ export class CampaignsService {
       reviewReason: a.reviewReason,
       validViews: a.validViews,
       earned: a.earned,
-      ...this.proofs.creatorView(t.network, proofs, snapshots),
-      task: this.toTaskView(t, c),
+      // Paid from this many validated views.
+      minPaidViews: MIN_PAID_VIEWS,
+      dispute: disputeView(dispute),
+      ...this.proofs.creatorView(t.network, proofs, snapshots, a.submittedAt),
+      task: this.toTaskView(t, c, files),
     };
   }
 }

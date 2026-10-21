@@ -16,8 +16,11 @@ import {
 } from "@/lib/api";
 
 const STATUS_TONES: Record<CampaignView["status"], string> = {
+  DRAFT: "neutral",
+  PENDING_PAYMENT: "pending",
   PENDING_REVIEW: "pending",
   ACTIVE: "paid",
+  PAUSED: "neutral",
   REJECTED: "refused",
   COMPLETED: "neutral",
 };
@@ -44,6 +47,28 @@ export default function CampaignsPage() {
       .catch((e) => setError((e as Error).message));
   }, [router]);
 
+  async function reload() {
+    const [list, wallet] = await Promise.all([
+      campaignsApi.list(),
+      walletApi.summary(),
+    ]);
+    setCampaigns(list);
+    setAvailable(wallet.available);
+  }
+
+  async function act(action: () => Promise<unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      await reload();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function pay(c: CampaignView, method: "WALLET" | "MOBILE_MONEY") {
     setBusy(true);
     setError(null);
@@ -53,12 +78,7 @@ export default function CampaignsPage() {
         window.location.assign(result.checkoutUrl);
         return;
       }
-      const [list, wallet] = await Promise.all([
-        campaignsApi.list(),
-        walletApi.summary(),
-      ]);
-      setCampaigns(list);
-      setAvailable(wallet.available);
+      await reload();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -95,13 +115,52 @@ export default function CampaignsPage() {
               {DATE.format(new Date(c.endsAt))}
             </p>
             {c.statusReason && <p className="error">{c.statusReason}</p>}
+            {c.status === "DRAFT" && (
+              <div className="actions">
+                <Link className="button" href={`/campaigns/new?id=${c.id}`}>
+                  Reprendre le brouillon
+                </Link>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => act(() => campaignsApi.send(c.id))}
+                >
+                  Envoyer vers le paiement
+                </button>
+              </div>
+            )}
+            {c.status === "ACTIVE" && (
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => act(() => campaignsApi.pause(c.id))}
+              >
+                Mettre en pause
+              </button>
+            )}
+            {c.status === "PAUSED" && (
+              <>
+                <p className="hint">
+                  Aucun nouveau créateur ne prend de tâche ; les publications
+                  en cours continuent.
+                </p>
+                <button
+                  disabled={busy}
+                  onClick={() => act(() => campaignsApi.resume(c.id))}
+                >
+                  Reprendre la campagne
+                </button>
+              </>
+            )}
             {c.fundedAt && (
               <Link className="button secondary" href={`/campaigns/${c.id}`}>
                 Voir le rapport
               </Link>
             )}
             {!c.fundedAt &&
-              (c.status === "PENDING_REVIEW" || c.status === "ACTIVE") && (
+              (c.status === "PENDING_PAYMENT" ||
+                c.status === "PENDING_REVIEW" ||
+                c.status === "ACTIVE") && (
                 <div className="summary">
                   <strong>À payer : {formatFcfa(c.budget)}</strong>
                   <p className="hint">
@@ -120,7 +179,29 @@ export default function CampaignsPage() {
                   >
                     Payer par Mobile Money
                   </button>
+                  {c.status === "PENDING_PAYMENT" && (
+                    <Link
+                      className="button secondary"
+                      href={`/campaigns/new?id=${c.id}`}
+                    >
+                      Modifier
+                    </Link>
+                  )}
                 </div>
+              )}
+            {!c.fundedAt &&
+              (c.status === "DRAFT" || c.status === "PENDING_PAYMENT") && (
+                <button
+                  className="link"
+                  disabled={busy}
+                  onClick={() => {
+                    if (window.confirm("Supprimer cette campagne ?")) {
+                      void act(() => campaignsApi.remove(c.id));
+                    }
+                  }}
+                >
+                  Supprimer
+                </button>
               )}
             {c.platforms.map((p) => (
               <div key={p.network}>

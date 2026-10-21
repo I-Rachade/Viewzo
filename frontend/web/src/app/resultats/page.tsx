@@ -10,6 +10,7 @@ import {
   REVIEW_STATUS_LABELS,
   REVIEW_STATUS_TONES,
 } from "@/lib/api";
+import { DisputeBox } from "../dispute-box";
 import { LoadingCard } from "../loading-card";
 import { Toast } from "../toast";
 import { useRequireUser } from "../_shell/session";
@@ -106,6 +107,8 @@ function TaskCard({
 }) {
   const statut = task.task.network === "WHATSAPP_STATUS";
   const refused = task.reviewStatus === "REJECTED";
+  const plan = task.proofPlan ?? task.capturePlan;
+  const decided = task.reviewStatus === "VALIDATED" || refused;
   const [link, setLink] = useState(task.postUrl ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [views, setViews] = useState("");
@@ -168,10 +171,40 @@ function TaskCard({
           <> · {task.declaredViews.toLocaleString("fr-FR")} déclarées</>
         )}
       </p>
+      {task.status === "SUBMITTED" && !refused && task.validViews < task.minPaidViews && (
+        <p className="hint">
+          Le paiement commence à {task.minPaidViews.toLocaleString("fr-FR")} vues validées.
+        </p>
+      )}
 
-      {task.proofPlan && (
+      {task.status === "SUBMITTED" && (
+        <DisputeBox
+          postId={task.id}
+          dispute={task.dispute}
+          canOpen={
+            decided &&
+            (!task.dispute ||
+              (task.dispute.status === "RESOLVED" && task.dispute.side !== "CREATOR"))
+          }
+          prompt={
+            refused
+              ? "Pourquoi le refus n’est-il pas juste ?"
+              : "Combien de vues as-tu, et où le voit-on ?"
+          }
+          onOpened={onSent}
+        />
+      )}
+
+      {plan && (
         <div className="steps">
-          {task.proofPlan.steps.map((s, i) => (
+          {task.capturePlan && (
+            <small className="hint">
+              Envoie une capture à chaque étape : elle prouve que ta publication est
+              toujours en ligne. Une publication supprimée avant 30 jours perd ses gains
+              encore retenus.
+            </small>
+          )}
+          {plan.steps.map((s, i) => (
             <div key={s.label}>
               <i className={s.doneAt ? "done" : undefined}>{s.doneAt ? "✓" : i + 1}</i>
               <span>
