@@ -3,7 +3,6 @@ class IdentityCheck {
   IdentityCheck({
     required this.id,
     required this.status,
-    this.url,
     this.fullName,
     this.reason,
   });
@@ -11,7 +10,6 @@ class IdentityCheck {
   factory IdentityCheck.fromJson(Map<String, dynamic> json) => IdentityCheck(
     id: json['id'] as String,
     status: json['status'] as String,
-    url: json['url'] as String?,
     fullName: json['fullName'] as String?,
     reason: json['reason'] as String?,
   );
@@ -19,8 +17,6 @@ class IdentityCheck {
   final String id;
   // STARTED, IN_REVIEW, APPROVED, DECLINED or ABANDONED.
   final String status;
-  // The provider's page, while the check is open.
-  final String? url;
   final String? fullName;
   final String? reason;
 }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,8 +10,11 @@ import {
   Post,
   Query,
   Req,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { IdentityCheckStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthUser } from '../auth/jwt.strategy';
@@ -18,8 +22,12 @@ import { PhoneVerifiedGuard } from '../auth/phone-verified.guard';
 import { MODERATION, StaffRoles } from '../auth/staff';
 import type { StaffRequest } from '../auth/staff';
 import { StaffGuard } from '../auth/staff.guard';
+import { sniffFile } from '../files/file-types';
 import { ReviewIdentityDto } from './dto/review-identity.dto';
+import type { IdentityImage } from './identity-provider';
 import { IdentityService } from './identity.service';
+
+const MAX_IDENTITY_IMAGE_BYTES = 10 * 1024 * 1024;
 
 // Identity verification that opens level 2 (all tasks, withdrawals).
 @Controller('me/identity')
@@ -32,34 +40,53 @@ export class IdentityController {
     return this.identity.status(req.user.userId);
   }
 
-  @Post('start')
+  // The document's front (and back) and a selfie, as JPEG, PNG or WebP.
+  @Post()
   @UseGuards(PhoneVerifiedGuard)
   @HttpCode(200)
-  start(@Req() req: { user: AuthUser }) {
-    return this.identity.start(req.user.userId);
-  }
-
-  @Post('refresh')
-  @HttpCode(200)
-  refresh(@Req() req: { user: AuthUser }) {
-    return this.identity.refresh(req.user.userId);
+  @UseInterceptors(
+    // Without a destination, multer keeps the photos in memory: they go to
+    // the provider and are never written to disk.
+    FileFieldsInterceptor(
+      [
+        { name: 'front', maxCount: 1 },
+        { name: 'back', maxCount: 1 },
+        { name: 'selfie', maxCount: 1 },
+      ],
+      { limits: { fileSize: MAX_IDENTITY_IMAGE_BYTES, files: 3 } },
+    ),
+  )
+  submit(
+    @Req() req: { user: AuthUser },
+    @UploadedFiles()
+    files: Partial<Record<'front' | 'back' | 'selfie', UploadedPhoto[]>>,
+  ) {
+    const front = photo(files?.front?.[0], 'le recto de ta pièce');
+    const selfie = photo(files?.selfie?.[0], 'ton selfie');
+    const back = files?.back?.[0]
+      ? photo(files.back[0], 'le verso de ta pièce')
+      : undefined;
+    return this.identity.submit(req.user.userId, { front, back, selfie });
   }
 }
 
-// Provider notifications. Public: the decision is always re-read from the
-// provider's API, so a forged call changes nothing.
-@Controller('identity/webhooks')
-export class IdentityWebhooksController {
-  constructor(private readonly identity: IdentityService) {}
+interface UploadedPhoto {
+  buffer: Buffer;
+  size: number;
+}
 
-  @Post('didit')
-  @HttpCode(200)
-  async didit(@Body() body: { session_id?: unknown }) {
-    const id =
-      typeof body?.session_id === 'string' ? body.session_id : undefined;
-    await this.identity.onWebhook(id);
-    return { received: true };
+/** A photo whose type is read from its bytes, never from the client. */
+function photo(file: UploadedPhoto | undefined, what: string): IdentityImage {
+  if (!file?.buffer?.length) {
+    throw new BadRequestException(`Ajoute ${what}`);
   }
+  const type = sniffFile(file.buffer);
+  if (type?.kind !== 'IMAGE') {
+    throw new BadRequestException(
+      `Photo non reconnue pour ${what} : envoie une image JPEG ou PNG`,
+    );
+  }
+  return { buffer: file.buffer, mimeType: type.mime };
 }
 
 @Controller('staff/identity')

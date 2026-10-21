@@ -1,48 +1,39 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
 import '../identity_models.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 
-/// Level 2: an ID document and a selfie, checked on the provider's page in
-/// the browser, then by the team when the provider can't decide alone.
+/// The three photos of a verification.
+enum IdentityPhoto { front, back, selfie }
+
+/// Level 2: photos of the ID document and a selfie, checked at once, then by
+/// the team when the check can't decide alone.
 class IdentityScreen extends StatefulWidget {
-  const IdentityScreen({super.key, required this.api});
+  const IdentityScreen({super.key, required this.api, this.pickImage});
   final ApiClient api;
+  // Replaces the camera in tests.
+  final Future<XFile?> Function(IdentityPhoto photo)? pickImage;
 
   @override
   State<IdentityScreen> createState() => _IdentityScreenState();
 }
 
-class _IdentityScreenState extends State<IdentityScreen>
-    with WidgetsBindingObserver {
+class _IdentityScreenState extends State<IdentityScreen> {
   IdentityStatus? _status;
   String? _error;
   bool _busy = false;
+  final Map<IdentityPhoto, Uint8List> _photos = {};
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _load();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  // Back from the provider's page in the browser: ask for the result.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed &&
-        _status?.check?.status == 'STARTED') {
-      _refresh();
-    }
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -66,20 +57,38 @@ class _IdentityScreenState extends State<IdentityScreen>
     if (mounted) setState(() => _status = status);
   });
 
-  Future<void> _start() => _run(() async {
-    final check = await widget.api.startIdentity();
-    final url = check.url;
-    if (url != null) {
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    }
-    final status = await widget.api.identity();
-    if (mounted) setState(() => _status = status);
-  });
+  Future<void> _pick(IdentityPhoto photo) async {
+    final pick =
+        widget.pickImage ??
+        (IdentityPhoto photo) => ImagePicker().pickImage(
+          source: ImageSource.camera,
+          preferredCameraDevice: photo == IdentityPhoto.selfie
+              ? CameraDevice.front
+              : CameraDevice.rear,
+          // Small enough to go through on a mobile connection.
+          maxWidth: 1600,
+          maxHeight: 1600,
+          imageQuality: 85,
+        );
+    final file = await pick(photo);
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    if (mounted) setState(() => _photos[photo] = bytes);
+  }
 
-  Future<void> _refresh() => _run(() async {
-    await widget.api.refreshIdentity();
+  Future<void> _submit() => _run(() async {
+    await widget.api.submitIdentity(
+      front: _photos[IdentityPhoto.front]!,
+      back: _photos[IdentityPhoto.back],
+      selfie: _photos[IdentityPhoto.selfie]!,
+    );
     final status = await widget.api.identity();
-    if (mounted) setState(() => _status = status);
+    if (mounted) {
+      setState(() {
+        _photos.clear();
+        _status = status;
+      });
+    }
   });
 
   @override
@@ -111,8 +120,9 @@ class _IdentityScreenState extends State<IdentityScreen>
                   ] else ...[
                     Text(
                       'Le niveau 2 ouvre toutes les tâches et les retraits. '
-                      'Il te faut ta pièce d’identité (carte, passeport ou '
-                      'permis) et un selfie. Compte 3 minutes.',
+                      'Prends en photo ta pièce d’identité (carte, passeport '
+                      'ou permis), puis fais un selfie. La réponse arrive en '
+                      'quelques secondes.',
                       style: theme.textTheme.p.copyWith(height: 1.45),
                     ),
                     const SizedBox(height: 12),
@@ -121,7 +131,8 @@ class _IdentityScreenState extends State<IdentityScreen>
                       description: Text(
                         'Pièce valide, en entier et sans reflet. Selfie bien '
                         'éclairé, sans lunettes ni casquette. Pour tes '
-                        'retraits, le compte Mobile Money doit être à ton nom.',
+                        'retraits, le compte Mobile Money doit être à ton nom. '
+                        'Viewzo ne garde pas tes photos.',
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -193,26 +204,96 @@ class _IdentityScreenState extends State<IdentityScreen>
         ),
       ];
     }
-    final started = check?.status == 'STARTED';
+    final ready =
+        _photos.containsKey(IdentityPhoto.front) &&
+        _photos.containsKey(IdentityPhoto.selfie);
     return [
+      _slot(
+        IdentityPhoto.front,
+        '1. Recto de la pièce',
+        'La pièce en entier, à plat, sans reflet.',
+        theme,
+      ),
+      _slot(
+        IdentityPhoto.back,
+        '2. Verso de la pièce',
+        'Facultatif pour un passeport.',
+        theme,
+      ),
+      _slot(
+        IdentityPhoto.selfie,
+        '3. Selfie',
+        'Ton visage de face, bien éclairé.',
+        theme,
+      ),
+      const SizedBox(height: 8),
       ShadButton(
         width: double.infinity,
-        enabled: !_busy,
-        onPressed: _start,
+        enabled: !_busy && ready,
+        onPressed: _submit,
         backgroundColor: VzColors.coral,
         child: Text(
-          started ? 'Reprendre la vérification' : 'Commencer la vérification',
+          _busy ? 'Vérification en cours…' : 'Envoyer pour vérification',
         ),
       ),
-      if (started) ...[
-        const SizedBox(height: 8),
-        ShadButton.outline(
-          width: double.infinity,
-          enabled: !_busy,
-          onPressed: _refresh,
-          child: const Text('J’ai terminé'),
-        ),
-      ],
     ];
+  }
+
+  Widget _slot(
+    IdentityPhoto photo,
+    String title,
+    String hint,
+    ShadThemeData theme,
+  ) {
+    final bytes = _photos[photo];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: ShadCard(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 64,
+                height: 64,
+                child: bytes == null
+                    ? ColoredBox(
+                        color: theme.colorScheme.muted,
+                        child: Icon(
+                          photo == IdentityPhoto.selfie
+                              ? LucideIcons.user
+                              : LucideIcons.idCard,
+                          color: theme.colorScheme.mutedForeground,
+                        ),
+                      )
+                    : Image.memory(
+                        bytes,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) =>
+                            const Icon(LucideIcons.imageOff),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: theme.textTheme.p),
+                  Text(hint, style: theme.textTheme.muted),
+                ],
+              ),
+            ),
+            ShadButton.outline(
+              size: ShadButtonSize.sm,
+              enabled: !_busy,
+              onPressed: () => _pick(photo),
+              child: Text(bytes == null ? 'Photo' : 'Refaire'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

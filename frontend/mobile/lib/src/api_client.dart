@@ -456,13 +456,37 @@ class ApiClient {
     return IdentityStatus.fromJson(_decode(res));
   }
 
-  /// Opens a verification and returns the provider's page to send the person to.
-  Future<IdentityCheck> startIdentity() async =>
-      IdentityCheck.fromJson(await _post('/me/identity/start', {}));
-
-  /// Asks the provider again after the person comes back from its page.
-  Future<IdentityCheck> refreshIdentity() async =>
-      IdentityCheck.fromJson(await _post('/me/identity/refresh', {}));
+  /// Sends the ID photos and a selfie; the answer comes back at once.
+  Future<IdentityCheck> submitIdentity({
+    required List<int> front,
+    List<int>? back,
+    required List<int> selfie,
+  }) async {
+    final request =
+        http.MultipartRequest('POST', Uri.parse('$baseUrl/me/identity'))
+          ..headers.addAll({
+            if (token != null) 'Authorization': 'Bearer $token',
+            'X-Device-Id': ?deviceId,
+          })
+          ..files.add(
+            http.MultipartFile.fromBytes('front', front, filename: 'front.jpg'),
+          )
+          ..files.add(
+            http.MultipartFile.fromBytes(
+              'selfie',
+              selfie,
+              filename: 'selfie.jpg',
+            ),
+          );
+    if (back != null) {
+      request.files.add(
+        http.MultipartFile.fromBytes('back', back, filename: 'back.jpg'),
+      );
+    }
+    return IdentityCheck.fromJson(
+      _decode(await http.Response.fromStream(await _client.send(request))),
+    );
+  }
 
   Future<WalletSummary> wallet() async {
     final res = await _client.get(
