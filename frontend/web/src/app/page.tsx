@@ -1,71 +1,115 @@
-import type { Viewport } from "next";
 import Link from "next/link";
 
+import { LandingCount } from "./landing-counts";
 import { Logo } from "./logo";
 import styles from "./page.module.css";
 
-// The landing screen is dark from edge to edge, browser bars included.
-export const viewport: Viewport = { themeColor: "#16151d" };
-
-// The four ways in: two open now, the others with the Studio and the experts.
-const DOORS: { title: string; text: string; href?: string }[] = [
-  {
-    title: "Créateur",
-    text: "Gagner de l’argent avec mes réseaux",
-    href: "/inscription?profil=CREATOR",
-  },
-  {
-    title: "Annonceur",
-    text: "Faire connaître ma marque",
-    href: "/inscription?profil=ADVERTISER",
-  },
-  { title: "Créatif", text: "Proposer mes talents" },
-  { title: "Expert", text: "Construire des plans média" },
+// Every channel a campaign can run on, the street included.
+const CHANNELS = [
+  "WhatsApp Statut",
+  "TikTok",
+  "Instagram",
+  "Facebook",
+  "YouTube",
+  "X",
+  "Terrain",
 ];
 
+// A few of the countries creators sign up from; "+ le monde" says the rest.
+const FLAGS = ["🇹🇬", "🇧🇯", "🇨🇮", "🇸🇳", "🇨🇲", "🇬🇭", "🇳🇬", "🇫🇷"];
+
+// The hero: promise and the two open doors on the left, on the right a phone
+// showing what a creator sees when a status is counted.
 export default function Home() {
   return (
-    <div className={`hero ${styles.welcome}`}>
-      <div aria-hidden="true" />
-      <div className={styles.center}>
-        <div className={styles.stage}>
+    <div className={`hero full ${styles.landing}`}>
+      <header className={styles.top}>
+        <span className={styles.brand}>
+          <Logo size={34} />
+          Viewzo
+        </span>
+        <Link href="/login" className={styles.login}>
+          Se connecter
+        </Link>
+      </header>
+
+      <section className={styles.grid}>
+        <div className={styles.copy}>
+          <span className={`${styles.eyebrow} rise`}>
+            <i aria-hidden="true" /> Payé à la vue, sur tous les réseaux
+          </span>
+          <h1 className="rise" style={{ animationDelay: "120ms" }}>
+            Ton audience vaut de l’argent.{" "}
+            <span className={styles.paid}>Tes vues, payées.</span>
+          </h1>
+          <p className="rise" style={{ animationDelay: "240ms" }}>
+            Les créateurs gagnent avec chaque vue vérifiée, même avec un seul
+            réseau ou leurs statuts WhatsApp. Les annonceurs ne paient que des
+            résultats prouvés.
+          </p>
+          <div
+            className={`${styles.ctas} rise`}
+            style={{ animationDelay: "360ms" }}
+          >
+            <Link className="button coral" href="/inscription?profil=CREATOR">
+              Je suis créateur
+            </Link>
+            <Link
+              className="button secondary"
+              href="/inscription?profil=ADVERTISER"
+            >
+              Je suis annonceur
+            </Link>
+          </div>
+          <small
+            className={`${styles.soon} rise`}
+            style={{ animationDelay: "480ms" }}
+          >
+            Bientôt : créatifs et experts marketing
+          </small>
+        </div>
+
+        <div className={styles.visual} aria-hidden="true">
           <span className={`${styles.bubble} ${styles.views}`}>+12 vues</span>
-          <Logo size={168} tile={false} animated />
+          <div className={styles.phone}>
+            <div className={styles.notch} />
+            <p className={styles.label}>Statut WhatsApp · Campagne en cours</p>
+            <div className={styles.post}>
+              <Logo size={72} animated />
+            </div>
+            <div className={styles.stats}>
+              <div>
+                <small>Vues</small>
+                <strong>
+                  <LandingCount value={1240} />
+                </strong>
+              </div>
+              <div>
+                <small>Gagné</small>
+                <strong className={styles.earned}>
+                  <LandingCount value={6200} money />
+                </strong>
+              </div>
+            </div>
+            <div className={styles.bar}>
+              <span />
+            </div>
+            <p className={styles.payout}>Retrait Mobile Money disponible</p>
+          </div>
           <span className={`${styles.bubble} ${styles.money}`}>+60 F</span>
         </div>
-        <div className={styles.words}>
-          <h1 className="rise" style={{ animationDelay: "700ms" }}>
-            Viewzo
-          </h1>
-          <p className="promise rise" style={{ animationDelay: "880ms" }}>
-            Ton audience vaut de l’argent.
-          </p>
-        </div>
-      </div>
-      <div
-        className={`${styles.bottom} rise`}
-        style={{ animationDelay: "1150ms" }}
-      >
-        <div className={styles.doors}>
-          {DOORS.map((d) =>
-            d.href ? (
-              <Link key={d.title} className={styles.door} href={d.href}>
-                <strong>{d.title}</strong>
-                <span>{d.text}</span>
-              </Link>
-            ) : (
-              <div key={d.title} className={`${styles.door} ${styles.soon}`}>
-                <strong>{d.title}</strong>
-                <span>{d.text}</span>
-                <small>Bientôt</small>
-              </div>
-            ),
-          )}
-        </div>
-        <p>
-          Déjà inscrit ? <Link href="/login">Se connecter</Link>
+      </section>
+
+      <footer className={`${styles.trust} rise`} style={{ animationDelay: "600ms" }}>
+        <ul className={styles.channels}>
+          {CHANNELS.map((c) => (
+            <li key={c}>{c}</li>
+          ))}
+        </ul>
+        <p className={styles.flags}>
+          <span aria-hidden="true">{FLAGS.join(" ")}</span> + le monde entier
         </p>
-      </div>
+      </footer>
     </div>
   );
 }

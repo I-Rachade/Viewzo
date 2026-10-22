@@ -1,31 +1,321 @@
-/* The welcome screen of the UI kit: mark with floating earnings, promise,
-   and the button at the bottom. Shared hero styles live in globals.css. */
-/* Doubled to win over the phone rule for .hero in globals.css. */
-.welcome.welcome {
-  justify-content: space-between;
+/* The landing hero: promise and two doors on the left, a phone showing the
+   counted views on the right. Light or dark with the system; the shared
+   .hero rules in globals.css make it full-bleed on a phone. */
+/* Doubled to win over .hero in globals.css. */
+.landing.landing {
+  --hero-bg: var(--surface);
+  --hero-text: var(--text);
+  --hero-muted: var(--muted);
+  --hero-line: var(--border);
+  --hero-card: var(--bg);
+  background:
+    radial-gradient(60% 50% at 85% 20%, rgb(139 116 255 / 0.16), transparent),
+    radial-gradient(40% 40% at 70% 85%, rgb(255 107 107 / 0.12), transparent),
+    var(--hero-bg);
+  color: var(--hero-text);
+  border: 1px solid var(--hero-line);
+  text-align: left;
+  align-items: stretch;
+  justify-content: flex-start;
   gap: 40px;
+  padding: 24px 40px 32px;
 }
 
-.center {
+@media (prefers-color-scheme: dark) {
+  .landing.landing {
+    --hero-bg: var(--ink);
+    --hero-text: #f1f0f7;
+    --hero-muted: #a3a1b5;
+    --hero-line: #2d2b3a;
+    --hero-card: #221f2e;
+  }
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+
+.login {
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 99px;
+  border: 1.5px solid var(--hero-line);
+  color: var(--hero-text);
+  text-decoration: none;
+}
+
+.login:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  align-items: center;
+  gap: 48px;
+  padding: 24px 0 8px;
+}
+
+.copy {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 28px;
+  align-items: flex-start;
+  gap: 20px;
 }
 
-.stage {
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  background: var(--accent-tint);
+  color: var(--on-accent-tint);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.eyebrow i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--paid);
+  box-shadow: 0 0 0 4px rgb(31 169 113 / 0.2);
+}
+
+.copy h1 {
+  font-size: clamp(2.3rem, 4.6vw, 3.9rem);
+  line-height: 1.04;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+
+.paid {
+  background: linear-gradient(90deg, var(--lilac), var(--coral));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.copy p {
+  max-width: 34em;
+  font-size: 1.08rem;
+  line-height: 1.55;
+  color: var(--hero-muted);
+}
+
+.ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ctas :global(.button) {
+  width: auto;
+  padding-inline: 22px;
+}
+
+.ctas :global(.button.secondary) {
+  color: var(--hero-text);
+  border-color: var(--hero-line);
+}
+
+.soon {
+  font-size: 13px;
+  color: var(--hero-muted);
+}
+
+/* The phone and its floating earnings. */
+.visual {
   position: relative;
-  width: 280px;
-  height: 168px;
   display: grid;
   place-items: center;
+  padding: 24px 40px;
 }
 
-/* After spinning in, the ring keeps turning slowly. */
-.stage :global(.ring) {
+.phone {
+  width: 100%;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px 20px;
+  border-radius: 36px;
+  background: var(--hero-bg);
+  border: 6px solid var(--hero-card);
+  box-shadow:
+    0 0 0 1px var(--hero-line),
+    0 30px 60px -20px rgb(22 21 29 / 0.35);
+  animation: vz-rise var(--wide) var(--ease-out) 300ms backwards;
+}
+
+.notch {
+  width: 76px;
+  height: 18px;
+  margin: 0 auto 4px;
+  border-radius: 99px;
+  background: var(--hero-card);
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--hero-muted);
+}
+
+.post {
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgb(139 116 255 / 0.25), rgb(255 107 107 / 0.25));
+}
+
+.post :global(.ring) {
   animation:
     vz-ring-in 900ms var(--spring) both,
     spin 14s linear 900ms infinite;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--hero-card);
+}
+
+.stats small {
+  font-size: 11px;
+  color: var(--hero-muted);
+}
+
+.stats strong {
+  font-family: var(--display);
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.earned {
+  color: var(--paid-text);
+}
+
+.bar {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--hero-card);
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  width: 62%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--lilac), var(--coral));
+  animation: grow 1.2s var(--ease-out) 600ms backwards;
+}
+
+@keyframes grow {
+  from {
+    width: 0;
+  }
+}
+
+.payout {
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--paid-text);
+}
+
+.bubble {
+  position: absolute;
+  z-index: 1;
+  padding: 8px 14px;
+  border-radius: 99px;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 10px 24px -10px rgb(22 21 29 / 0.4);
+  animation:
+    vz-rise var(--wide) var(--ease-out) backwards,
+    bob 3.2s ease-in-out infinite;
+}
+
+.views {
+  left: 0;
+  top: 18%;
+  background: var(--accent-tint);
+  color: var(--on-accent-tint);
+  animation-delay: 1100ms, 1500ms;
+}
+
+.money {
+  right: 0;
+  bottom: 22%;
+  background: var(--refused-tint);
+  color: var(--refused-on-tint);
+  animation-delay: 1300ms, 1700ms;
+}
+
+/* Channels and countries under the fold line. */
+.trust {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hero-line);
+}
+
+.channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.channels li {
+  padding: 6px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--hero-line);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--hero-text);
+}
+
+.flags {
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--hero-muted);
+}
+
+.flags span {
+  font-size: 18px;
+  letter-spacing: 2px;
 }
 
 @keyframes spin {
@@ -34,99 +324,10 @@
   }
 }
 
-.bubble {
-  position: absolute;
-  padding: 6px 12px;
-  border-radius: 99px;
-  font-size: 13px;
-  font-weight: 700;
-  animation:
-    vz-rise var(--wide) var(--ease-out) backwards,
-    bob 3.2s ease-in-out infinite;
-}
-
-.views {
-  left: 0;
-  top: 6px;
-  background: #2a2440;
-  color: #c9beff;
-  animation-delay: 1100ms, 1500ms;
-}
-
-.money {
-  right: 0;
-  bottom: 18px;
-  background: #3a1f26;
-  color: #ffb3b3;
-  animation-delay: 1300ms, 1700ms;
-}
-
 @keyframes bob {
   50% {
     transform: translateY(-8px);
   }
-}
-
-.words {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-
-.bottom {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-}
-
-.bottom p {
-  font-size: 13px;
-}
-
-/* Four ways in, two by two, even on a phone. */
-.doors {
-  width: 100%;
-  max-width: 480px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.door {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px;
-  border-radius: 16px;
-  background: #221f2e;
-  border: 1px solid #343046;
-  color: #f4f2fa;
-  text-align: left;
-  text-decoration: none;
-}
-
-a.door:hover {
-  border-color: #ff6b6b;
-  text-decoration: none;
-}
-
-.door span {
-  font-size: 13px;
-  font-weight: 400;
-  color: #b9b4c9;
-}
-
-.soon {
-  opacity: 0.6;
-}
-
-.soon small {
-  font-size: 11px;
-  font-weight: 700;
-  color: #c9beff;
 }
 
 /* Module copies of the shared keyframes: names here are scoped to this file. */
@@ -141,5 +342,68 @@ a.door:hover {
   from {
     opacity: 0;
     transform: translateY(16px);
+  }
+}
+
+/* Phone: one column, the doors stretch, the phone gets smaller. */
+@media (max-width: 860px) {
+  .landing.landing {
+    gap: 20px;
+    padding-inline: 20px;
+    border: none;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 4px 0 0;
+  }
+
+  .copy {
+    gap: 16px;
+  }
+
+  .copy p {
+    font-size: 1rem;
+  }
+
+  .ctas {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .ctas :global(.button) {
+    width: 100%;
+  }
+
+  .soon {
+    align-self: center;
+  }
+
+  .visual {
+    padding: 8px 28px;
+  }
+
+  .phone {
+    max-width: 260px;
+  }
+
+  .stats strong {
+    font-size: 1.05rem;
+    white-space: nowrap;
+  }
+
+  .views {
+    top: 34%;
+  }
+
+  .trust {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .channels {
+    justify-content: center;
   }
 }
