@@ -1,0 +1,28 @@
+name: Cloudflare probe
+
+# Tests of the API probe on Workers + D1 (cloudflare/api). They run inside
+# workerd, the Workers runtime, with a local D1; nothing is deployed.
+on:
+  push:
+    branches: [main]
+    paths: [cloudflare/**, .github/workflows/cloudflare-probe.yml]
+  pull_request:
+    paths: [cloudflare/**, .github/workflows/cloudflare-probe.yml]
+
+defaults:
+  run:
+    working-directory: cloudflare/api
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/api/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

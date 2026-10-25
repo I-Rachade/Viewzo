@@ -1,0 +1,49 @@
+// Probe of the Viewzo API as a Cloudflare Worker with D1 (see README.md).
+// Nothing here is deployed to viewzo.app; `npm run deploy:beta` only targets
+// the beta environment below, once an API token is set up.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "viewzo-api-probe",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "DEFAULT_REGION": "TG",
+    "FOUNDER_BADGE_LIMIT": "1000",
+    "MIN_WITHDRAWAL": "1000"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "viewzo-probe",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "LIVE_READER", "class_name": "LiveReader" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LiveReader"] }],
+  "env": {
+    "beta": {
+      "name": "viewzo-api-beta",
+      "vars": {
+        "DEFAULT_REGION": "TG",
+        "FOUNDER_BADGE_LIMIT": "1000",
+        "MIN_WITHDRAWAL": "1000"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "viewzo-beta",
+          // Filled in after `wrangler d1 create viewzo-beta`.
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [{ "name": "LIVE_READER", "class_name": "LiveReader" }]
+      }
+    }
+  }
+}
