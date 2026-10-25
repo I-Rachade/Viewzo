@@ -1,0 +1,173 @@
+// Probe: the tables of login, profile and wallet, moved from PostgreSQL
+// (backend/prisma/schema.prisma) to SQLite for Cloudflare D1. Differences:
+// - Lists such as staffCountries are JSON text: SQLite has no arrays.
+// - Locks (pg_advisory_xact_lock) are replaced by guards in the database
+//   itself, see migrations/0002_wallet_guards.sql.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  runtime  = "cloudflare"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  USER
+  STAFF
+}
+
+enum StaffRole {
+  SUPER_ADMIN
+  COUNTRY_MANAGER
+  MODERATOR
+  FINANCE
+  SUPPORT
+}
+
+enum ProfileType {
+  CREATOR
+  ADVERTISER
+  PROVIDER
+}
+
+enum TransactionType {
+  DEPOSIT
+  ESCROW
+  EARNING
+  COMMISSION
+  WITHDRAWAL
+  REFUND
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentKind {
+  PAYIN
+  PAYOUT
+}
+
+enum PaymentStatus {
+  REQUESTED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REJECTED
+}
+
+model User {
+  id              String        @id @default(uuid())
+  firstName       String?
+  phone           String?       @unique
+  email           String?       @unique
+  phoneVerifiedAt DateTime?
+  emailVerifiedAt DateTime?
+  passwordHash    String?
+  tokenVersion    Int           @default(0)
+  failedLogins    Int           @default(0)
+  lockedUntil     DateTime?
+  country         String
+  priorityRank    Int
+  locale          String        @default("fr")
+  role            UserRole      @default(USER)
+  staffRole       StaffRole?
+  // JSON array of country codes; empty means every country.
+  staffCountries  String        @default("[]")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  profiles        UserProfile[]
+  sessions        Session[]
+  transactions    Transaction[]
+  payments        Payment[]
+
+  @@unique([country, priorityRank])
+}
+
+model Session {
+  id                String    @id @default(uuid())
+  userId            String
+  tokenHash         String    @unique
+  previousTokenHash String?
+  rotatedAt         DateTime?
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  lastUsedAt        DateTime  @default(now())
+  userAgent         String?
+  ip                String?
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+}
+
+model UserProfile {
+  id        String      @id @default(uuid())
+  userId    String
+  type      ProfileType
+  level     Int         @default(1)
+  createdAt DateTime    @default(now())
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+}
+
+model Transaction {
+  id            String            @id @default(uuid())
+  userId        String
+  type          TransactionType
+  amount        Int
+  currency      String            @default("XOF")
+  status        TransactionStatus @default(COMPLETED)
+  availableAt   DateTime          @default(now())
+  frozen        Boolean           @default(false)
+  campaignId    String?
+  assignmentId  String?
+  liveId        String?
+  liveSessionId String?
+  paymentId     String?           @unique
+  note          String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  user          User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  payment       Payment?          @relation(fields: [paymentId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([campaignId])
+  @@index([liveId])
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  userId            String
+  kind              PaymentKind
+  provider          String
+  reference         String        @unique
+  providerRef       String?
+  amount            Int
+  currency          String        @default("XOF")
+  phone             String
+  beneficiaryName   String?
+  operator          String?
+  campaignId        String?
+  checkoutUrl       String?
+  status            PaymentStatus
+  failureReason     String?
+  reviewedById      String?
+  firstApprovedById String?
+  firstApprovedAt   DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  completedAt       DateTime?
+  user              User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  transaction       Transaction?
+
+  @@unique([provider, providerRef])
+  @@index([kind, status, createdAt])
+  @@index([userId, createdAt])
+}

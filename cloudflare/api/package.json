@@ -1,0 +1,30 @@
+{
+  "name": "viewzo-api-worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "prisma generate",
+    "db:sql": "prisma migrate diff --from-empty --to-schema=prisma/schema.prisma --script",
+    "dev": "wrangler dev",
+    "deploy:beta": "wrangler deploy --env beta",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@prisma/adapter-d1": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "hono": "^4.13.14",
+    "libphonenumber-js": "^1.13.15",
+    "tiktok-live-proto": "^0.2.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.7",
+    "@cloudflare/workers-types": "^4",
+    "@types/node": "^26.6.5",
+    "prisma": "^7.10.1",
+    "typescript": "^5.9",
+    "vitest": "^4.1.0",
+    "wrangler": "^4"
+  }
+}
