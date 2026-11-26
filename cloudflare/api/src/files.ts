@@ -45,7 +45,8 @@ files.post("/proofs", requireAuth, async (c) => {
   const length = Number(c.req.header("content-length") ?? 0);
   if (length > MAX_PROOF_BYTES + 64 * 1024) fail(400, "Capture trop lourde (8 Mo maximum)");
   const form = await c.req.formData().catch(() => null);
-  const file = form?.get("file");
+  // workers-types declare get() as string only; uploaded files are File objects.
+  const file = form?.get("file") as unknown as File | string | null | undefined;
   if (!file || typeof file === "string" || file.size === 0) fail(400, "Ajoute une capture d’écran");
   if (file.size > MAX_PROOF_BYTES) fail(400, "Capture trop lourde (8 Mo maximum)");
   const bytes = new Uint8Array(await file.arrayBuffer());
