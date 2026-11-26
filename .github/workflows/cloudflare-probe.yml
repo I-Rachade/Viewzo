@@ -32,9 +32,9 @@ jobs:
       - name: Bundle size (Workers limit 3 MB free, 10 MB paid, compressed)
         run: |
           npx wrangler deploy --dry-run --outdir build/dist > /dev/null
-          # All output files: the script and Prisma's WebAssembly modules.
-          ls -la build/dist
-          size=$(tar -cf - -C build/dist . | gzip -9 | wc -c)
+          # What is uploaded: the script and Prisma's WebAssembly module, not
+          # the source map.
+          size=$(tar -cf - --exclude='*.map' -C build/dist . | gzip -9 | wc -c)
           echo "Worker bundle: $((size / 1024)) KiB compressed" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$size" -lt $((3 * 1024 * 1024))
 
