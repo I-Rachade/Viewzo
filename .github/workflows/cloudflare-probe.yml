@@ -1,0 +1,76 @@
+name: Cloudflare probe
+
+# Tests of the API probe on Workers + D1 (cloudflare/api). They run inside
+# workerd, the Workers runtime, with a local D1 and R2; nothing is deployed
+# and no Cloudflare account is used.
+on:
+  push:
+    branches: [main]
+    paths: [cloudflare/**, backend/prisma/**, .github/workflows/cloudflare-probe.yml]
+  pull_request:
+    paths: [cloudflare/**, backend/prisma/**, .github/workflows/cloudflare-probe.yml]
+
+defaults:
+  run:
+    working-directory: cloudflare/api
+    # Explicit bash adds -o pipefail: a failing step piped into tee fails.
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/api/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Bundle size (Workers limit 3 MB free, 10 MB paid, compressed)
+        run: |
+          npx wrangler deploy --dry-run --outdir build/dist > /dev/null
+          # What is uploaded: the script and Prisma's WebAssembly module, not
+          # the source map.
+          size=$(tar -cf - --exclude='*.map' -C build/dist . | gzip -9 | wc -c)
+          echo "Worker bundle: $((size / 1024)) KiB compressed" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$size" -lt $((3 * 1024 * 1024))
+
+  # The whole backend schema on D1, and existing PostgreSQL data moved into
+  # it, with a throwaway PostgreSQL inside the CI runner.
+  migration-rehearsal:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: viewzo
+          POSTGRES_PASSWORD: rehearsal
+          POSTGRES_DB: viewzo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U viewzo -d viewzo"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: viewzo
+      PGPASSWORD: rehearsal
+      PGDATABASE: viewzo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/api/package-lock.json
+      - run: npm ci
+      - name: Full backend schema as SQLite for D1
+        run: |
+          npm run schema:full
+          npx wrangler d1 execute viewzo-probe --local --persist-to build/schema-check --file build/full/init.sql > /dev/null
+          tables=$(grep -c '^CREATE TABLE' build/full/init.sql)
+          echo "Full schema on local D1: $tables tables" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Move PostgreSQL rows into D1 and check them
+        run: npm run rehearse | tee -a "$GITHUB_STEP_SUMMARY"
