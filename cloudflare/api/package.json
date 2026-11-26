@@ -6,6 +6,8 @@
   "scripts": {
     "postinstall": "prisma generate",
     "db:sql": "prisma migrate diff --from-empty --to-schema=prisma/schema.prisma --script",
+    "schema:full": "node scripts/full-schema.mjs && prisma validate --schema=build/full/schema.prisma && prisma migrate diff --from-empty --to-schema=build/full/schema.prisma --script --output build/full/init.sql",
+    "rehearse": "bash scripts/rehearse-migration.sh",
     "dev": "wrangler dev",
     "deploy:beta": "wrangler deploy --env beta",
     "typecheck": "tsc --noEmit",

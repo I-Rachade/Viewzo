@@ -20,6 +20,10 @@
       "migrations_dir": "migrations"
     }
   ],
+  // Proof screenshots, instead of the uploads volume on the server.
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "viewzo-probe-files" }],
+  // Replaces the setInterval jobs of the backend (see src/jobs.ts).
+  "triggers": { "crons": ["*/10 * * * *"] },
   "durable_objects": {
     "bindings": [{ "name": "LIVE_READER", "class_name": "LiveReader" }]
   },
@@ -41,6 +45,8 @@
           "migrations_dir": "migrations"
         }
       ],
+      // Created with `wrangler r2 bucket create viewzo-beta-files`.
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "viewzo-beta-files" }],
       "durable_objects": {
         "bindings": [{ "name": "LIVE_READER", "class_name": "LiveReader" }]
       }

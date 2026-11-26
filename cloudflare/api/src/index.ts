@@ -4,6 +4,8 @@ import { secureHeaders } from "hono/secure-headers";
 import { auth, requireAuth, userView, type AuthVars } from "./auth";
 import { prismaFor } from "./db";
 import type { Env } from "./env";
+import { files } from "./files";
+import { scheduled } from "./jobs";
 import { staffWallet, wallet } from "./wallet";
 
 export { LiveReader } from "./live";
@@ -29,6 +31,7 @@ app.get("/users/me", requireAuth, async (c) => {
 
 app.route("/wallet", wallet);
 app.route("/staff/wallet", staffWallet);
+app.route("/files", files);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) return err.getResponse();
@@ -36,4 +39,4 @@ app.onError((err, c) => {
   return c.json({ statusCode: 500, message: "Internal server error" }, 500);
 });
 
-export default app;
+export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Env>;
