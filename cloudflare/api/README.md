@@ -10,6 +10,12 @@ Schritt 0 des Plans „Viewzo komplett auf Cloudflare“. Hier wird geprüft, ob
 | `src/auth.ts` | `POST /auth/login` (E-Mail oder Telefon + Passwort), Sessions, Bearer-Token |
 | `src/wallet.ts` | `GET /wallet`, `POST /wallet/withdrawals`, `POST /staff/wallet/withdrawals/:id/approve` |
 | `src/live.ts` | Durable Object `LiveReader`: eine Instanz pro laufendem TikTok-Live |
+| `src/files.ts` | Beweis-Screenshots in R2 statt auf der Server-Festplatte, signierte Links |
+| `src/jobs.ts` | Hintergrundjobs per Cron Trigger statt `setInterval` |
+| `scripts/full-schema.mjs` | ganzes Backend-Schema (32 Tabellen) als SQLite für D1 (`npm run schema:full`) |
+| `scripts/rehearse-migration.sh` | Probelauf: PostgreSQL-Daten nach D1 übertragen und prüfen (CI) |
+
+Den Migrationsplan (auf Französisch) enthält `../PLAN-MIGRATION.md`.
 
 ## Ergebnisse
 

@@ -10,7 +10,7 @@ Tout est vérifié par le CI de GitHub (workflow « Cloudflare probe »), dans l
 
 | Sujet | Résultat |
 | --- | --- |
-| Prisma 7 sur D1 | Fonctionne (`@prisma/adapter-d1`). Taille du Worker mesurée à chaque CI, bien en dessous de la limite. |
+| Prisma 7 sur D1 | Fonctionne (`@prisma/adapter-d1`). Taille du Worker mesurée à chaque CI : 1,25 Mo compressé (limite 3 Mo en gratuit, 10 Mo en payant). |
 | Schéma complet | Les 32 tables du backend passent sur SQLite/D1. Les 16 listes (`String[]`, listes d'enum) deviennent du texte JSON. Le CI recrée ce schéma depuis `backend/prisma/schema.prisma` à chaque changement : un écart est vu tout de suite. |
 | Données existantes | Répétition complète : PostgreSQL jetable avec les vraies migrations du backend, export, conversion (`scripts/pg-to-d1.mjs`), import dans D1, contrôle du nombre de lignes et des valeurs (dates, accents, apostrophes, listes, Json, booléens, liens paiement ↔ transaction). |
 | Connexion | Mêmes règles que `backend/src/auth` : mêmes empreintes scrypt (aucun mot de passe à refaire), blocage après 5 essais même en parallèle, sessions en base. |
