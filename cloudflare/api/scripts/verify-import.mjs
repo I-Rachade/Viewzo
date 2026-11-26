@@ -21,12 +21,10 @@ function d1(sql) {
 }
 
 // 1. Every table, same row count.
-const counts = d1(
-  Object.keys(expected)
-    .map((t) => `SELECT '${t}' AS t, COUNT(*) AS n FROM "${t}"`)
-    .join(" UNION ALL "),
-);
-for (const { t, n } of counts) assert.equal(n, expected[t], `rows in ${t}`);
+// One row, one column per table (D1 limits the terms of a UNION).
+const [counted] = d1(`SELECT ${Object.keys(expected).map((t) => `(SELECT COUNT(*) FROM "${t}") AS "${t}"`).join(", ")}`);
+const counts = Object.keys(expected);
+for (const t of counts) assert.equal(counted[t], expected[t], `rows in ${t}`);
 const total = Object.values(expected).reduce((a, b) => a + b, 0);
 assert.ok(total >= 9, "the sample rows were exported");
 
